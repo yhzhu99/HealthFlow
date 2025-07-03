@@ -10,6 +10,7 @@ VENUES=("aaai")
 YEARS=("2020")
 
 # Define which LLMs to run. These names must match the keys in the Python script's LLM_MODELS_SETTINGS.
+# Example: LLMS_TO_RUN=("deepseek-v3-official" "deepseek-r1-official")
 LLMS_TO_RUN=("deepseek-v3-official")
 
 # Define performance parameters.
@@ -20,33 +21,33 @@ CONCURRENCY=4
 
 # Get the directory where the script is located to ensure correct relative paths
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE}" )" &> /dev/null && pwd )"
+PYTHON_SCRIPT_PATH="${SCRIPT_DIR}/filter.py"
 
-# Main processing loop
+# Check if the python script exists
+if [ ! -f "$PYTHON_SCRIPT_PATH" ]; then
+    echo "Error: Python script not found at ${PYTHON_SCRIPT_PATH}"
+    exit 1
+fi
+
 echo "Starting batch paper filtering process..."
+echo "Venues to process: ${VENUES[*]}"
+echo "Years to process:  ${YEARS[*]}"
+echo "LLMs to run:       ${LLMS_TO_RUN[*]}"
+echo "Batch Size:        ${BATCH_SIZE}"
+echo "Concurrency:       ${CONCURRENCY}"
+echo "------------------------------------"
 
-for VENUE in "${VENUES[@]}"; do
-  for YEAR in "${YEARS[@]}"; do
-    echo ""
-    echo "======================================================================"
-    echo "Processing: VENUE=${VENUE}, YEAR=${YEAR}"
-    echo "LLMs:       ${LLMS_TO_RUN[*]}"
-    echo "Config:     Batch Size=${BATCH_SIZE}, Concurrency=${CONCURRENCY}"
-    echo "======================================================================"
 
-    # Run the Python script with the configured arguments
-    # The "@" in "${LLMS_TO_RUN[@]}" ensures that LLM names with spaces are handled correctly
-    python3 "${SCRIPT_DIR}/filter.py" \
-      --venue "${VENUE}" \
-      --year "${YEAR}" \
-      --llms "${LLMS_TO_RUN[@]}" \
-      --batch_size "${BATCH_SIZE}" \
-      --concurrency "${CONCURRENCY}"
-
-    echo "Finished processing for ${VENUE} ${YEAR}."
-  done
-done
+# Run the Python script with the configured arguments for all combinations
+# The "@" in "${VAR[@]}" ensures that items with spaces are handled correctly.
+python3 "${PYTHON_SCRIPT_PATH}" \
+  --venues "${VENUES[@]}" \
+  --years "${YEARS[@]}" \
+  --llms "${LLMS_TO_RUN[@]}" \
+  --batch_size "${BATCH_SIZE}" \
+  --concurrency "${CONCURRENCY}"
 
 echo ""
-echo "------------------------------------"
+echo "===================================="
 echo "All processing jobs are complete."
 echo "Check the results in the 'filter_paper/results/' directory."
