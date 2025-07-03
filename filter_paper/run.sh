@@ -4,23 +4,49 @@
 set -e
 
 # --- Configuration ---
-# Set the venue and year you want to process.
-VENUE="aaai"
-YEAR="2020"
+# Define lists of venues and years to process.
+# Use spaces to separate items within the parentheses.
+VENUES=("aaai")
+YEARS=("2020")
 
-# --- Script Execution ---
-echo "Starting paper filtering process..."
-echo "Venue: ${VENUE}"
-echo "Year:  ${YEAR}"
-echo "------------------------------------"
+# Define which LLMs to run. These names must match the keys in the Python script's LLM_MODELS_SETTINGS.
+LLMS_TO_RUN=("deepseek-v3-official")
 
-# Navigate to the script's directory to ensure correct relative paths
-# This makes the script runnable from anywhere in the project
+# Define performance parameters.
+BATCH_SIZE=20
+CONCURRENCY=4
+# --- End of Configuration ---
+
+
+# Get the directory where the script is located to ensure correct relative paths
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE}" )" &> /dev/null && pwd )"
 
-# Run the Python script with the configured arguments
-python3 "${SCRIPT_DIR}/filter.py" --venue "${VENUE}" --year "${YEAR}"
+# Main processing loop
+echo "Starting batch paper filtering process..."
 
+for VENUE in "${VENUES[@]}"; do
+  for YEAR in "${YEARS[@]}"; do
+    echo ""
+    echo "======================================================================"
+    echo "Processing: VENUE=${VENUE}, YEAR=${YEAR}"
+    echo "LLMs:       ${LLMS_TO_RUN[*]}"
+    echo "Config:     Batch Size=${BATCH_SIZE}, Concurrency=${CONCURRENCY}"
+    echo "======================================================================"
+
+    # Run the Python script with the configured arguments
+    # The "@" in "${LLMS_TO_RUN[@]}" ensures that LLM names with spaces are handled correctly
+    python3 "${SCRIPT_DIR}/filter.py" \
+      --venue "${VENUE}" \
+      --year "${YEAR}" \
+      --llms "${LLMS_TO_RUN[@]}" \
+      --batch_size "${BATCH_SIZE}" \
+      --concurrency "${CONCURRENCY}"
+
+    echo "Finished processing for ${VENUE} ${YEAR}."
+  done
+done
+
+echo ""
 echo "------------------------------------"
-echo "Script finished successfully."
-echo "Check the results in: filter_paper/results/${VENUE}/${YEAR}.csv"
+echo "All processing jobs are complete."
+echo "Check the results in the 'filter_paper/results/' directory."

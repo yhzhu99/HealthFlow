@@ -18,7 +18,7 @@ from tqdm import tqdm
 dotenv_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=dotenv_path)
 
-# --- Configuration ---
+# --- Static Configuration ---
 LLM_MODELS_SETTINGS = {
     "deepseek-v3-official": {
         "api_key": os.getenv("DEEPSEEK_API_KEY"),
@@ -33,8 +33,6 @@ LLM_MODELS_SETTINGS = {
     # You can add more LLMs here following the same structure
 }
 
-BATCH_SIZE = 20
-CONCURRENCY = 4
 API_TIMEOUT_SECONDS = 120
 MAX_RETRIES = 3
 
@@ -44,6 +42,8 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stdout,
 )
+# Suppress noisy aiohttp connection logging
+logging.getLogger("aiohttp.internal").setLevel(logging.WARNING)
 
 
 # --- Prompt Generation (as provided by user) ---
@@ -86,6 +86,7 @@ def parse_llm_response(response_text: str) -> Optional[List[int]]:
     try:
         # The response might be wrapped in markdown ```json ... ```
         if "```json" in response_text:
+            # Extract content between the first ```json and the final ```
             response_text = response_text.split("```json")[1].split("```")
 
         data = json.loads(response_text)
@@ -101,7 +102,7 @@ def parse_llm_response(response_text: str) -> Optional[List[int]]:
         logging.error(f"Failed to decode JSON from response: {response_text}")
         return None
     except Exception as e:
-        logging.error(f"An unexpected error occurred during parsing: {e}")
+        logging.error(f"An unexpected error occurred during parsing: {e} | Response: {response_text}")
         return None
 
 async def call_llm_api_async(
@@ -124,6 +125,7 @@ async def call_llm_api_async(
         "response_format": {"type": "json_object"},
         "temperature": 0.0,
     }
+    timeout = aiohttp.ClientTimeout(total=API_TIMEOUT_SECONDS)
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -131,12 +133,18 @@ async def call_llm_api_async(
                 llm_config['base_url'],
                 headers=headers,
                 json=payload,
-                timeout=AIOHTTP_TIMEOUT
+                timeout=timeout
             ) as response:
                 if response.status == 200:
                     response_json = await response.json()
-                    pbar.update(1)
-                    return parse_llm_response(response_json['choices']['message']['content'])
+                    # BUG FIX: 'choices' is a list. Access the first element.
+                    if response_json and response_json.get('choices'):
+                        message_content = response_json['choices']['message']['content']
+                        pbar.update(1)
+                        return parse_llm_response(message_content)
+                    else:
+                        logging.error(f"API response OK but no 'choices' field. Response: {response_json}")
+                        break # Don't retry if response structure is wrong
                 else:
                     error_text = await response.text()
                     logging.error(
@@ -158,16 +166,15 @@ async def call_llm_api_async(
 
 async def run_concurrent_batches(
     batches: List[Dict[str, Any]],
-    llm_config: Dict[str, Any]
+    llm_config: Dict[str, Any],
+    concurrency: int
 ) -> List[Dict[str, Any]]:
     """
     Manages concurrent processing of all batches for a given LLM.
     """
-    semaphore = asyncio.Semaphore(CONCURRENCY)
+    semaphore = asyncio.Semaphore(concurrency)
     tasks = []
-    results = []
 
-    # Use a single session for connection pooling
     async with aiohttp.ClientSession() as session:
         with tqdm(total=len(batches), desc=f"Processing batches for {llm_config['model_name']}") as pbar:
             for batch_data in batches:
@@ -178,14 +185,13 @@ async def run_concurrent_batches(
                             "original_indices": batch_info['original_indices'],
                             "selected_indices_1_based": selected_indices
                         }
-
                 tasks.append(task_wrapper(batch_data))
 
             results = await asyncio.gather(*tasks)
 
     return results
 
-def process_llm(df: pd.DataFrame, llm_name: str, llm_config: Dict[str, Any]) -> pd.DataFrame:
+def process_llm(df: pd.DataFrame, llm_name: str, llm_config: Dict[str, Any], batch_size: int, concurrency: int) -> pd.DataFrame:
     """
     Processes all titles for a single LLM, handling batching and checkpointing.
     """
@@ -201,30 +207,23 @@ def process_llm(df: pd.DataFrame, llm_name: str, llm_config: Dict[str, Any]) -> 
 
     logging.info(f"Found {len(df_to_process)} titles to process for {llm_name}.")
 
-    # Create batches from the dataframe subset that needs processing
     batches = []
-    for i in range(0, len(df_to_process), BATCH_SIZE):
-        batch_df = df_to_process.iloc[i:i + BATCH_SIZE]
+    for i in range(0, len(df_to_process), batch_size):
+        batch_df = df_to_process.iloc[i:i + batch_size]
         batches.append({
             "titles": batch_df["Title"].tolist(),
             "original_indices": batch_df.index.tolist()
         })
 
-    # Run processing asynchronously
-    batch_results = asyncio.run(run_concurrent_batches(batches, llm_config))
+    batch_results = asyncio.run(run_concurrent_batches(batches, llm_config, concurrency))
 
-    # Update DataFrame with results
     for result in batch_results:
         if result["selected_indices_1_based"] is not None:
-            # Convert 1-based batch indices to 0-based
             selected_indices_0_based = {idx - 1 for idx in result["selected_indices_1_based"]}
-
             for i, original_df_index in enumerate(result["original_indices"]):
                 df.loc[original_df_index, col_name] = 1 if i in selected_indices_0_based else 0
 
-    # Convert column to integer type, allowing for NaNs if some batches failed
     df[col_name] = df[col_name].astype('Int64')
-
     return df
 
 def main():
@@ -234,53 +233,50 @@ def main():
     parser = argparse.ArgumentParser(description="Filter research papers using LLMs.")
     parser.add_argument("--venue", type=str, required=True, help="Conference or venue name (e.g., 'aaai').")
     parser.add_argument("--year", type=str, required=True, help="Year of the conference (e.g., '2020').")
+    parser.add_argument("--llms", nargs='+', required=True, help="Space-separated list of LLM names to run (e.g., 'deepseek-v3-official').")
+    parser.add_argument("--batch_size", type=int, default=20, help="Number of titles to process in each API call.")
+    parser.add_argument("--concurrency", type=int, default=4, help="Number of concurrent API calls.")
     args = parser.parse_args()
 
-    # Define project paths
     project_root = Path(__file__).parent.parent
     input_path = project_root / "title_extract" / "results" / args.venue / f"{args.year}.csv"
     output_dir = project_root / "filter_paper" / "results" / args.venue
     output_path = output_dir / f"{args.year}.csv"
 
-    # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Validate input file
     if not input_path.is_file():
-        logging.error(f"Input file not found: {input_path}")
-        sys.exit(1)
+        logging.error(f"Input file not found: {input_path}. Skipping this run.")
+        return
 
-    # --- Checkpointing Logic ---
     if output_path.is_file():
         logging.info(f"Resuming from existing output file: {output_path}")
         df = pd.read_csv(output_path)
     else:
         logging.info(f"Starting from input file: {input_path}")
         df = pd.read_csv(input_path)
-        # Add ID column if it doesn't exist
         if 'ID' not in df.columns:
             df.insert(0, 'ID', range(len(df)))
 
-    # --- Main Processing Loop ---
-    for llm_name, llm_config in LLM_MODELS_SETTINGS.items():
+    for llm_name in args.llms:
+        if llm_name not in LLM_MODELS_SETTINGS:
+            logging.warning(f"LLM '{llm_name}' not found in settings. Skipping.")
+            continue
+
+        llm_config = LLM_MODELS_SETTINGS[llm_name]
         logging.info(f"--- Starting processing for LLM: {llm_name} ---")
 
-        # Check for API key
         if not llm_config.get("api_key"):
             logging.error(f"API key for {llm_name} is not set in the .env file. Skipping.")
             continue
 
-        df = process_llm(df, llm_name, llm_config)
+        df = process_llm(df, llm_name, llm_config, args.batch_size, args.concurrency)
 
-        # Save progress after each LLM is finished
         logging.info(f"Saving intermediate results to {output_path}")
         df.to_csv(output_path, index=False)
         logging.info(f"--- Finished processing for LLM: {llm_name} ---")
 
-    logging.info("All LLMs have been processed. Final results saved.")
-
+    logging.info(f"Processing for {args.venue} {args.year} complete. Final results saved.")
 
 if __name__ == "__main__":
-    # Setup for aiohttp timeout
-    AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=API_TIMEOUT_SECONDS)
     main()
