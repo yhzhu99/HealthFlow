@@ -1,0 +1,12 @@
+[project]
+name = "HealthFlow"
+version = "0.1.0"
+description = "An agent framework for healthcare"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.12.13",
+    "pandas>=2.3.0",
+    "python-dotenv>=1.1.1",
+    "tqdm>=4.67.1",
+]
