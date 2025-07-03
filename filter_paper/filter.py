@@ -232,14 +232,14 @@ def main():
     Main function to orchestrate the paper filtering process.
     """
     parser = argparse.ArgumentParser(description="Filter research papers using LLMs.")
-    parser.add_argument("--venue_name", type=str, required=True, help="Conference or venue name (e.g., 'aaai').")
+    parser.add_argument("--venue", type=str, required=True, help="Conference or venue name (e.g., 'aaai').")
     parser.add_argument("--year", type=str, required=True, help="Year of the conference (e.g., '2020').")
     args = parser.parse_args()
 
     # Define project paths
     project_root = Path(__file__).parent.parent
-    input_path = project_root / "title_extract" / "results" / args.venue_name / f"{args.year}.csv"
-    output_dir = project_root / "filter_paper" / "results" / args.venue_name
+    input_path = project_root / "title_extract" / "results" / args.venue / f"{args.year}.csv"
+    output_dir = project_root / "filter_paper" / "results" / args.venue
     output_path = output_dir / f"{args.year}.csv"
 
     # Ensure output directory exists
