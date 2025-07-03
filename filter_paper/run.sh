@@ -1,4 +1,5 @@
 #!/bin/bash
+# file: filter_paper/run.sh
 
 # Exit immediately if a command exits with a non-zero status.
 set -e
@@ -6,12 +7,13 @@ set -e
 # --- Configuration ---
 # Define lists of venues and years to process.
 # Use spaces to separate items within the parentheses.
+# Example: VENUES=("aaai" "iclr" "icml")
 VENUES=("aaai")
 YEARS=("2020")
 
 # Define which LLMs to run. These names must match the keys in the Python script's LLM_MODELS_SETTINGS.
 # Example: LLMS_TO_RUN=("deepseek-v3-official" "deepseek-r1-official")
-LLMS_TO_RUN=("deepseek-v3-official")
+LLMS_TO_RUN=("deepseek-v3-official" "deepseek-r1-official")
 
 # Define performance parameters.
 BATCH_SIZE=20
@@ -20,7 +22,7 @@ CONCURRENCY=4
 
 
 # Get the directory where the script is located to ensure correct relative paths
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE}" )" &> /dev/null && pwd )"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PYTHON_SCRIPT_PATH="${SCRIPT_DIR}/filter.py"
 
 # Check if the python script exists
@@ -37,8 +39,10 @@ echo "Batch Size:        ${BATCH_SIZE}"
 echo "Concurrency:       ${CONCURRENCY}"
 echo "------------------------------------"
 
+# Activate your python environment if needed, for example:
+# source /path/to/your/venv/bin/activate
 
-# Run the Python script with the configured arguments for all combinations
+# Run the Python script with the configured arguments
 # The "@" in "${VAR[@]}" ensures that items with spaces are handled correctly.
 python3 "${PYTHON_SCRIPT_PATH}" \
   --venues "${VENUES[@]}" \
