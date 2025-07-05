@@ -69,10 +69,21 @@ You are an AI research assistant. Your task is to identify research papers focus
 
 Review the following paper titles, which are numbered starting from 1.
 
-**Scope Definition:**
-A paper is "AI for Healthcare" if it applies AI/ML concepts to medical or healthcare problems.
-- **AI/ML Concepts Include:** Artificial Intelligence, Machine Learning, Deep Learning, Large Language Models (LLMs), Neural Networks, Natural Language Processing (NLP), Computer Vision, Predictive Modeling, etc.
-- **Healthcare Applications Include:** Diagnostics, drug discovery, medical imaging analysis, electronic health records (EHR), genomics, patient treatment, personalized medicine, clinical trial optimization, etc.
+**Classification Criteria:**
+Classify a title as 1 if it clearly applies AI techniques (e.g., deep learning, machine learning, neural networks, NLP, predictive modeling, computer vision) to **healthcare or medicine applications**, including:
+- Clinical diagnosis, prognosis, or treatment
+- Medical imaging (e.g., MRI, CT, X-ray)
+- Electronic Health Records (EHR) and clinical notes
+- Drug discovery or pharmacological modeling
+- Physiological signal analysis (e.g., ECG, EEG, EMG)
+- Hospital monitoring or clinical triage
+
+Do **NOT** classify a title as 1 if it:
+- Focuses on general AI without specific healthcare/medical context
+- Applies AI to environmental or public health (e.g., air/water quality)
+- Involves social science, policy, infrastructure, or education without clinical/medical data
+
+Only include work that is **clearly focused on healthcare, medicine, or human physiology** with a biomedical objective.
 
 **Paper Titles:**
 ---
