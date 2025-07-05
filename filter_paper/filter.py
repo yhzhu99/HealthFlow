@@ -40,6 +40,13 @@ LLM_MODELS_SETTINGS = {
         "base_url": "https://api.deepseek.com",
         "model_name": "deepseek-reasoner",
     },
+    "qwen3-235b-a22b": {
+        "api_key": os.getenv("DASHSCOPE_API_KEY"),
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model_name": "qwen3-235b-a22b",
+        "comment": "qwen3-235b-a22b",
+        "reasoning": True,
+    },
     # Add other models here in the future, e.g., OpenAI, Anthropic, etc.
     # "openai-gpt4": {
     #     "api_key": os.getenv("OPENAI_API_KEY"),
@@ -70,20 +77,15 @@ You are an AI research assistant. Your task is to identify research papers focus
 Review the following paper titles, which are numbered starting from 1.
 
 **Classification Criteria:**
-Classify a title as 1 if it clearly applies AI techniques (e.g., deep learning, machine learning, neural networks, NLP, predictive modeling, computer vision) to **healthcare or medicine applications**, including:
-- Clinical diagnosis, prognosis, or treatment
-- Medical imaging (e.g., MRI, CT, X-ray)
-- Electronic Health Records (EHR) and clinical notes
-- Drug discovery or pharmacological modeling
-- Physiological signal analysis (e.g., ECG, EEG, EMG)
-- Hospital monitoring or clinical triage
+Classify a title as 1 if it clearly applies AI techniques (e.g., deep learning, machine learning, NLP) to **Electronic Health Records (EHR)**, including its various data forms like clinical notes, time-series data (e.g., lab results, vital signs), and structured records (e.g., diagnosis codes).
 
-Do **NOT** classify a title as 1 if it:
-- Focuses on general AI without specific healthcare/medical context
-- Applies AI to environmental or public health (e.g., air/water quality)
-- Involves social science, policy, infrastructure, or education without clinical/medical data
+**Do NOT classify a title as 1 if it focuses on:**
+- Medical Imaging (MRI, CT, X-ray), Genomics, or molecular biology.
+- Early-stage drug discovery or analysis of scientific literature.
+- **Data primarily described as "administrative claims" or "billing data"**, as these often lack clinical richness, unless the title also clearly mentions clinical notes or other direct patient data.
+- General AI methods, public health, or healthcare policy without a clear, stated link to EHR data analysis.
 
-Only include work that is **clearly focused on healthcare, medicine, or human physiology** with a biomedical objective.
+**Summary Rule:** Focus strictly on data from EHRs notes, not on imaging, signals, or '-omics' data.
 
 **Paper Titles:**
 ---
