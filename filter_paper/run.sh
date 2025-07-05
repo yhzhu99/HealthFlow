@@ -12,8 +12,8 @@ VENUES=("aaai")
 YEARS=("2020")
 
 # Define which LLMs to run. These names must match the keys in the Python script's LLM_MODELS_SETTINGS.
-# Example: LLMS_TO_RUN=("deepseek-v3-official" "deepseek-r1-official")
-LLMS_TO_RUN=("deepseek-v3-official" "deepseek-r1-official")
+# Example: LLMS_TO_RUN=("deepseek-v3-official" "qwen3-235b-a22b")
+LLMS_TO_RUN=("deepseek-v3-official" "qwen3-235b-a22b")
 
 # Define performance parameters.
 BATCH_SIZE=20
@@ -32,18 +32,20 @@ if [ ! -f "$PYTHON_SCRIPT_PATH" ]; then
 fi
 
 echo "Starting batch paper filtering process..."
+echo "===================================="
 echo "Venues to process: ${VENUES[*]}"
 echo "Years to process:  ${YEARS[*]}"
 echo "LLMs to run:       ${LLMS_TO_RUN[*]}"
 echo "Batch Size:        ${BATCH_SIZE}"
 echo "Concurrency:       ${CONCURRENCY}"
-echo "------------------------------------"
+echo "===================================="
 
-# Activate your python environment if needed, for example:
+# It's good practice to ensure your Python environment is active.
+# For example, if you use a virtual environment:
 # source /path/to/your/venv/bin/activate
 
-# Run the Python script with the configured arguments
-# The "@" in "${VAR[@]}" ensures that items with spaces are handled correctly.
+# Run the Python script with the configured arguments.
+# The "@" in "${VAR[@]}" is crucial for correctly handling arguments with spaces.
 python3 "${PYTHON_SCRIPT_PATH}" \
   --venues "${VENUES[@]}" \
   --years "${YEARS[@]}" \
