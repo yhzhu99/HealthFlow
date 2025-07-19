@@ -49,46 +49,71 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# --- LLM Prompt Template ---
+# --- LLM Prompt Template (Optimized for Diverse Task Extraction) ---
 PROMPT_TEMPLATE = """
-### ROLE & GOAL ###
-You are a research assistant. Your goal is to read the provided text from a research paper and extract all tasks related to the use of Electronic Health Records (EHR). A "task" is a distinct step or procedure performed by the researchers, such as defining a patient group, preprocessing data, or building a model, etc.
+### OBJECTIVE ###
+Your objective is to deconstruct a research paper into a series of self-contained, actionable tasks. Each task must represent a distinct, verifiable step in the research process—spanning from data preparation and modeling to creating tables, and interpreting results. The final output will be a benchmark of solvable challenges for an advanced AI agent.
 
-### CONTEXT ###
-The research papers are about applying AI and data science to EHR data, which can include:
+### CORE PRINCIPLE: TRANSFORM DESCRIPTION INTO ACTION ###
+Your primary function is to convert the paper's *descriptive* text (e.g., "we did X") into an *imperative*, actionable instruction (e.g., "Do X"). You are not summarizing the paper; you are creating a list of executable tests based on it.
+
+-   **Original Paper Text (Descriptive):** "We selected patients older than 18 and calculated the SOFA score for the cohort."
+-   **Your Formulated Task (Imperative):** "Given a dataset of patient admissions, filter it to include only patients aged 18 or older. Then, for each patient in the resulting cohort, calculate their SOFA score."
+
+### CONTEXT OF THE RESEARCH ###
+The source material is a research paper about applying data science to Electronic Health Records (EHR). The data involved can be:
 - Structured time-series data (e.g., vital signs, lab results)
 - Clinical notes (unstructured text)
-- Medical codes (e.g., ICD, CPT codes)
-Your extraction should cover tasks related to any of these data types.
+- Medical codes (e.g., ICD codes)
+Tasks should be formulated for any of these data types as found in the paper.
 
-### OUTPUT FORMAT ###
-You MUST provide the output as a single, valid JSON array of objects. Do not include any text or explanations outside of this JSON structure. Each object in the array represents a single extracted task and MUST have the following three keys:
+### REQUIRED JSON OUTPUT FORMAT ###
+You MUST provide the output as a single, valid JSON array of objects. Do not include any text, notes, or explanations outside of this JSON structure. Each object represents a single task and MUST have the following three keys:
 
-1.  `category` (string): A concise, high-level classification of the task, in a few words. You should generate this category based on the task's nature. Examples include:
+1.  `category` (string): A concise, high-level classification of the task's domain. Be consistent. These categories should cover the entire research lifecycle. Examples:
+    - "Cohort Definition"
     - "Data Preprocessing"
     - "Feature Engineering"
     - "Predictive Modeling"
     - "Model Evaluation"
+    - "Performance Table Generation"
     - "Statistical Analysis"
-    *Do not be limited by these examples. Create new categories if they are more appropriate.*
+    - "Result Interpretation"
+    *Do not be limited by these examples. Create new, appropriate categories as needed.*
 
-2.  `task` (string): A detailed, self-contained description of the task. This description should be clear enough to be understood without reading the full paper. It should summarize what was done, what data was used (data structure), and what the objective was.
+2.  `task` (string): An actionable and self-contained challenge for an AI agent. This description MUST:
+    - Be an **imperative command** (e.g., "Generate...", "Calculate...", "Filter...", "Implement...").
+    - Clearly specify the **input data** and its assumed structure (e.g., "Given a pandas DataFrame of patient demographics...").
+    - State the **precise instructions and methodology** to be followed, as described in the paper.
+    - Be **solvable without reading the original paper**.
 
-3.  `answer` (string): The evidence for the task. This MUST be a direct quote or a very faithful, close paraphrase from the paper, but self-contained and corresponding to the task. If the evidence is from a table or figure, you must describe its content (e.g., "the model achieved an AUROC of 0.91...").
+3.  `answer` (string): The ground truth result, definition, or finding from the paper that serves as the "solution" to the `task`. This will be used for evaluation. It must:
+    - Directly correspond to its `task`.
+    - Be a direct quote or a very faithful, close paraphrase from the paper.
 
-### EXAMPLE ###
+### GUIDING EXAMPLES ###
 ```json
 [
   {
-    "category": "Data Preprocessing",
-    "task": "Process and clean time-series EHR data for the defined cohort, handling missing values by carrying the last observation forward (LOCF) and removing outliers.",
-    "answer": "For missing data in time-series variables, we used the last observation carried forward method. To handle extreme values, we applied winsorization at the 1st and 99th percentiles."
+    "category": "Cohort Definition",
+    "task": "From a raw hospital admissions dataset (e.g., MIMIC-IV), define a study cohort by applying the following inclusion criteria: 1. Patient age at admission is 18 years or older. 2. It is the patient's first ICU admission. 3. The ICU length of stay is at least 24 hours.",
+    "answer": "The final cohort consisted of 34,490 ICU stays from adult patients (age >= 18) with a length of stay of at least 24 hours, considering only the first ICU admission for each patient."
+  },
+  {
+    "category": "Predictive Modeling",
+    "task": "Implement and train a LightGBM model to predict in-hospital mortality. The model should be trained using features derived from the first 24 hours of the ICU stay. Evaluate the model using the Area Under the Receiver Operating Characteristic curve (AUROC) on the held-out test set.",
+    "answer": "On the test set, our LightGBM model achieved an AUROC of 0.892 for in-hospital mortality prediction."
+  },
+  {
+    "category": "Performance Table Generation",
+    "task": "Create a performance comparison table for the mortality prediction task. The table must include the following models as rows: 'Logistic Regression', 'LightGBM', and 'LSTM'. The columns must be the evaluation metrics: 'AUROC', 'AUPRC', and 'F1-Score'.",
+    "answer": "Table 3 summarizes model performances. LightGBM achieved the highest AUROC (0.892). The LSTM model yielded the best AUPRC (0.78), and Logistic Regression recorded an AUROC of 0.821."
   }
 ]
 ```
 
 ### INSTRUCTIONS ###
-Now, analyze the following research paper text and extract all EHR-related tasks according to the format specified above.
+Now, analyze the following research paper text. Deconstruct it into a diverse set of solvable tasks covering the entire research process. Follow all rules and the JSON format specified above. Ensure every task is self-contained and grounded in the provided text.
 
 --- RESEARCH PAPER TEXT ---
 {paper_text}
