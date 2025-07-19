@@ -2,6 +2,10 @@
 *.pdf
 *.png
 assets/
+CLAUDE.md
+GEMINI.md
+debug.*
+TASK.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
