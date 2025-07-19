@@ -3,6 +3,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -49,41 +50,35 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# --- LLM Prompt Template (Optimized for Diverse, Complex Task Extraction) ---
 PROMPT_TEMPLATE = """
-### PRIMARY GOAL ###
-Your goal is to act as a principal investigator breaking down a complex research paper into a set of approximately 5 distinct, challenging, and self-contained "mini-projects." These projects will be used to benchmark a highly capable AI agent. The tasks must test the agent's ability to perform complex reasoning, implement algorithms, and replicate specific, verifiable results from the paper.
+### CORE MISSION ###
+Please dissect the provided research paper and generate a series of self-contained, complex "mini-projects." These projects will be used to evaluate an advanced AI agent's ability to implement algorithms and reproduce scientific findings. You will generate approximately 5 such projects.
 
-### CRITERIA FOR HIGH-QUALITY TASKS (MANDATORY) ###
-1.  **Substantial Workload:** Each task must be a significant unit of work, not a simple query. It should represent a complex sub-goal of the research that requires multiple steps to complete.
-    -   *BAD EXAMPLE*: "Find the number of patients."
-    -   *GOOD EXAMPLE*: "Define the study cohort by sequentially applying the following three exclusion criteria mentioned in Section 2.1: (1) patients under 18 years of age, (2) patients with a hospital stay shorter than 24 hours, and (3) patients with missing lactate measurements in the first 24 hours. Report the final count of patients in the cohort."
+### ABSOLUTE RULES FOR TASK GENERATION (NON-NEGOTIABLE) ###
 
-2.  **Algorithmic & Coding Complexity:** Tasks must focus on the "how," requiring the agent to implement a specific process. This could involve data preprocessing pipelines, feature extraction logic, statistical tests, or core model algorithms as described in the paper.
+1.  **ZERO-REFERENCE MANDATE:** The `task` description MUST be entirely self-contained. It must NOT reference the source paper in any way (e.g., "as described in Section 3," "using Equation (5)," "from Table 2"). The AI agent performing the task will NOT have access to the paper. All necessary information, formulas, parameters, and constants must be explicitly defined within the `task` string.
 
-3.  **Strictly Self-Contained & Unambiguous:** The `task` description must be a detailed, instructional, and unambiguous guide. It MUST contain ALL information an agent needs to perform the task without referencing the original paper. This includes exact variable names, specific numerical thresholds, complete mathematical formulas in LaTeX, and clear, step-by-step instructions.
+    *   **FAILURE EXAMPLE (DO NOT DO THIS):** "Implement the time-aware graph attention mechanism from equations (1)-(4)."
+    *   **SUCCESS EXAMPLE (DO THIS):** "Implement a time-aware graph attention mechanism. Given a head entity \\(c_h\\), its neighbors \\(N_h\\), and a time interval \\(\\tau\\), compute the aggregated neighbor representation \\(e_{{N_h}}\\). First, compute the time embedding \\(f_\\tau = \\tanh(W_f \\tau + b_f)\\). Then, for each neighbor \\(c_u \\in N_h\\), calculate the attention score \\(\\pi(c_h, r, c_u, \\tau)\\) using a feed-forward network: \\(\\text{{FFN}}(M_r e_h \\| M_r e_u \\| f_\\tau)\\), where \\(\\|\\) denotes concatenation. Normalize these scores using softmax to get \\(\\tilde{{\\pi}}\\). Finally, compute \\(e_{{N_h}} = \\sum_{{c_u \\in N_h}} \\tilde{{\\pi}}(c_h, r, c_u, \\tau) e_u\\). Use parameter dimensions: \\(e_h, e_u \\in \\mathbb{{R}}^{{100}}\\), \\(M_r \\in \\mathbb{{R}}^{{100 \\times 100}}\\), \\(W_f \\in \\mathbb{{R}}^{{64}}\\), \\(b_f \\in \\mathbb{{R}}^{{64}}\\)."
 
-4.  **Task Diversity:** Generate a variety of tasks that cover different stages of the research pipeline. Do not focus on only one area. Aim for a mix from categories like:
-    - Cohort Definition & Filtering
-    - Data Cleaning & Preprocessing (e.g., handling missing values, normalization)
-    - Feature Engineering (e.g., creating time-window features, applying specific encodings)
-    - Model Implementation (e.g., building a logistic regression model with specified regularization)
-    - Model Evaluation (e.g., calculating AUROC and AUPRC with confidence intervals)
+2.  **MANDATORY LATEX FOR ALL MATH:** All mathematical variables, formulas, and expressions MUST be formatted using LaTeX syntax.
+    *   For inline math, use `\\( ... \\)`. Example: The loss is calculated for each sample \\(i\\).
+    *   For block/display math, use `\\[ ... \\]`. Example: \\[ L_{{\\text{{total}}}} = \\sum_{{i=1}}^{{N}} (y_i - \\hat{{y}}_i)^2 \\]
 
-5.  **Verifiable Ground Truth:** The `answer` must be grounded directly in the paper's text or tables.
+3.  **DIVERSE & SUBSTANTIAL TASKS:** Generate a variety of tasks covering different research stages (e.g., Cohort Definition, Feature Engineering, Model Implementation, Evaluation). Each task should be a meaningful unit of work, not a trivial query.
 
-### REQUIRED JSON OUTPUT FORMAT ###
-You MUST provide your output as a single, valid JSON array of objects. Produce NO other text, commentary, or markdown fences around the JSON. Each object in the array represents one task and MUST contain these three keys:
+4.  **VERIFIABLE ANSWER:** The `answer` field must contain the specific, verifiable result from the paper that directly corresponds to the completion of the `task`. The answer must also include a brief interpretation of the result's significance within the context of the study. Use LaTeX for any math in the answer.
 
-1.  `category` (string): A high-level classification of the task's domain from the list above (or a new, equally descriptive one).
-2.  `task` (string): A detailed, instructional, and unambiguous imperative command for the AI agent. It must be self-contained and follow all the criteria listed above. Use LaTeX for all mathematical expressions.
-3.  `answer` (string): The precise, verifiable ground truth from the paper that is the result of executing the task. The answer MUST be structured to include two components: the core result and its interpretation. For example: "The final cohort consisted of 12,345 patients. This represents the population used for the final analysis after applying all inclusion and exclusion criteria mentioned in the Methods section." Use LaTeX for any mathematical notation.
+### JSON OUTPUT SPECIFICATION (STRICTLY ENFORCED) ###
+Your entire output must be a single, valid JSON array `[[...]]`. Do not include any text, explanations, or markdown fences before or after the JSON. Each object within the array must have exactly these three keys:
 
-### INSTRUCTIONS ###
-Analyze the provided research paper text. Generate approximately 5 diverse, complex, and self-contained tasks that meet all the above criteria. Structure your entire output as a single JSON array.
+1.  `category` (string): A descriptive category for the task (e.g., "Cohort Definition", "Feature Engineering", "Model Implementation", "Model Evaluation").
+2.  `task` (string): The detailed, self-contained, imperative instructions for the AI agent, following all rules above. **All math must be in LaTeX.**
+3.  `answer` (string): The verifiable result from the paper. This should contain the specific value/outcome and a brief sentence explaining its context. **Any math must be in LaTeX.**
 
---- RESEARCH PAPER TEXT ---
+--- BEGIN RESEARCH PAPER TEXT ---
 {paper_text}
+--- END RESEARCH PAPER TEXT ---
 """
 
 
@@ -126,6 +121,7 @@ def extract_json_from_response(response_text: str) -> Optional[List[Dict[str, An
     Returns:
         A list of dictionaries if a valid JSON array is found, otherwise None.
     """
+    json_str = ""
     try:
         # Handle case where the JSON is wrapped in ```json ... ```
         if '```json' in response_text:
@@ -136,12 +132,20 @@ def extract_json_from_response(response_text: str) -> Optional[List[Dict[str, An
         else:
             # Find the start of the JSON array if it's embedded
             start_index = response_text.find('[')
-            if start_index == -1:
-                logger.error("No JSON array start token '[' found in response.")
+            end_index = response_text.rfind(']')
+            if start_index != -1 and end_index != -1 and end_index > start_index:
+                json_str = response_text[start_index : end_index + 1]
+            else:
+                logger.error("No JSON array start/end tokens '[' or ']' found in response.")
                 return None
-            json_str = response_text[start_index:]
 
-        # Load the JSON. This can still fail if the content is not a valid array.
+        # Added check for empty string before attempting to load JSON
+        if not json_str:
+            logger.error("Extracted JSON string is empty.")
+            return None
+
+        json_str = re.sub(r'\\(?![/"\\bfnrtu])', r'\\\\', json_str)
+
         parsed_json = json.loads(json_str)
 
         if isinstance(parsed_json, list):
@@ -234,6 +238,9 @@ def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: 
 
     try:
         paper_text = markdown_path.read_text(encoding='utf-8')
+        if not paper_text.strip():
+            logger.error(f"[{paper_id}] Markdown file is empty. Skipping.")
+            return
     except Exception as e:
         logger.error(f"[{paper_id}] Failed to read markdown file {markdown_path}: {e}")
         return
@@ -309,7 +316,11 @@ def main():
 
     # --- LLM Client Initialization ---
     model_key = args.llm
-    settings = LLM_MODELS_SETTINGS[model_key]
+    settings = LLM_MODELS_SETTINGS.get(model_key)
+    if not settings:
+        logger.error(f"LLM settings for '{model_key}' not found.")
+        sys.exit(1)
+
     api_key = settings.get("api_key")
     base_url = settings.get("base_url")
     model_name = settings.get("model_name")
