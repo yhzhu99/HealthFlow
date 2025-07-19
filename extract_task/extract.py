@@ -51,44 +51,36 @@ logger = logging.getLogger(__name__)
 
 # --- LLM Prompt Template (Optimized for Diverse, Complex Task Extraction) ---
 PROMPT_TEMPLATE = """
-### OBJECTIVE ###
-Your objective is to deconstruct a scientific research paper into a series of complex, self-contained, and actionable tasks. Each task must represent a substantial and verifiable step in the research process, suitable for benchmarking an advanced AI agent. The goal is to create tasks that are structured like mini-projects, requiring multi-step reasoning and potentially complex coding to solve.
+### PRIMARY GOAL ###
+Your goal is to act as a principal investigator breaking down a complex research paper into a set of approximately 5 distinct, challenging, and self-contained "mini-projects." These projects will be used to benchmark a highly capable AI agent. The tasks must test the agent's ability to perform complex reasoning, implement algorithms, and replicate specific, verifiable results from the paper.
 
-### GUIDING PRINCIPLES FOR TASK CREATION ###
-1.  **Sub-Project Scope:** Each task must be a meaningful unit of work, not a trivial point. It should represent a non-trivial amount of work and reasoning, akin to a task a data scientist would be assigned for a day or two.
-2.  **Multi-Step Complexity:** A single task should encapsulate a complete logical step, which may involve several sub-actions. For example, instead of "Filter patients by age," a better task is "Define the final cohort by applying three specific exclusion criteria sequentially and report the final patient count."
-3.  **Real-World Specificity:** Ground every task in concrete details. Assume the AI agent has access to Electronic Health Records (EHR), like MIMIC-IV. The EHR data involved can be: (1) Structured time-series data (e.g., vital signs, lab results); (2) Clinical notes (unstructured text); (3) Medical codes (e.g., ICD codes). Tasks should be formulated for any of these data types as found in the paper. Specify the exact expected output.
-4.  **Strict Verifiability:** Every task MUST have a concrete, verifiable answer that can be found directly in the paper. This is non-negotiable.
+### CRITERIA FOR HIGH-QUALITY TASKS (MANDATORY) ###
+1.  **Substantial Workload:** Each task must be a significant unit of work, not a simple query. It should represent a complex sub-goal of the research that requires multiple steps to complete.
+    -   *BAD EXAMPLE*: "Find the number of patients."
+    -   *GOOD EXAMPLE*: "Define the study cohort by sequentially applying the following three exclusion criteria mentioned in Section 2.1: (1) patients under 18 years of age, (2) patients with a hospital stay shorter than 24 hours, and (3) patients with missing lactate measurements in the first 24 hours. Report the final count of patients in the cohort."
+
+2.  **Algorithmic & Coding Complexity:** Tasks must focus on the "how," requiring the agent to implement a specific process. This could involve data preprocessing pipelines, feature extraction logic, statistical tests, or core model algorithms as described in the paper.
+
+3.  **Strictly Self-Contained & Unambiguous:** The `task` description must be a detailed, instructional, and unambiguous guide. It MUST contain ALL information an agent needs to perform the task without referencing the original paper. This includes exact variable names, specific numerical thresholds, complete mathematical formulas in LaTeX, and clear, step-by-step instructions.
+
+4.  **Task Diversity:** Generate a variety of tasks that cover different stages of the research pipeline. Do not focus on only one area. Aim for a mix from categories like:
+    - Cohort Definition & Filtering
+    - Data Cleaning & Preprocessing (e.g., handling missing values, normalization)
+    - Feature Engineering (e.g., creating time-window features, applying specific encodings)
+    - Model Implementation (e.g., building a logistic regression model with specified regularization)
+    - Model Evaluation (e.g., calculating AUROC and AUPRC with confidence intervals)
+
+5.  **Verifiable Ground Truth:** The `answer` must be grounded directly in the paper's text or tables.
 
 ### REQUIRED JSON OUTPUT FORMAT ###
-You MUST provide the output as a single, valid JSON array of objects. Do not include any text, notes, or explanations outside this JSON structure. Each object represents a single task and MUST have the following three keys:
+You MUST provide your output as a single, valid JSON array of objects. Produce NO other text, commentary, or markdown fences around the JSON. Each object in the array represents one task and MUST contain these three keys:
 
-1.  `category` (string): A concise, high-level classification of the task's domain. Be consistent. Use descriptive categories that reflect a research lifecycle. Examples:
-    - "Cohort Definition"
-    - "Data Preprocessing"
-    - "Feature Engineering"
-    - "Predictive Modeling Implementation"
-    - "Model Training"
-    - "Model Evaluation"
-    - "Performance Table Generation"
-    - "Statistical Significance Testing"
-    - "Interpretability Analysis"
-    *Create new, appropriate categories as needed.*
-
-2.  `task` (string): A detailed, actionable, and self-contained challenge for an AI agent. This description MUST:
-    - Be an **imperative command** ("Implement...", "Calculate...", "Generate a cohort by...", "Perform a statistical test...").
-    - Be **highly specific** about inputs, methods, and expected outputs.
-    - Be complex enough to require **multi-step reasoning or non-trivial coding**.
-    - For any mathematical formula, equation, or variable, you **MUST use LaTeX syntax** (e.g., `$\\alpha = \\beta + \\gamma$`).
-
-3.  `answer` (string): The **concrete, verifiable ground truth** from the paper that serves as the solution. This is the most critical field. It MUST:
-    - Be a specific **number**, **result**, **table value**, **hyperparameter setting**, **final mathematical formula**, or **exact definition** quoted from the paper.
-    - **NOT** be a conceptual re-explanation or a paraphrase of the task. It must be the *outcome* of the task.
-    - Directly and precisely answer the question posed by the `task`.
-    - Also **use LaTeX syntax** for any mathematical notation.
+1.  `category` (string): A high-level classification of the task's domain from the list above (or a new, equally descriptive one).
+2.  `task` (string): A detailed, instructional, and unambiguous imperative command for the AI agent. It must be self-contained and follow all the criteria listed above. Use LaTeX for all mathematical expressions.
+3.  `answer` (string): The precise, verifiable ground truth from the paper that is the result of executing the task. The answer MUST be structured to include two components: the core result and its interpretation. For example: "The final cohort consisted of 12,345 patients. This represents the population used for the final analysis after applying all inclusion and exclusion criteria mentioned in the Methods section." Use LaTeX for any mathematical notation.
 
 ### INSTRUCTIONS ###
-Now, analyze the following research paper text. Deconstruct it into a diverse set of complex, sub-project-level tasks. Follow all rules, the JSON format. Ensure every task and answer pair is concrete, specific, and verifiable from the text.
+Analyze the provided research paper text. Generate approximately 5 diverse, complex, and self-contained tasks that meet all the above criteria. Structure your entire output as a single JSON array.
 
 --- RESEARCH PAPER TEXT ---
 {paper_text}
@@ -138,36 +130,20 @@ def extract_json_from_response(response_text: str) -> Optional[List[Dict[str, An
         # Handle case where the JSON is wrapped in ```json ... ```
         if '```json' in response_text:
             json_str = response_text.split('```json')[1].split('```')[0].strip()
+        # Handle case where the JSON starts immediately
+        elif response_text.strip().startswith('['):
+            json_str = response_text.strip()
         else:
-            # Find the start of the JSON array and its corresponding closing bracket
+            # Find the start of the JSON array if it's embedded
             start_index = response_text.find('[')
             if start_index == -1:
                 logger.error("No JSON array start token '[' found in response.")
                 return None
+            json_str = response_text[start_index:]
 
-            open_brackets = 0
-            end_index = -1
-            in_string = False
-            for i, char in enumerate(response_text[start_index:]):
-                if char == '"':
-                    # Basic handling of quotes, ignores escaped quotes
-                    in_string = not in_string
-                elif char == '[' and not in_string:
-                    open_brackets += 1
-                elif char == ']' and not in_string:
-                    open_brackets -= 1
-
-                if open_brackets == 0:
-                    end_index = start_index + i
-                    break
-
-            if end_index == -1:
-                logger.error("Could not find matching closing bracket ']' for JSON array.")
-                return None
-
-            json_str = response_text[start_index : end_index + 1]
-
+        # Load the JSON. This can still fail if the content is not a valid array.
         parsed_json = json.loads(json_str)
+
         if isinstance(parsed_json, list):
             return parsed_json
         else:
@@ -239,7 +215,7 @@ def call_llm(client: OpenAI, paper_text: str, paper_id: str, model_name: str) ->
 
 def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: OpenAI, model_name: str) -> None:
     """
-    Main processing logic for a single paper ID.
+    Main processing logic for a single paper ID: reads file, calls LLM, saves results.
 
     Args:
         paper_id: The ID of the paper to process.
@@ -270,13 +246,12 @@ def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: 
         logger.error(f"[{paper_id}] Failed to extract tasks from LLM. No output will be saved.")
         return
 
-    # Basic validation of the returned structure
     valid_tasks = []
     for i, task in enumerate(tasks):
         if isinstance(task, dict) and all(k in task for k in ["category", "task", "answer"]):
             valid_tasks.append(task)
         else:
-            logger.warning(f"[{paper_id}] Skipping malformed task item #{i}: {task}")
+            logger.warning(f"[{paper_id}] Skipping malformed task item #{i+1}: {str(task)[:100]}...")
 
     if not valid_tasks:
         logger.warning(f"[{paper_id}] No valid tasks were extracted. Not saving file.")
@@ -297,13 +272,13 @@ def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: 
 def main():
     """Parses command-line arguments and orchestrates the extraction process for one paper."""
     parser = argparse.ArgumentParser(
-        description="Extracts EHR-related tasks from a research paper's markdown file using an LLM."
+        description="Extracts complex, self-contained tasks from a research paper's markdown file using an LLM."
     )
     parser.add_argument(
         "--paper_id",
         type=str,
         required=True,
-        help="The ID of the paper to process."
+        help="The ID of the paper to process (e.g., '2203.01077')."
     )
     parser.add_argument(
         "--markdowns-dir",
@@ -326,6 +301,12 @@ def main():
     )
     args = parser.parse_args()
 
+    # --- Check if output file already exists before any processing ---
+    output_file_path = args.output_dir / f"{args.paper_id}_tasks.json"
+    if output_file_path.is_file():
+        logger.info(f"Output file for paper ID '{args.paper_id}' already exists at {output_file_path}. Skipping.")
+        return  # Exit gracefully
+
     # --- LLM Client Initialization ---
     model_key = args.llm
     settings = LLM_MODELS_SETTINGS[model_key]
@@ -335,15 +316,24 @@ def main():
 
     if not api_key:
         # Determine which environment variable is missing for the error message.
-        required_env_var = "DEEPSEEK_API_KEY" if "deepseek" in model_key else "DASHSCOPE_API_KEY" if "qwen" in model_key else "the required API key"
-        logger.error(f"API key for '{model_key}' is not set. Please set {required_env_var} in your .env file or environment.")
+        required_env_var_map = {
+            "deepseek": "DEEPSEEK_API_KEY",
+            "qwen": "DASHSCOPE_API_KEY"
+        }
+        env_var_name = next((v for k, v in required_env_var_map.items() if k in model_key), "the required API key")
+        logger.error(f"API key for '{model_key}' is not set. Please set {env_var_name} in your .env file or environment.")
         sys.exit(1)
 
-    client = OpenAI(
-        api_key=api_key,
-        base_url=base_url,
-    )
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
+    except Exception as e:
+        logger.error(f"Failed to initialize OpenAI client for '{model_key}'. Error: {e}")
+        sys.exit(1)
 
+    # --- Process the Paper ---
     process_paper(args.paper_id, args.markdowns_dir, args.output_dir, client, model_name)
 
 
