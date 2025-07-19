@@ -16,7 +16,7 @@ set -e
 # --- Configuration ---
 # The LLM to use. This must be a key from the LLM_MODELS_SETTINGS dictionary in extract.py.
 # Available options typically include: "deepseek-v3-official", "deepseek-r1-official", "qwen3-235b-a22b"
-LLM_MODEL="deepseek-v3-official"
+LLM_MODEL="deepseek-r1-official"
 # Number of parallel jobs to run. Adjust based on your machine and API rate limits.
 MAX_CONCURRENT=8
 # Input file containing paper IDs, one per line.

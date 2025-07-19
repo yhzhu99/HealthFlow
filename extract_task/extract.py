@@ -91,27 +91,6 @@ You MUST provide the output as a single, valid JSON array of objects. Do not inc
     - Directly correspond to its `task`.
     - Be a direct quote or a very faithful, close paraphrase from the paper.
 
-### GUIDING EXAMPLES ###
-```json
-[
-  {
-    "category": "Cohort Definition",
-    "task": "From a raw hospital admissions dataset (e.g., MIMIC-IV), define a study cohort by applying the following inclusion criteria: 1. Patient age at admission is 18 years or older. 2. It is the patient's first ICU admission. 3. The ICU length of stay is at least 24 hours.",
-    "answer": "The final cohort consisted of 34,490 ICU stays from adult patients (age >= 18) with a length of stay of at least 24 hours, considering only the first ICU admission for each patient."
-  },
-  {
-    "category": "Predictive Modeling",
-    "task": "Implement and train a LightGBM model to predict in-hospital mortality. The model should be trained using features derived from the first 24 hours of the ICU stay. Evaluate the model using the Area Under the Receiver Operating Characteristic curve (AUROC) on the held-out test set.",
-    "answer": "On the test set, our LightGBM model achieved an AUROC of 0.892 for in-hospital mortality prediction."
-  },
-  {
-    "category": "Performance Table Generation",
-    "task": "Create a performance comparison table for the mortality prediction task. The table must include the following models as rows: 'Logistic Regression', 'LightGBM', and 'LSTM'. The columns must be the evaluation metrics: 'AUROC', 'AUPRC', and 'F1-Score'.",
-    "answer": "Table 3 summarizes model performances. LightGBM achieved the highest AUROC (0.892). The LSTM model yielded the best AUPRC (0.78), and Logistic Regression recorded an AUROC of 0.821."
-  }
-]
-```
-
 ### INSTRUCTIONS ###
 Now, analyze the following research paper text. Deconstruct it into a diverse set of solvable tasks covering the entire research process. Follow all rules and the JSON format specified above. Ensure every task is self-contained and grounded in the provided text.
 
@@ -340,7 +319,7 @@ def main():
     parser.add_argument(
         "--llm",
         type=str,
-        default="deepseek-v3-official",
+        default="deepseek-r1-official",
         choices=list(LLM_MODELS_SETTINGS.keys()),
         help=f"The LLM to use for extraction. Available: {list(LLM_MODELS_SETTINGS.keys())}"
     )
