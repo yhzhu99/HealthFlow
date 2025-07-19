@@ -49,50 +49,46 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# --- LLM Prompt Template (Optimized for Diverse Task Extraction) ---
+# --- LLM Prompt Template (Optimized for Diverse, Complex Task Extraction) ---
 PROMPT_TEMPLATE = """
 ### OBJECTIVE ###
-Your objective is to deconstruct a research paper into a series of self-contained, actionable tasks. Each task must represent a distinct, verifiable step in the research process—spanning from data preparation and modeling to creating tables, and interpreting results. The final output will be a benchmark of solvable challenges for an advanced AI agent.
+Your objective is to deconstruct a scientific research paper into a series of complex, self-contained, and actionable tasks. Each task must represent a substantial and verifiable step in the research process, suitable for benchmarking an advanced AI agent. The goal is to create tasks that are structured like mini-projects, requiring multi-step reasoning and potentially complex coding to solve.
 
-### CORE PRINCIPLE: TRANSFORM DESCRIPTION INTO ACTION ###
-Your primary function is to convert the paper's *descriptive* text (e.g., "we did X") into an *imperative*, actionable instruction (e.g., "Do X"). You are not summarizing the paper; you are creating a list of executable tests based on it.
-
--   **Original Paper Text (Descriptive):** "We selected patients older than 18 and calculated the SOFA score for the cohort."
--   **Your Formulated Task (Imperative):** "Given a dataset of patient admissions, filter it to include only patients aged 18 or older. Then, for each patient in the resulting cohort, calculate their SOFA score."
-
-### CONTEXT OF THE RESEARCH ###
-The source material is a research paper about applying data science to Electronic Health Records (EHR). The data involved can be:
-- Structured time-series data (e.g., vital signs, lab results)
-- Clinical notes (unstructured text)
-- Medical codes (e.g., ICD codes)
-Tasks should be formulated for any of these data types as found in the paper.
+### GUIDING PRINCIPLES FOR TASK CREATION ###
+1.  **Sub-Project Scope:** Each task must be a meaningful unit of work, not a trivial point. It should represent a non-trivial amount of work and reasoning, akin to a task a data scientist would be assigned for a day or two.
+2.  **Multi-Step Complexity:** A single task should encapsulate a complete logical step, which may involve several sub-actions. For example, instead of "Filter patients by age," a better task is "Define the final cohort by applying three specific exclusion criteria sequentially and report the final patient count."
+3.  **Real-World Specificity:** Ground every task in concrete details. Assume the AI agent has access to Electronic Health Records (EHR), like MIMIC-IV. The EHR data involved can be: (1) Structured time-series data (e.g., vital signs, lab results); (2) Clinical notes (unstructured text); (3) Medical codes (e.g., ICD codes). Tasks should be formulated for any of these data types as found in the paper. Specify the exact expected output.
+4.  **Strict Verifiability:** Every task MUST have a concrete, verifiable answer that can be found directly in the paper. This is non-negotiable.
 
 ### REQUIRED JSON OUTPUT FORMAT ###
-You MUST provide the output as a single, valid JSON array of objects. Do not include any text, notes, or explanations outside of this JSON structure. Each object represents a single task and MUST have the following three keys:
+You MUST provide the output as a single, valid JSON array of objects. Do not include any text, notes, or explanations outside this JSON structure. Each object represents a single task and MUST have the following three keys:
 
-1.  `category` (string): A concise, high-level classification of the task's domain. Be consistent. These categories should cover the entire research lifecycle. Examples:
+1.  `category` (string): A concise, high-level classification of the task's domain. Be consistent. Use descriptive categories that reflect a research lifecycle. Examples:
     - "Cohort Definition"
     - "Data Preprocessing"
     - "Feature Engineering"
-    - "Predictive Modeling"
+    - "Predictive Modeling Implementation"
+    - "Model Training"
     - "Model Evaluation"
     - "Performance Table Generation"
-    - "Statistical Analysis"
-    - "Result Interpretation"
-    *Do not be limited by these examples. Create new, appropriate categories as needed.*
+    - "Statistical Significance Testing"
+    - "Interpretability Analysis"
+    *Create new, appropriate categories as needed.*
 
-2.  `task` (string): An actionable and self-contained challenge for an AI agent. This description MUST:
-    - Be an **imperative command** (e.g., "Generate...", "Calculate...", "Filter...", "Implement...").
-    - Clearly specify the **input data** and its assumed structure (e.g., "Given a pandas DataFrame of patient demographics...").
-    - State the **precise instructions and methodology** to be followed, as described in the paper.
-    - Be **solvable without reading the original paper**.
+2.  `task` (string): A detailed, actionable, and self-contained challenge for an AI agent. This description MUST:
+    - Be an **imperative command** ("Implement...", "Calculate...", "Generate a cohort by...", "Perform a statistical test...").
+    - Be **highly specific** about inputs, methods, and expected outputs.
+    - Be complex enough to require **multi-step reasoning or non-trivial coding**.
+    - For any mathematical formula, equation, or variable, you **MUST use LaTeX syntax** (e.g., `$\\alpha = \\beta + \\gamma$`).
 
-3.  `answer` (string): The ground truth result, definition, or finding from the paper that serves as the "solution" to the `task`. This will be used for evaluation. It must:
-    - Directly correspond to its `task`.
-    - Be a direct quote or a very faithful, close paraphrase from the paper.
+3.  `answer` (string): The **concrete, verifiable ground truth** from the paper that serves as the solution. This is the most critical field. It MUST:
+    - Be a specific **number**, **result**, **table value**, **hyperparameter setting**, **final mathematical formula**, or **exact definition** quoted from the paper.
+    - **NOT** be a conceptual re-explanation or a paraphrase of the task. It must be the *outcome* of the task.
+    - Directly and precisely answer the question posed by the `task`.
+    - Also **use LaTeX syntax** for any mathematical notation.
 
 ### INSTRUCTIONS ###
-Now, analyze the following research paper text. Deconstruct it into a diverse set of solvable tasks covering the entire research process. Follow all rules and the JSON format specified above. Ensure every task is self-contained and grounded in the provided text.
+Now, analyze the following research paper text. Deconstruct it into a diverse set of complex, sub-project-level tasks. Follow all rules, the JSON format. Ensure every task and answer pair is concrete, specific, and verifiable from the text.
 
 --- RESEARCH PAPER TEXT ---
 {paper_text}
@@ -151,11 +147,16 @@ def extract_json_from_response(response_text: str) -> Optional[List[Dict[str, An
 
             open_brackets = 0
             end_index = -1
+            in_string = False
             for i, char in enumerate(response_text[start_index:]):
-                if char == '[':
+                if char == '"':
+                    # Basic handling of quotes, ignores escaped quotes
+                    in_string = not in_string
+                elif char == '[' and not in_string:
                     open_brackets += 1
-                elif char == ']':
+                elif char == ']' and not in_string:
                     open_brackets -= 1
+
                 if open_brackets == 0:
                     end_index = start_index + i
                     break
@@ -174,7 +175,7 @@ def extract_json_from_response(response_text: str) -> Optional[List[Dict[str, An
             return None
 
     except (json.JSONDecodeError, IndexError) as e:
-        logger.error(f"Failed to decode JSON from response. Error: {e}. Snippet: {response_text[:300]}...")
+        logger.error(f"Failed to decode JSON from response. Error: {e}. Snippet: {response_text[:500]}...")
         return None
 
 
