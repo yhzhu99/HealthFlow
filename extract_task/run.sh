@@ -14,6 +14,9 @@
 set -e
 
 # --- Configuration ---
+# The LLM to use. This must be a key from the LLM_MODELS_SETTINGS dictionary in extract.py.
+# Available options typically include: "deepseek-v3-official", "deepseek-r1-official", "qwen3-235b-a22b"
+LLM_MODEL="deepseek-v3-official"
 # Number of parallel jobs to run. Adjust based on your machine and API rate limits.
 MAX_CONCURRENT=8
 # Input file containing paper IDs, one per line.
@@ -59,7 +62,7 @@ run_command() {
 }
 
 # --- Main Execution Loop ---
-echo ">>> Starting task extraction for paper IDs in $ID_FILE..."
+echo ">>> Starting task extraction for paper IDs in $ID_FILE using LLM: $LLM_MODEL..."
 if [ ! -f "$ID_FILE" ]; then
     echo "Error: ID file not found at $ID_FILE"
     exit 1
@@ -72,7 +75,7 @@ while IFS= read -r paper_id || [[ -n "$paper_id" ]]; do
     fi
 
     # Define the command to be executed for the current paper ID.
-    cmd="python extract_task/extract.py --paper_id \"$paper_id\" --markdowns-dir \"$MARKDOWNS_DIR\" --output-dir \"$OUTPUT_DIR\""
+    cmd="python extract_task/extract.py --paper_id \"$paper_id\" --markdowns-dir \"$MARKDOWNS_DIR\" --output-dir \"$OUTPUT_DIR\" --llm \"$LLM_MODEL\""
 
     # Run the command using the concurrency manager.
     run_command "$cmd"

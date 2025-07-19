@@ -13,20 +13,28 @@ from openai import OpenAI, OpenAIError, RateLimitError, APIConnectionError
 
 # --- Environment and Configuration ---
 # Load environment variables from a .env file in the project root
-try:
-    project_root = Path(__file__).resolve().parent.parent
-    dotenv_path = project_root / '.env'
-    if dotenv_path.exists():
-        load_dotenv(dotenv_path=dotenv_path)
-    else:
-        print(f"Warning: .env file not found at {dotenv_path}. Relying on system environment variables.")
-except Exception as e:
-    print(f"Error loading .env file: {e}")
+load_dotenv(dotenv_path='.env')
 
-# Use DeepSeek as the default LLM, which is compatible with the OpenAI SDK
-LLM_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-LLM_BASE_URL = "https://api.deepseek.com"
-LLM_MODEL_NAME = "deepseek-chat"
+# --- Centralized LLM Settings ---
+# This dictionary holds the configurations for different LLMs.
+# The script selects one based on the --llm command-line argument.
+LLM_MODELS_SETTINGS = {
+    "deepseek-v3-official": {
+        "api_key": os.getenv("DEEPSEEK_API_KEY"),
+        "base_url": "https://api.deepseek.com",
+        "model_name": "deepseek-chat",
+    },
+    "deepseek-r1-official": {
+        "api_key": os.getenv("DEEPSEEK_API_KEY"),
+        "base_url": "https://api.deepseek.com",
+        "model_name": "deepseek-reasoner",
+    },
+    "qwen3-235b-a22b": {
+        "api_key": os.getenv("DASHSCOPE_API_KEY"),
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model_name": "qwen3-235b-a22b",
+    },
+}
 
 # API call settings
 API_TIMEOUT_SECONDS = 180
@@ -44,7 +52,7 @@ logger = logging.getLogger(__name__)
 # --- LLM Prompt Template ---
 PROMPT_TEMPLATE = """
 ### ROLE & GOAL ###
-You are a meticulous research assistant. Your goal is to read the provided text from a biomedical research paper and extract all tasks related to the use of Electronic Health Records (EHR). A "task" is a distinct step or procedure performed by the researchers, such as defining a patient group, preprocessing data, or building a model.
+You are a research assistant. Your goal is to read the provided text from a research paper and extract all tasks related to the use of Electronic Health Records (EHR). A "task" is a distinct step or procedure performed by the researchers, such as defining a patient group, preprocessing data, or building a model, etc.
 
 ### CONTEXT ###
 The research papers are about applying AI and data science to EHR data, which can include:
@@ -57,31 +65,24 @@ Your extraction should cover tasks related to any of these data types.
 You MUST provide the output as a single, valid JSON array of objects. Do not include any text or explanations outside of this JSON structure. Each object in the array represents a single extracted task and MUST have the following three keys:
 
 1.  `category` (string): A concise, high-level classification of the task, in a few words. You should generate this category based on the task's nature. Examples include:
-    - "Cohort Definition"
     - "Data Preprocessing"
     - "Feature Engineering"
     - "Predictive Modeling"
     - "Model Evaluation"
     - "Statistical Analysis"
-    - "Causal Inference"
     *Do not be limited by these examples. Create new categories if they are more appropriate.*
 
-2.  `task` (string): A detailed, self-contained description of the task. This description should be clear enough to be understood without reading the full paper. It should summarize what was done, what data was used, and what the objective was.
+2.  `task` (string): A detailed, self-contained description of the task. This description should be clear enough to be understood without reading the full paper. It should summarize what was done, what data was used (data structure), and what the objective was.
 
-3.  `answer` (string): The evidence for the task. This MUST be a direct quote or a very faithful, close paraphrase from the paper. If the evidence is from a table or figure, you must describe its content and cite it (e.g., "As shown in Table 2, the model achieved an AUROC of 0.91...").
+3.  `answer` (string): The evidence for the task. This MUST be a direct quote or a very faithful, close paraphrase from the paper, but self-contained and corresponding to the task. If the evidence is from a table or figure, you must describe its content (e.g., "the model achieved an AUROC of 0.91...").
 
 ### EXAMPLE ###
 ```json
 [
   {
-    "category": "Cohort Definition",
-    "task": "Define a patient cohort for sepsis prediction. The process involves selecting adult patients (age >= 18) from the MIMIC-IV database who were admitted to the ICU. Sepsis is identified based on the Sepsis-3 criteria, requiring evidence of suspected infection and an acute increase in the SOFA score of 2 points or more.",
-    "answer": "We identified a cohort of adult patients (age ≥ 18 years) from their first ICU admission in the MIMIC-IV v2.0 database... Sepsis was defined according to the Sepsis-3 criteria, which includes suspected infection and a sequential organ failure assessment (SOFA) score increase of ≥2 points."
-  },
-  {
     "category": "Data Preprocessing",
-    "task": "Process and clean time-series vital sign data for the defined cohort. This includes handling missing values by carrying the last observation forward (LOCF) and removing variables with more than 80% missingness. Outliers were addressed by winsorizing at the 1st and 99th percentiles.",
-    "answer": "For missing data in time-series variables, we used the last observation carried forward method. Variables with over 80% missing values were excluded from the analysis. To handle extreme values, we applied winsorization at the 1st and 99th percentiles."
+    "task": "Process and clean time-series EHR data for the defined cohort, handling missing values by carrying the last observation forward (LOCF) and removing outliers.",
+    "answer": "For missing data in time-series variables, we used the last observation carried forward method. To handle extreme values, we applied winsorization at the 1st and 99th percentiles."
   }
 ]
 ```
@@ -173,7 +174,7 @@ def extract_json_from_response(response_text: str) -> Optional[List[Dict[str, An
         return None
 
 
-def call_llm(client: OpenAI, paper_text: str, paper_id: str) -> Optional[List[Dict[str, Any]]]:
+def call_llm(client: OpenAI, paper_text: str, paper_id: str, model_name: str) -> Optional[List[Dict[str, Any]]]:
     """
     Calls the LLM with the paper text to extract tasks, using streaming and retries.
 
@@ -181,6 +182,7 @@ def call_llm(client: OpenAI, paper_text: str, paper_id: str) -> Optional[List[Di
         client: An initialized OpenAI client.
         paper_text: The full text of the research paper.
         paper_id: The ID of the paper, for logging purposes.
+        model_name: The name of the model to use for the API call.
 
     Returns:
         A list of extracted task dictionaries, or None on failure.
@@ -190,9 +192,9 @@ def call_llm(client: OpenAI, paper_text: str, paper_id: str) -> Optional[List[Di
 
     for attempt in range(MAX_RETRIES):
         try:
-            logger.info(f"[{paper_id}] Calling LLM (Attempt {attempt + 1}/{MAX_RETRIES})...")
+            logger.info(f"[{paper_id}] Calling LLM '{model_name}' (Attempt {attempt + 1}/{MAX_RETRIES})...")
             stream = client.chat.completions.create(
-                model=LLM_MODEL_NAME,
+                model=model_name,
                 messages=messages,
                 temperature=0.0,
                 stream=True,
@@ -230,7 +232,7 @@ def call_llm(client: OpenAI, paper_text: str, paper_id: str) -> Optional[List[Di
     return None
 
 
-def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: OpenAI) -> None:
+def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: OpenAI, model_name: str) -> None:
     """
     Main processing logic for a single paper ID.
 
@@ -239,6 +241,7 @@ def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: 
         markdowns_dir: The directory containing markdown folders.
         output_dir: The directory to save the output JSON.
         client: An initialized OpenAI client.
+        model_name: The specific model name to use for the API call.
     """
     logger.info(f"--- Starting processing for Paper ID: {paper_id} ---")
 
@@ -255,7 +258,7 @@ def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: 
         return
 
     # 2. Call LLM to extract tasks
-    tasks = call_llm(client, paper_text, paper_id)
+    tasks = call_llm(client, paper_text, paper_id, model_name)
 
     # 3. Validate and save results
     if tasks is None:
@@ -309,18 +312,34 @@ def main():
         default=Path("extract_task/tasks"),
         help="Directory to save the output JSON files."
     )
+    parser.add_argument(
+        "--llm",
+        type=str,
+        default="deepseek-v3-official",
+        choices=list(LLM_MODELS_SETTINGS.keys()),
+        help=f"The LLM to use for extraction. Available: {list(LLM_MODELS_SETTINGS.keys())}"
+    )
     args = parser.parse_args()
 
-    if not LLM_API_KEY:
-        logger.error("DEEPSEEK_API_KEY environment variable not set. Please set it in your .env file or environment.")
+    # --- LLM Client Initialization ---
+    model_key = args.llm
+    settings = LLM_MODELS_SETTINGS[model_key]
+    api_key = settings.get("api_key")
+    base_url = settings.get("base_url")
+    model_name = settings.get("model_name")
+
+    if not api_key:
+        # Determine which environment variable is missing for the error message.
+        required_env_var = "DEEPSEEK_API_KEY" if "deepseek" in model_key else "DASHSCOPE_API_KEY" if "qwen" in model_key else "the required API key"
+        logger.error(f"API key for '{model_key}' is not set. Please set {required_env_var} in your .env file or environment.")
         sys.exit(1)
 
     client = OpenAI(
-        api_key=LLM_API_KEY,
-        base_url=LLM_BASE_URL,
+        api_key=api_key,
+        base_url=base_url,
     )
 
-    process_paper(args.paper_id, args.markdowns_dir, args.output_dir, client)
+    process_paper(args.paper_id, args.markdowns_dir, args.output_dir, client, model_name)
 
 
 if __name__ == "__main__":
