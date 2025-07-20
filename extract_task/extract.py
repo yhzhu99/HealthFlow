@@ -38,6 +38,7 @@ LLM_MODELS_SETTINGS = {
     "gemini-2.5-pro": {
         "api_key": os.getenv("GEMINI_API_KEY"),
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        # "base_url": "https://api.laozhang.ai/v1",
         "model_name": "gemini-2.5-pro",
     },
 }
@@ -78,7 +79,7 @@ Please dissect the provided research paper and generate a series of self-contain
 
 ### ABSOLUTE RULES FOR TASK GENERATION (NON-NEGOTIABLE) ###
 
-1.  **ZERO-REFERENCE MANDATE:** The `task` description MUST be entirely self-contained. It must NOT reference the source paper in any way (e.g., "as described in Section 3," "using Equation (5)," "from Table 2"). The AI agent performing the task will NOT have access to the paper. All necessary information, formulas, parameters, and constants must be explicitly defined within the `task` string.
+1.  **ZERO-REFERENCE MANDATE:** The task description MUST be entirely self-contained. It must NOT reference the source paper in any way (e.g., "as described in Section 3," "using Equation (5)," "from Table 2"). The AI agent performing the task will NOT have access to the paper. All necessary information, formulas, parameters, and constants must be explicitly defined within the `<task>`.
 
     *   **FAILURE EXAMPLE (DO NOT DO THIS):** "Implement the time-aware graph attention mechanism from equations (1)-(4)."
     *   **SUCCESS EXAMPLE (DO THIS):** "Implement a time-aware graph attention mechanism. Given a head entity \\(c_h\\), its neighbors \\(N_h\\), and a time interval \\(\\tau\\), compute the aggregated neighbor representation \\(e_{{N_h}}\\). First, compute the time embedding \\(f_\\tau = \\tanh(W_f \\tau + b_f)\\). Then, for each neighbor \\(c_u \\in N_h\\), calculate the attention score \\(\\pi(c_h, r, c_u, \\tau)\\) using a feed-forward network: \\(\\text{{FFN}}(M_r e_h \\| M_r e_u \\| f_\\tau)\\), where \\(\\|\\) denotes concatenation. Normalize these scores using softmax to get \\(\\tilde{{\\pi}}\\). Finally, compute \\(e_{{N_h}} = \\sum_{{c_u \\in N_h}} \\tilde{{\\pi}}(c_h, r, c_u, \\tau) e_u\\). Use parameter dimensions: \\(e_h, e_u \\in \\mathbb{{R}}^{{100}}\\), \\(M_r \\in \\mathbb{{R}}^{{100 \\times 100}}\\), \\(W_f \\in \\mathbb{{R}}^{{64}}\\), \\(b_f \\in \\mathbb{{R}}^{{64}}\\)."
@@ -87,16 +88,16 @@ Please dissect the provided research paper and generate a series of self-contain
     *   For inline math, use `\\( ... \\)`. Example: The loss is calculated for each sample \\(i\\).
     *   For block/display math, use `\\[ ... \\]`. Example: \\[ L_{{\\text{{total}}}} = \\sum_{{i=1}}^{{N}} (y_i - \\hat{{y}}_i)^2 \\]
 
-3.  **DIVERSE & SUBSTANTIAL TASKS:** Generate a variety of tasks covering different research stages (e.g., Cohort Definition, Feature Engineering, Model Implementation, Evaluation). Each task should be a meaningful unit of work, not a trivial query.
+3.  **DIVERSE & SUBSTANTIAL TASKS:** Generate a variety of tasks covering different research stages (e.g., Cohort Definition, Feature Engineering, Model Implementation, etc.). Each task should be a meaningful unit of work, not a trivial query.
 
-4.  **VERIFIABLE ANSWER:** The `answer` field must contain the specific, verifiable result from the paper that directly corresponds to the completion of the `task`. The answer must also include a brief interpretation of the result's significance within the context of the study. Use LaTeX for any math in the answer.
+4.  **VERIFIABLE ANSWER:** The `<answer>` field must contain the specific, verifiable result from the paper that directly corresponds to the completion of the task. The answer must also include a brief interpretation of the result's significance within the context of the study. Use LaTeX for any math in the answer.
 
 ### XML OUTPUT SPECIFICATION (STRICTLY ENFORCED) ###
 Your entire output must be a single, valid XML block. Do not include any text, explanations, or markdown fences before or after the XML. The root element must be `<response>`. Each task must be enclosed in an `<item>` tag with exactly these three child tags: `<category>`, `<task>`, and `<answer>`:
 
-1. `<category>` (string): A descriptive category for the task (e.g., "Cohort Definition", "Feature Engineering", "Model Implementation", "Model Evaluation").
-2. `<task>` (string): The detailed, self-contained, imperative instructions for the AI agent, following all rules above. **All math must be in LaTeX.**
-3. `<answer>` (string): The verifiable result from the paper. This should contain the specific value/outcome and a brief sentence explaining its context. **Any math must be in LaTeX.**
+1. `<category>`: A descriptive category for the task.
+2. `<task>`: The detailed, self-contained, imperative instructions for the AI agent, following all rules above. **All math must be in LaTeX.**
+3. `<answer>`: The verifiable result from the paper. This should contain the specific value/outcome and a brief sentence explaining its context. **Any math must be in LaTeX.**
 
 --- BEGIN RESEARCH PAPER TEXT ---
 {paper_text}
@@ -119,12 +120,13 @@ def find_markdown_path(markdowns_dir: Path, paper_id: str) -> Optional[Path]:
     return None
 
 
-def extract_tasks_from_xml(response_text: str) -> Optional[List[Dict[str, Any]]]:
+def extract_tasks_from_xml(response_text: str, paper_id: str) -> Optional[List[Dict[str, Any]]]:
     """
     Extracts a list of tasks from an XML-formatted string.
 
     Args:
         response_text: The full text response from the LLM, expected to be XML.
+        paper_id: The ID of the paper for which the tasks are being extracted.
 
     Returns:
         A list of task dictionaries, or None if parsing fails.
@@ -151,6 +153,9 @@ def extract_tasks_from_xml(response_text: str) -> Optional[List[Dict[str, Any]]]
 
         return tasks if tasks else None
     except ET.ParseError as e:
+        # save the response_text to a file for debugging
+        with open(f'{paper_id}_failed_response.xml', 'w') as f:
+            f.write(response_text)
         logger.error(f"Failed to parse XML from LLM response. Error: {e}. Snippet: {response_text[:500]}...")
         return None
     except Exception as e:
@@ -180,7 +185,7 @@ def call_llm(client: OpenAI, paper_text: str, paper_id: str, model_name: str) ->
                 logger.warning(f"[{paper_id}] LLM returned an empty response.")
                 continue
 
-            tasks = extract_tasks_from_xml(full_response)
+            tasks = extract_tasks_from_xml(full_response, paper_id)
             return tasks
 
         except (RateLimitError, APIConnectionError) as e:

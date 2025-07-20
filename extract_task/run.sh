@@ -19,7 +19,7 @@ set -e
 LLM_MODEL=gemini-2.5-pro
 
 # Number of parallel jobs to run. Adjust based on your machine and API rate limits.
-MAX_CONCURRENT=4 # Increased for demonstration; adjust as needed.
+MAX_CONCURRENT=8 # Increased for demonstration; adjust as needed.
 
 # Input file containing paper IDs, one per line.
 ID_FILE="filter_paper/results/final_selected_ID.txt"

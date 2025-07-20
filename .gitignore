@@ -9,6 +9,7 @@ TASK.md
 *.json
 *.jsonl
 *.lock
+tmp/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
