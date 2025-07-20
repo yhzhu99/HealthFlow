@@ -35,6 +35,11 @@ LLM_MODELS_SETTINGS = {
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "model_name": "qwen3-235b-a22b",
     },
+    "gemini-2.5-pro": {
+        "api_key": os.getenv("GEMINI_API_KEY"),
+        "base_url": "https://api.laozhang.ai/v1",
+        "model_name": "gemini-2.5-pro",
+    },
 }
 
 # API call settings
