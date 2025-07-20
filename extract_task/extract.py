@@ -6,8 +6,10 @@ import os
 import re
 import sys
 import time
+import atexit
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import xml.etree.ElementTree as ET
 
 from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError, RateLimitError, APIConnectionError
@@ -17,8 +19,6 @@ from openai import OpenAI, OpenAIError, RateLimitError, APIConnectionError
 load_dotenv(dotenv_path='.env')
 
 # --- Centralized LLM Settings ---
-# This dictionary holds the configurations for different LLMs.
-# The script selects one based on the --llm command-line argument.
 LLM_MODELS_SETTINGS = {
     "deepseek-v3-official": {
         "api_key": os.getenv("DEEPSEEK_API_KEY"),
@@ -50,6 +50,23 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+# --- Concurrency Lock File ---
+# Global variable to hold the path to the lock file for cleanup
+LOCK_FILE_PATH: Optional[Path] = None
+
+def cleanup_lock():
+    """Remove the lock file on exit."""
+    if LOCK_FILE_PATH and LOCK_FILE_PATH.exists():
+        try:
+            LOCK_FILE_PATH.unlink()
+            logger.info(f"Successfully removed lock file: {LOCK_FILE_PATH}")
+        except OSError as e:
+            logger.error(f"Error removing lock file {LOCK_FILE_PATH}: {e}")
+
+# Register the cleanup function to be called on script exit
+atexit.register(cleanup_lock)
+
+
 PROMPT_TEMPLATE = """
 ### CORE MISSION ###
 Please dissect the provided research paper and generate a series of self-contained, complex "mini-projects." These projects will be used to evaluate an advanced AI agent's ability to implement algorithms and reproduce scientific findings. You will generate approximately 5 such projects.
@@ -69,12 +86,12 @@ Please dissect the provided research paper and generate a series of self-contain
 
 4.  **VERIFIABLE ANSWER:** The `answer` field must contain the specific, verifiable result from the paper that directly corresponds to the completion of the `task`. The answer must also include a brief interpretation of the result's significance within the context of the study. Use LaTeX for any math in the answer.
 
-### JSON OUTPUT SPECIFICATION (STRICTLY ENFORCED) ###
-Your entire output must be a single, valid JSON array `[[...]]`. Do not include any text, explanations, or markdown fences before or after the JSON. Each object within the array must have exactly these three keys:
+### XML OUTPUT SPECIFICATION (STRICTLY ENFORCED) ###
+Your entire output must be a single, valid XML block. Do not include any text, explanations, or markdown fences before or after the XML. The root element must be `<response>`. Each task must be enclosed in an `<item>` tag with exactly these three child tags: `<category>`, `<task>`, and `<answer>`:
 
-1.  `category` (string): A descriptive category for the task (e.g., "Cohort Definition", "Feature Engineering", "Model Implementation", "Model Evaluation").
-2.  `task` (string): The detailed, self-contained, imperative instructions for the AI agent, following all rules above. **All math must be in LaTeX.**
-3.  `answer` (string): The verifiable result from the paper. This should contain the specific value/outcome and a brief sentence explaining its context. **Any math must be in LaTeX.**
+1. `<category>` (string): A descriptive category for the task (e.g., "Cohort Definition", "Feature Engineering", "Model Implementation", "Model Evaluation").
+2. `<task>` (string): The detailed, self-contained, imperative instructions for the AI agent, following all rules above. **All math must be in LaTeX.**
+3. `<answer>` (string): The verifiable result from the paper. This should contain the specific value/outcome and a brief sentence explaining its context. **Any math must be in LaTeX.**
 
 --- BEGIN RESEARCH PAPER TEXT ---
 {paper_text}
@@ -83,95 +100,61 @@ Your entire output must be a single, valid JSON array `[[...]]`. Do not include 
 
 
 def find_markdown_path(markdowns_dir: Path, paper_id: str) -> Optional[Path]:
-    """
-    Finds the full.md file for a given paper ID within the markdowns directory.
-
-    Args:
-        markdowns_dir: The base directory containing paper markdown folders.
-        paper_id: The ID of the paper to find.
-
-    Returns:
-        The Path to the full.md file, or None if not found.
-    """
+    """Finds the full.md file for a given paper ID."""
     if not markdowns_dir.is_dir():
         logger.error(f"Markdowns directory not found: {markdowns_dir}")
         return None
-
     prefix = f"{paper_id}_"
     for item in markdowns_dir.iterdir():
         if item.is_dir() and item.name.startswith(prefix):
             markdown_file = item / "full.md"
             if markdown_file.is_file():
                 return markdown_file
-            else:
-                logger.warning(f"Directory found for {paper_id} but full.md is missing in: {item}")
-                return None
-
     logger.warning(f"No directory found with prefix '{prefix}' in {markdowns_dir}")
     return None
 
 
-def extract_json_from_response(response_text: str) -> Optional[List[Dict[str, Any]]]:
+def extract_tasks_from_xml(response_text: str) -> Optional[List[Dict[str, Any]]]:
     """
-    Robustly extracts a JSON array from a string that might contain markdown fences.
+    Extracts a list of tasks from an XML-formatted string.
 
     Args:
-        response_text: The full text response from the LLM.
+        response_text: The full text response from the LLM, expected to be XML.
 
     Returns:
-        A list of dictionaries if a valid JSON array is found, otherwise None.
+        A list of task dictionaries, or None if parsing fails.
     """
-    json_str = ""
+    tasks = []
     try:
-        # Handle case where the JSON is wrapped in ```json ... ```
-        if '```json' in response_text:
-            json_str = response_text.split('```json')[1].split('```')[0].strip()
-        # Handle case where the JSON starts immediately
-        elif response_text.strip().startswith('['):
-            json_str = response_text.strip()
-        else:
-            # Find the start of the JSON array if it's embedded
-            start_index = response_text.find('[')
-            end_index = response_text.rfind(']')
-            if start_index != -1 and end_index != -1 and end_index > start_index:
-                json_str = response_text[start_index : end_index + 1]
+        # Clean up the response to remove potential markdown fences
+        clean_text = re.sub(r'```xml\s*|\s*```', '', response_text).strip()
+        root = ET.fromstring(clean_text)
+
+        for item_node in root.findall('item'):
+            category = item_node.find('category')
+            task_desc = item_node.find('task')
+            answer = item_node.find('answer')
+
+            if all(tag is not None and tag.text for tag in [category, task_desc, answer]):
+                tasks.append({
+                    'category': category.text.strip(),
+                    'task': task_desc.text.strip(),
+                    'answer': answer.text.strip()
+                })
             else:
-                logger.error("No JSON array start/end tokens '[' or ']' found in response.")
-                return None
+                logger.warning("Skipping malformed XML item with missing tags or empty text.")
 
-        # Added check for empty string before attempting to load JSON
-        if not json_str:
-            logger.error("Extracted JSON string is empty.")
-            return None
-
-        json_str = re.sub(r'\\(?![/"\\bfnrtu])', r'\\\\', json_str)
-
-        parsed_json = json.loads(json_str)
-
-        if isinstance(parsed_json, list):
-            return parsed_json
-        else:
-            logger.error(f"Parsed JSON is not a list. Type: {type(parsed_json)}")
-            return None
-
-    except (json.JSONDecodeError, IndexError) as e:
-        logger.error(f"Failed to decode JSON from response. Error: {e}. Snippet: {response_text[:500]}...")
+        return tasks if tasks else None
+    except ET.ParseError as e:
+        logger.error(f"Failed to parse XML from LLM response. Error: {e}. Snippet: {response_text[:500]}...")
+        return None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during XML parsing: {e}")
         return None
 
 
 def call_llm(client: OpenAI, paper_text: str, paper_id: str, model_name: str) -> Optional[List[Dict[str, Any]]]:
-    """
-    Calls the LLM with the paper text to extract tasks, using streaming and retries.
-
-    Args:
-        client: An initialized OpenAI client.
-        paper_text: The full text of the research paper.
-        paper_id: The ID of the paper, for logging purposes.
-        model_name: The name of the model to use for the API call.
-
-    Returns:
-        A list of extracted task dictionaries, or None on failure.
-    """
+    """Calls the LLM to extract tasks, using streaming and retries."""
     prompt = PROMPT_TEMPLATE.format(paper_text=paper_text)
     messages = [{"role": "user", "content": prompt}]
 
@@ -186,22 +169,18 @@ def call_llm(client: OpenAI, paper_text: str, paper_id: str, model_name: str) ->
                 timeout=API_TIMEOUT_SECONDS,
             )
 
-            full_response = "".join(
-                chunk.choices[0].delta.content or "" for chunk in stream
-            )
+            full_response = "".join(chunk.choices[0].delta.content or "" for chunk in stream)
 
             if not full_response.strip():
                 logger.warning(f"[{paper_id}] LLM returned an empty response.")
                 continue
 
-            tasks = extract_json_from_response(full_response)
+            tasks = extract_tasks_from_xml(full_response)
             return tasks
 
         except (RateLimitError, APIConnectionError) as e:
-            wait_time = 2 ** (attempt + 2)  # Exponential backoff (4s, 8s, 16s)
-            logger.warning(
-                f"[{paper_id}] API Error (Attempt {attempt+1}): {e}. Retrying in {wait_time}s..."
-            )
+            wait_time = 2 ** (attempt + 2)
+            logger.warning(f"[{paper_id}] API Error (Attempt {attempt+1}): {e}. Retrying in {wait_time}s...")
             if attempt < MAX_RETRIES - 1:
                 time.sleep(wait_time)
             else:
@@ -218,16 +197,7 @@ def call_llm(client: OpenAI, paper_text: str, paper_id: str, model_name: str) ->
 
 
 def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: OpenAI, model_name: str) -> None:
-    """
-    Main processing logic for a single paper ID: reads file, calls LLM, saves results.
-
-    Args:
-        paper_id: The ID of the paper to process.
-        markdowns_dir: The directory containing markdown folders.
-        output_dir: The directory to save the output JSON.
-        client: An initialized OpenAI client.
-        model_name: The specific model name to use for the API call.
-    """
+    """Main processing logic for a single paper: reads file, calls LLM, saves results to JSONL."""
     logger.info(f"--- Starting processing for Paper ID: {paper_id} ---")
 
     # 1. Find and read the markdown file
@@ -248,28 +218,19 @@ def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: 
     # 2. Call LLM to extract tasks
     tasks = call_llm(client, paper_text, paper_id, model_name)
 
-    # 3. Validate and save results
-    if tasks is None:
+    # 3. Validate and save results to JSONL
+    if not tasks:
         logger.error(f"[{paper_id}] Failed to extract tasks from LLM. No output will be saved.")
         return
 
-    valid_tasks = []
-    for i, task in enumerate(tasks):
-        if isinstance(task, dict) and all(k in task for k in ["category", "task", "answer"]):
-            valid_tasks.append(task)
-        else:
-            logger.warning(f"[{paper_id}] Skipping malformed task item #{i+1}: {str(task)[:100]}...")
-
-    if not valid_tasks:
-        logger.warning(f"[{paper_id}] No valid tasks were extracted. Not saving file.")
-        return
-
-    output_path = output_dir / f"{paper_id}_tasks.json"
+    output_path = output_dir / f"{paper_id}_tasks.jsonl"
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
         with output_path.open('w', encoding='utf-8') as f:
-            json.dump(valid_tasks, f, indent=2, ensure_ascii=False)
-        logger.info(f"[{paper_id}] Successfully extracted {len(valid_tasks)} tasks. Saved to {output_path}")
+            for task in tasks:
+                # Write each task as a JSON object on a new line
+                f.write(json.dumps(task, ensure_ascii=False) + '\n')
+        logger.info(f"[{paper_id}] Successfully extracted {len(tasks)} tasks. Saved to {output_path}")
     except Exception as e:
         logger.error(f"[{paper_id}] Failed to write tasks to {output_path}: {e}")
 
@@ -277,75 +238,58 @@ def process_paper(paper_id: str, markdowns_dir: Path, output_dir: Path, client: 
 
 
 def main():
-    """Parses command-line arguments and orchestrates the extraction process for one paper."""
-    parser = argparse.ArgumentParser(
-        description="Extracts complex, self-contained tasks from a research paper's markdown file using an LLM."
-    )
-    parser.add_argument(
-        "--paper_id",
-        type=str,
-        required=True,
-        help="The ID of the paper to process (e.g., '2203.01077')."
-    )
-    parser.add_argument(
-        "--markdowns-dir",
-        type=Path,
-        default=Path("extract_task/assets/markdowns"),
-        help="Directory containing paper markdown folders."
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("extract_task/tasks"),
-        help="Directory to save the output JSON files."
-    )
-    parser.add_argument(
-        "--llm",
-        type=str,
-        default="deepseek-r1-official",
-        choices=list(LLM_MODELS_SETTINGS.keys()),
-        help=f"The LLM to use for extraction. Available: {list(LLM_MODELS_SETTINGS.keys())}"
-    )
+    """Parses args, handles locking, and orchestrates the extraction process."""
+    global LOCK_FILE_PATH
+
+    parser = argparse.ArgumentParser(description="Extracts tasks from a paper's markdown using an LLM and saves as JSONL.")
+    parser.add_argument("--paper_id", type=str, required=True, help="ID of the paper to process (e.g., '2203.01077').")
+    parser.add_argument("--markdowns-dir", type=Path, default=Path("extract_task/assets/markdowns"), help="Directory of markdown folders.")
+    parser.add_argument("--output-dir", type=Path, default=Path("extract_task/tasks"), help="Directory to save output JSONL files.")
+    parser.add_argument("--llm", type=str, default="deepseek-r1-official", choices=list(LLM_MODELS_SETTINGS.keys()), help="LLM to use for extraction.")
     args = parser.parse_args()
 
-    # --- Check if output file already exists before any processing ---
-    output_file_path = args.output_dir / f"{args.paper_id}_tasks.json"
+    # --- Concurrency & Pre-flight Checks ---
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    output_file_path = args.output_dir / f"{args.paper_id}_tasks.jsonl"
+    LOCK_FILE_PATH = args.output_dir / f"{args.paper_id}.lock"
+
     if output_file_path.is_file():
-        logger.info(f"Output file for paper ID '{args.paper_id}' already exists at {output_file_path}. Skipping.")
-        return  # Exit gracefully
+        logger.info(f"Output file for '{args.paper_id}' already exists. Skipping.")
+        return
+
+    if LOCK_FILE_PATH.is_file():
+        logger.warning(f"Lock file for '{args.paper_id}' exists. Another process is likely working on it. Skipping.")
+        return
+
+    # Create lock file
+    try:
+        LOCK_FILE_PATH.touch()
+    except OSError as e:
+        logger.error(f"Failed to create lock file {LOCK_FILE_PATH}: {e}. Aborting.")
+        return
+
 
     # --- LLM Client Initialization ---
-    model_key = args.llm
-    settings = LLM_MODELS_SETTINGS.get(model_key)
+    settings = LLM_MODELS_SETTINGS.get(args.llm)
     if not settings:
-        logger.error(f"LLM settings for '{model_key}' not found.")
+        logger.error(f"LLM settings for '{args.llm}' not found.")
         sys.exit(1)
 
     api_key = settings.get("api_key")
-    base_url = settings.get("base_url")
-    model_name = settings.get("model_name")
-
     if not api_key:
-        # Determine which environment variable is missing for the error message.
-        required_env_var_map = {
-            "deepseek": "DEEPSEEK_API_KEY",
-            "qwen": "DASHSCOPE_API_KEY"
-        }
-        env_var_name = next((v for k, v in required_env_var_map.items() if k in model_key), "the required API key")
-        logger.error(f"API key for '{model_key}' is not set. Please set {env_var_name} in your .env file or environment.")
+        env_var_map = {"deepseek": "DEEPSEEK_API_KEY", "qwen": "DASHSCOPE_API_KEY"}
+        env_var = next((v for k, v in env_var_map.items() if k in args.llm), "the required API key")
+        logger.error(f"API key for '{args.llm}' is not set. Please set {env_var} in your .env file.")
         sys.exit(1)
 
     try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-        )
+        client = OpenAI(api_key=api_key, base_url=settings.get("base_url"))
     except Exception as e:
-        logger.error(f"Failed to initialize OpenAI client for '{model_key}'. Error: {e}")
+        logger.error(f"Failed to initialize OpenAI client for '{args.llm}'. Error: {e}")
         sys.exit(1)
 
     # --- Process the Paper ---
-    process_paper(args.paper_id, args.markdowns_dir, args.output_dir, client, model_name)
+    process_paper(args.paper_id, args.markdowns_dir, args.output_dir, client, settings.get("model_name"))
 
 
 if __name__ == "__main__":
