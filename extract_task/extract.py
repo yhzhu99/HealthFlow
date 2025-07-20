@@ -37,7 +37,7 @@ LLM_MODELS_SETTINGS = {
     },
     "gemini-2.5-pro": {
         "api_key": os.getenv("GEMINI_API_KEY"),
-        "base_url": "https://api.laozhang.ai/v1",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "model_name": "gemini-2.5-pro",
     },
 }
