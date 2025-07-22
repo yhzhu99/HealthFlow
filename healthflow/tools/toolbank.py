@@ -1,833 +1,761 @@
 """
-ToolBank: Dynamic Tool Creation and Management System
-
-This module implements the core tool creation and management capabilities:
-- MCP-driven tool generation
-- Automatic tool discovery from requirements
-- Code generation for specialized healthcare tools
-- Tool validation and testing
-- Tool registry and versioning
-- Reusable component library
+ToolBank System for HealthFlow
+Dynamic tool creation, management, and execution system
+Supports MCP (Model Context Protocol) driven tool development
+Uses jsonl, parquet, and pickle for persistence
 """
 
 import json
-import sqlite3
-import hashlib
+import pickle
+import asyncio
 import subprocess
-import tempfile
-import importlib.util
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, asdict
+import sys
 from datetime import datetime
 from pathlib import Path
-import logging
-import ast
+from typing import Dict, List, Optional, Any, Callable, Union
+from dataclasses import dataclass, asdict
+from enum import Enum
+import uuid
 import inspect
+import importlib.util
+import tempfile
 
-from openai import AsyncOpenAI
+import pandas as pd
+from pydantic import BaseModel
+
+
+class ToolType(Enum):
+    """Types of tools in the ToolBank"""
+    PYTHON_FUNCTION = "python_function"
+    SHELL_COMMAND = "shell_command"
+    API_CALL = "api_call"
+    DATA_PROCESSOR = "data_processor"
+    MEDICAL_ANALYZER = "medical_analyzer"
+    CODE_GENERATOR = "code_generator"
 
 
 @dataclass
-class ToolSpec:
-    """Specification for a tool to be created"""
-    name: str
-    description: str
-    input_schema: Dict[str, Any]
-    output_schema: Dict[str, Any] 
-    task_type: str
-    domain: str
-    complexity: str  # simple, medium, complex
-    dependencies: List[str]
-    examples: List[Dict[str, Any]]
-
-
-@dataclass
-class ToolInfo:
-    """Information about a created tool"""
+class ToolMetadata:
+    """Metadata for tools in the ToolBank"""
     tool_id: str
     name: str
     description: str
+    tool_type: ToolType
     version: str
-    code: str
-    test_code: str
-    dependencies: List[str]
-    performance_metrics: Dict[str, float]
-    usage_count: int
-    success_rate: float
+    author: str
     created_at: datetime
     last_used: datetime
-    creator_agent: str
+    usage_count: int
+    success_rate: float
+    parameters: Dict[str, Any]
+    return_type: str
+    tags: List[str]
+    dependencies: List[str]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            'tool_id': self.tool_id,
+            'name': self.name,
+            'description': self.description,
+            'tool_type': self.tool_type.value,
+            'version': self.version,
+            'author': self.author,
+            'created_at': self.created_at.isoformat(),
+            'last_used': self.last_used.isoformat(),
+            'usage_count': self.usage_count,
+            'success_rate': self.success_rate,
+            'parameters': self.parameters,
+            'return_type': self.return_type,
+            'tags': self.tags,
+            'dependencies': self.dependencies
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ToolMetadata':
+        """Create from dictionary"""
+        return cls(
+            tool_id=data['tool_id'],
+            name=data['name'],
+            description=data['description'],
+            tool_type=ToolType(data['tool_type']),
+            version=data['version'],
+            author=data['author'],
+            created_at=datetime.fromisoformat(data['created_at']),
+            last_used=datetime.fromisoformat(data['last_used']),
+            usage_count=data['usage_count'],
+            success_rate=data['success_rate'],
+            parameters=data['parameters'],
+            return_type=data['return_type'],
+            tags=data['tags'],
+            dependencies=data['dependencies']
+        )
 
 
-@dataclass
-class MCPDefinition:
-    """Model Context Protocol definition for a tool"""
-    name: str
-    version: str
-    description: str
-    tools: List[Dict[str, Any]]
-    resources: List[Dict[str, Any]]
-    prompts: List[Dict[str, Any]]
-    server_info: Dict[str, Any]
+class Tool(BaseModel):
+    """Represents a tool in the ToolBank"""
+    metadata: ToolMetadata
+    implementation: str  # Source code or command
+    test_cases: List[Dict[str, Any]]
+    documentation: str
+    
+    class Config:
+        arbitrary_types_allowed = True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            'metadata': self.metadata.to_dict(),
+            'implementation': self.implementation,
+            'test_cases': self.test_cases,
+            'documentation': self.documentation
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Tool':
+        """Create from dictionary"""
+        return cls(
+            metadata=ToolMetadata.from_dict(data['metadata']),
+            implementation=data['implementation'],
+            test_cases=data['test_cases'],
+            documentation=data['documentation']
+        )
+
+
+class ToolExecutionResult(BaseModel):
+    """Result of tool execution"""
+    tool_id: str
+    success: bool
+    output: Any
+    error: Optional[str] = None
+    execution_time: float
+    timestamp: datetime
+    
+    class Config:
+        arbitrary_types_allowed = True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            'tool_id': self.tool_id,
+            'success': self.success,
+            'output': str(self.output),  # Convert to string for serialization
+            'error': self.error,
+            'execution_time': self.execution_time,
+            'timestamp': self.timestamp.isoformat()
+        }
 
 
 class ToolBank:
-    """
-    Dynamic tool creation and management system.
+    """Dynamic tool creation and management system using file-based persistence"""
     
-    Features:
-    - Automatic tool generation from specifications
-    - MCP creation and management
-    - Tool validation and testing
-    - Performance tracking
-    - Version control for tools
-    - Dependency management
-    """
-    
-    def __init__(self, openai_api_key: str, toolbank_dir: str = "toolbank"):
-        self.openai_api_key = openai_api_key
-        self.client = AsyncOpenAI(api_key=openai_api_key)
+    def __init__(self, tools_dir: Path):
+        self.tools_dir = Path(tools_dir)
+        self.tools_dir.mkdir(parents=True, exist_ok=True)
         
-        self.toolbank_dir = Path(toolbank_dir)
-        self.toolbank_dir.mkdir(exist_ok=True)
+        # Storage paths
+        self.tools_registry_path = self.tools_dir / "tools_registry.jsonl"
+        self.tools_metadata_path = self.tools_dir / "tools_metadata.pkl"
+        self.execution_history_path = self.tools_dir / "execution_history.parquet"
+        self.tools_code_dir = self.tools_dir / "code"
+        self.tools_tests_dir = self.tools_dir / "tests"
+        self.mcps_dir = self.tools_dir / "mcps"
         
-        # Initialize database
-        self.db_path = self.toolbank_dir / "toolbank.db"
-        self._init_database()
-        
-        # Tool storage
-        self.tools_dir = self.toolbank_dir / "tools"
-        self.tools_dir.mkdir(exist_ok=True)
-        
-        self.mcps_dir = self.toolbank_dir / "mcps"
+        # Create subdirectories
+        self.tools_code_dir.mkdir(exist_ok=True)
+        self.tools_tests_dir.mkdir(exist_ok=True)
         self.mcps_dir.mkdir(exist_ok=True)
         
-        self.tests_dir = self.toolbank_dir / "tests"
-        self.tests_dir.mkdir(exist_ok=True)
+        # In-memory registry
+        self.tools_registry: Dict[str, Tool] = {}
+        self.execution_history: List[ToolExecutionResult] = []
         
-        self.logger = logging.getLogger("ToolBank")
-        self.logger.info("ToolBank initialized")
-        
-        # Load existing tools
-        self.tools: Dict[str, ToolInfo] = {}
-        self._load_existing_tools()
+    async def initialize(self):
+        """Initialize and load existing tools"""
+        await self._load_tools()
     
-    def _init_database(self):
-        """Initialize SQLite database for tool storage"""
-        
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS tools (
-                    tool_id TEXT PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    description TEXT NOT NULL,
-                    version TEXT NOT NULL,
-                    code TEXT NOT NULL,
-                    test_code TEXT NOT NULL,
-                    dependencies TEXT NOT NULL,
-                    performance_metrics TEXT NOT NULL,
-                    usage_count INTEGER DEFAULT 0,
-                    success_rate REAL DEFAULT 1.0,
-                    created_at TEXT NOT NULL,
-                    last_used TEXT NOT NULL,
-                    creator_agent TEXT NOT NULL
-                )
-            """)
-            
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS tool_executions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tool_id TEXT NOT NULL,
-                    execution_time REAL NOT NULL,
-                    success BOOLEAN NOT NULL,
-                    error_msg TEXT,
-                    timestamp TEXT NOT NULL,
-                    FOREIGN KEY (tool_id) REFERENCES tools (tool_id)
-                )
-            """)
-            
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS mcps (
-                    mcp_id TEXT PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    version TEXT NOT NULL,
-                    definition TEXT NOT NULL,
-                    tools TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    usage_count INTEGER DEFAULT 0
-                )
-            """)
-            
-            # Create indexes
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_name ON tools (name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_domain ON tools (creator_agent)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_execution_tool ON tool_executions (tool_id)")
-    
-    def _load_existing_tools(self):
-        """Load existing tools from database"""
-        
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT tool_id, name, description, version, code, test_code,
-                       dependencies, performance_metrics, usage_count, success_rate,
-                       created_at, last_used, creator_agent
-                FROM tools
-            """)
-            
-            for row in cursor.fetchall():
-                tool_info = ToolInfo(
-                    tool_id=row[0],
-                    name=row[1],
-                    description=row[2],
-                    version=row[3],
-                    code=row[4],
-                    test_code=row[5],
-                    dependencies=json.loads(row[6]),
-                    performance_metrics=json.loads(row[7]),
-                    usage_count=row[8],
-                    success_rate=row[9],
-                    created_at=datetime.fromisoformat(row[10]),
-                    last_used=datetime.fromisoformat(row[11]),
-                    creator_agent=row[12]
-                )
-                self.tools[tool_info.name] = tool_info
-        
-        self.logger.info(f"Loaded {len(self.tools)} existing tools")
-    
-    async def identify_required_tools(
-        self,
-        task_description: str,
-        task_type: str,
-        experience_insights: List[str]
-    ) -> List[Dict[str, Any]]:
-        """Identify tools required for a task"""
-        
-        # Check existing tools first
-        existing_tools = await self._find_existing_tools(task_description, task_type)
-        
-        # Use LLM to identify additional tools needed
-        required_tools = await self._llm_identify_tools(
-            task_description, task_type, experience_insights, existing_tools
-        )
-        
-        return required_tools
-    
-    async def _find_existing_tools(
-        self,
-        task_description: str,
-        task_type: str
-    ) -> List[Dict[str, Any]]:
-        """Find existing tools that match the task requirements"""
-        
-        existing_tools = []
-        task_keywords = self._extract_keywords(task_description + " " + task_type)
-        
-        for tool_name, tool_info in self.tools.items():
-            tool_keywords = self._extract_keywords(tool_info.description)
-            
-            # Simple keyword matching (could be improved with embeddings)
-            overlap = len(set(task_keywords) & set(tool_keywords))
-            if overlap > 0:
-                existing_tools.append({
-                    "name": tool_name,
-                    "description": tool_info.description,
-                    "relevance_score": overlap / len(task_keywords),
-                    "existing": True,
-                    "usage_count": tool_info.usage_count,
-                    "success_rate": tool_info.success_rate
-                })
-        
-        # Sort by relevance
-        existing_tools.sort(key=lambda x: x["relevance_score"], reverse=True)
-        
-        return existing_tools[:5]  # Return top 5 most relevant
-    
-    def _extract_keywords(self, text: str) -> List[str]:
-        """Extract keywords from text"""
-        
-        # Simple keyword extraction (could be improved with NLP)
-        words = text.lower().replace(',', ' ').replace('.', ' ').split()
-        
-        # Healthcare-specific keywords
-        healthcare_keywords = {
-            'diagnosis', 'treatment', 'patient', 'medical', 'clinical', 'health',
-            'disease', 'symptom', 'medication', 'therapy', 'lab', 'test',
-            'analysis', 'prediction', 'classification', 'detection', 'screening'
-        }
-        
-        # Filter for healthcare keywords and longer words
-        keywords = [
-            word for word in words 
-            if len(word) > 3 and (word in healthcare_keywords or len(word) > 6)
-        ]
-        
-        return list(set(keywords))  # Remove duplicates
-    
-    async def _llm_identify_tools(
-        self,
-        task_description: str,
-        task_type: str,
-        experience_insights: List[str],
-        existing_tools: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Use LLM to identify required tools"""
-        
-        system_prompt = """
-        You are a healthcare AI tool analyst. Given a task description, identify the specific tools needed.
-        
-        For each tool, provide:
-        - name: Short, descriptive name
-        - description: What the tool does
-        - complexity: simple/medium/complex
-        - input_schema: Expected input format
-        - output_schema: Expected output format
-        - dependencies: Required libraries/packages
-        
-        Focus on healthcare-specific tools like:
-        - Medical data analyzers
-        - Diagnostic assistants
-        - Drug interaction checkers
-        - Clinical decision support
-        - EHR processors
-        - Medical literature searchers
-        
-        Return a JSON list of tool specifications.
-        """
-        
-        user_prompt = f"""
-        Task: {task_description}
-        Task Type: {task_type}
-        
-        Experience Insights:
-        {chr(10).join(experience_insights)}
-        
-        Existing Available Tools:
-        {json.dumps([{'name': t['name'], 'description': t['description']} for t in existing_tools], indent=2)}
-        
-        Identify 1-3 specific tools needed for this task that are not already available.
-        """
-        
-        try:
-            response = await self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.3,
-                max_tokens=1500
-            )
-            
-            content = response.choices[0].message.content
-            
-            # Try to parse JSON response
+    async def _load_tools(self):
+        """Load tools from persistent storage"""
+        # Load from JSONL
+        if self.tools_registry_path.exists():
             try:
-                tools_data = json.loads(content)
-                return tools_data
-            except json.JSONDecodeError:
-                # Extract JSON from response if wrapped in text
-                import re
-                json_match = re.search(r'\[.*\]', content, re.DOTALL)
-                if json_match:
-                    tools_data = json.loads(json_match.group())
-                    return tools_data
-                else:
-                    self.logger.warning("Could not parse LLM response for tool identification")
-                    return []
-                    
-        except Exception as e:
-            self.logger.error(f"Error in LLM tool identification: {e}")
-            return []
+                with open(self.tools_registry_path, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            tool_data = json.loads(line)
+                            tool = Tool.from_dict(tool_data)
+                            self.tools_registry[tool.metadata.tool_id] = tool
+            except Exception as e:
+                print(f"Error loading tools from JSONL: {e}")
+        
+        # Load from pickle as backup
+        if self.tools_metadata_path.exists() and not self.tools_registry:
+            try:
+                with open(self.tools_metadata_path, 'rb') as f:
+                    tools_data = pickle.load(f)
+                    for tool_data in tools_data:
+                        tool = Tool.from_dict(tool_data)
+                        self.tools_registry[tool.metadata.tool_id] = tool
+            except Exception as e:
+                print(f"Error loading tools from pickle: {e}")
+        
+        # Load execution history from parquet
+        if self.execution_history_path.exists():
+            try:
+                df = pd.read_parquet(self.execution_history_path)
+                # Convert to ToolExecutionResult objects if needed for analysis
+            except Exception as e:
+                print(f"Error loading execution history: {e}")
     
-    async def create_tool(self, tool_spec: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new tool from specification"""
+    async def _save_tools(self):
+        """Save tools to persistent storage"""
+        # Save to JSONL
+        try:
+            with open(self.tools_registry_path, 'w') as f:
+                for tool in self.tools_registry.values():
+                    f.write(json.dumps(tool.to_dict()) + '\n')
+        except Exception as e:
+            print(f"Error saving tools to JSONL: {e}")
         
-        tool_name = tool_spec['name']
+        # Save to pickle as backup
+        try:
+            with open(self.tools_metadata_path, 'wb') as f:
+                tools_data = [tool.to_dict() for tool in self.tools_registry.values()]
+                pickle.dump(tools_data, f)
+        except Exception as e:
+            print(f"Error saving tools to pickle: {e}")
+    
+    async def _save_execution_history(self):
+        """Save execution history to parquet"""
+        if not self.execution_history:
+            return
+            
+        try:
+            # Convert to DataFrame
+            data = [result.to_dict() for result in self.execution_history]
+            df = pd.DataFrame(data)
+            
+            # Append to existing or create new
+            if self.execution_history_path.exists():
+                existing_df = pd.read_parquet(self.execution_history_path)
+                df = pd.concat([existing_df, df], ignore_index=True)
+            
+            df.to_parquet(self.execution_history_path, index=False)
+            
+            # Clear in-memory history to save memory
+            self.execution_history = []
+            
+        except Exception as e:
+            print(f"Error saving execution history: {e}")
+    
+    async def create_python_tool(
+        self,
+        name: str,
+        description: str,
+        implementation: str,
+        parameters: Dict[str, Any],
+        return_type: str = "Any",
+        tags: List[str] = None,
+        test_cases: List[Dict[str, Any]] = None,
+        author: str = "HealthFlow Agent"
+    ) -> str:
+        """Create a new Python function tool"""
         
-        self.logger.info(f"Creating tool: {tool_name}")
+        tool_id = str(uuid.uuid4())
+        tags = tags or []
+        test_cases = test_cases or []
         
-        # Generate tool code
-        tool_code = await self._generate_tool_code(tool_spec)
-        
-        # Generate test code
-        test_code = await self._generate_test_code(tool_spec, tool_code)
-        
-        # Validate the generated code
-        is_valid, validation_errors = await self._validate_tool_code(tool_code, test_code)
-        
-        if not is_valid:
-            self.logger.error(f"Tool validation failed: {validation_errors}")
-            return {
-                "success": False,
-                "error": "Tool validation failed",
-                "details": validation_errors
-            }
-        
-        # Create tool info
-        tool_id = hashlib.md5(
-            f"{tool_name}_{datetime.now().isoformat()}".encode()
-        ).hexdigest()
-        
-        tool_info = ToolInfo(
+        # Create metadata
+        metadata = ToolMetadata(
             tool_id=tool_id,
-            name=tool_name,
-            description=tool_spec['description'],
+            name=name,
+            description=description,
+            tool_type=ToolType.PYTHON_FUNCTION,
             version="1.0.0",
-            code=tool_code,
-            test_code=test_code,
-            dependencies=tool_spec.get('dependencies', []),
-            performance_metrics={},
-            usage_count=0,
-            success_rate=1.0,
+            author=author,
             created_at=datetime.now(),
             last_used=datetime.now(),
-            creator_agent="system"  # Will be updated with actual agent ID
+            usage_count=0,
+            success_rate=1.0,
+            parameters=parameters,
+            return_type=return_type,
+            tags=tags,
+            dependencies=self._extract_dependencies(implementation)
         )
         
-        # Store in database
-        await self._store_tool(tool_info)
+        # Create tool object
+        tool = Tool(
+            metadata=metadata,
+            implementation=implementation,
+            test_cases=test_cases,
+            documentation=f"# {name}\n\n{description}\n\n## Parameters\n{json.dumps(parameters, indent=2)}"
+        )
         
-        # Add to in-memory tools
-        self.tools[tool_name] = tool_info
-        
-        # Save code files
-        tool_file = self.tools_dir / f"{tool_name}.py"
-        with open(tool_file, 'w') as f:
-            f.write(tool_code)
-        
-        test_file = self.tests_dir / f"test_{tool_name}.py"
-        with open(test_file, 'w') as f:
-            f.write(test_code)
-        
-        self.logger.info(f"Successfully created tool: {tool_name}")
-        
-        return {
-            "success": True,
-            "tool_id": tool_id,
-            "name": tool_name,
-            "description": tool_info.description,
-            "file_path": str(tool_file)
-        }
+        # Validate the implementation
+        if await self._validate_python_tool(tool):
+            self.tools_registry[tool_id] = tool
+            
+            # Save implementation to file
+            tool_file = self.tools_code_dir / f"{tool_id}.py"
+            with open(tool_file, 'w') as f:
+                f.write(implementation)
+            
+            # Generate and save test file
+            test_code = await self._generate_test_code(tool)
+            test_file = self.tools_tests_dir / f"test_{tool_id}.py"
+            with open(test_file, 'w') as f:
+                f.write(test_code)
+            
+            await self._save_tools()
+            return tool_id
+        else:
+            raise ValueError(f"Tool validation failed for: {name}")
     
-    async def _generate_tool_code(self, tool_spec: Dict[str, Any]) -> str:
-        """Generate Python code for a tool"""
+    async def create_medical_analyzer_tool(
+        self,
+        name: str,
+        medical_domain: str,
+        analysis_type: str,
+        implementation: str,
+        input_schema: Dict[str, Any],
+        output_schema: Dict[str, Any]
+    ) -> str:
+        """Create a specialized medical analysis tool"""
         
-        system_prompt = """
-        You are an expert Python programmer specializing in healthcare applications.
-        Generate complete, production-ready Python code for a healthcare tool.
-        
-        Requirements:
-        - Include comprehensive docstrings
-        - Add type hints
-        - Include error handling
-        - Follow Python best practices
-        - Add logging where appropriate
-        - Make the code modular and testable
-        - Include input validation
-        - Handle edge cases
-        
-        The generated code should be a complete Python module with a main function
-        that implements the tool's functionality.
-        """
-        
-        user_prompt = f"""
-        Create a Python tool with the following specification:
-        
-        Name: {tool_spec['name']}
-        Description: {tool_spec['description']}
-        Input Schema: {json.dumps(tool_spec.get('input_schema', {}), indent=2)}
-        Output Schema: {json.dumps(tool_spec.get('output_schema', {}), indent=2)}
-        Dependencies: {tool_spec.get('dependencies', [])}
-        Complexity: {tool_spec.get('complexity', 'medium')}
-        
-        Generate complete Python code that implements this tool.
-        Include a main function that takes the specified inputs and returns the specified outputs.
-        """
-        
-        try:
-            response = await self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.2,
-                max_tokens=2000
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            self.logger.error(f"Error generating tool code: {e}")
-            return f"# Error generating code for {tool_spec['name']}\n# {str(e)}"
+        return await self.create_python_tool(
+            name=name,
+            description=f"Medical analyzer for {medical_domain}: {analysis_type}",
+            implementation=implementation,
+            parameters={
+                "input_schema": input_schema,
+                "output_schema": output_schema,
+                "medical_domain": medical_domain,
+                "analysis_type": analysis_type
+            },
+            return_type="Dict[str, Any]",
+            tags=["medical", "analyzer", medical_domain, analysis_type]
+        )
     
-    async def _generate_test_code(self, tool_spec: Dict[str, Any], tool_code: str) -> str:
-        """Generate test code for a tool"""
+    async def create_code_generator_tool(
+        self,
+        name: str,
+        target_language: str,
+        code_template: str,
+        generation_logic: str
+    ) -> str:
+        """Create a code generation tool"""
         
-        system_prompt = """
-        You are an expert in Python testing and healthcare applications.
-        Generate comprehensive unit tests for the provided tool code.
-        
-        Requirements:
-        - Use pytest framework
-        - Test normal cases and edge cases
-        - Test error conditions
-        - Include fixtures if needed
-        - Test input validation
-        - Mock external dependencies if needed
-        - Add descriptive test names and docstrings
-        """
-        
-        user_prompt = f"""
-        Generate comprehensive unit tests for this tool:
-        
-        Tool Name: {tool_spec['name']}
-        Tool Description: {tool_spec['description']}
-        
-        Tool Code:
-        ```python
-        {tool_code}
-        ```
-        
-        Create complete pytest test cases that thoroughly test this tool.
-        """
-        
-        try:
-            response = await self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.2,
-                max_tokens=1500
-            )
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            self.logger.error(f"Error generating test code: {e}")
-            return f"# Error generating test code for {tool_spec['name']}\n# {str(e)}"
+        implementation = f"""
+import string
+import json
+
+def generate_code(template_vars: dict, target_language: str = "{target_language}") -> str:
+    \"\"\"
+    Generate code using template and variables
+    \"\"\"
+    template = '''
+{code_template}
+    '''
     
-    async def _validate_tool_code(self, tool_code: str, test_code: str) -> Tuple[bool, List[str]]:
-        """Validate generated tool code"""
+    # Custom generation logic
+{generation_logic}
+    
+    # Apply template variables
+    return string.Template(template).safe_substitute(template_vars)
+
+def main(**kwargs):
+    \"\"\"Main entry point for the tool\"\"\"
+    return generate_code(kwargs.get('template_vars', {{}}), kwargs.get('target_language', '{target_language}'))
+"""
         
-        errors = []
-        
-        # Basic syntax validation
+        return await self.create_python_tool(
+            name=name,
+            description=f"Code generator for {target_language}",
+            implementation=implementation,
+            parameters={
+                "template_vars": "Dict[str, Any]",
+                "target_language": target_language
+            },
+            return_type="str",
+            tags=["code_generator", target_language, "automation"]
+        )
+    
+    async def _validate_python_tool(self, tool: Tool) -> bool:
+        """Validate Python tool implementation"""
         try:
-            ast.parse(tool_code)
-        except SyntaxError as e:
-            errors.append(f"Tool code syntax error: {e}")
-        
-        try:
-            ast.parse(test_code)
-        except SyntaxError as e:
-            errors.append(f"Test code syntax error: {e}")
-        
-        # Try to compile and import the tool code
-        try:
+            # Create temporary file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-                f.write(tool_code)
-                temp_file = f.name
+                f.write(tool.implementation)
+                temp_path = f.name
             
-            spec = importlib.util.spec_from_file_location("temp_tool", temp_file)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-            else:
-                errors.append("Could not create module spec")
-                
+            # Try to compile the code
+            with open(temp_path, 'r') as f:
+                code = f.read()
+            
+            compile(code, temp_path, 'exec')
+            
+            # Clean up
+            Path(temp_path).unlink()
+            
+            return True
         except Exception as e:
-            errors.append(f"Tool code compilation error: {e}")
-        finally:
-            # Clean up temp file
-            try:
-                Path(temp_file).unlink()
-            except:
-                pass
+            print(f"Tool validation error: {e}")
+            return False
+    
+    async def _generate_test_code(self, tool: Tool) -> str:
+        """Generate basic test code for a tool"""
+        return f'''
+import pytest
+import sys
+from pathlib import Path
+
+# Add the tools directory to the path
+sys.path.insert(0, str(Path(__file__).parent.parent / "code"))
+
+# Import the tool module
+import {tool.metadata.tool_id} as tool_module
+
+def test_{tool.metadata.name.lower().replace(" ", "_")}_basic():
+    """Basic test for {tool.metadata.name}"""
+    # Test that the main function exists and is callable
+    assert hasattr(tool_module, 'main')
+    assert callable(tool_module.main)
+
+def test_{tool.metadata.name.lower().replace(" ", "_")}_with_empty_input():
+    """Test {tool.metadata.name} with empty input"""
+    try:
+        result = tool_module.main()
+        assert result is not None
+    except Exception as e:
+        # It's ok if the tool requires specific inputs
+        assert "required" in str(e).lower() or "missing" in str(e).lower()
+
+# Add more specific tests based on tool functionality
+'''
+    
+    def _extract_dependencies(self, implementation: str) -> List[str]:
+        """Extract dependencies from implementation code"""
+        dependencies = []
         
-        return len(errors) == 0, errors
-    
-    async def _store_tool(self, tool_info: ToolInfo):
-        """Store tool information in database"""
+        for line in implementation.split('\n'):
+            line = line.strip()
+            if line.startswith('import '):
+                dep = line.replace('import ', '').split()[0].split('.')[0]
+                dependencies.append(dep)
+            elif line.startswith('from '):
+                dep = line.split()[1].split('.')[0]
+                dependencies.append(dep)
         
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO tools
-                (tool_id, name, description, version, code, test_code,
-                 dependencies, performance_metrics, usage_count, success_rate,
-                 created_at, last_used, creator_agent)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                tool_info.tool_id,
-                tool_info.name,
-                tool_info.description,
-                tool_info.version,
-                tool_info.code,
-                tool_info.test_code,
-                json.dumps(tool_info.dependencies),
-                json.dumps(tool_info.performance_metrics),
-                tool_info.usage_count,
-                tool_info.success_rate,
-                tool_info.created_at.isoformat(),
-                tool_info.last_used.isoformat(),
-                tool_info.creator_agent
-            ))
+        return list(set(dependencies))
     
-    async def tool_exists(self, tool_name: str) -> bool:
-        """Check if a tool exists in the toolbank"""
-        return tool_name in self.tools
-    
-    async def get_tool(self, tool_name: str) -> Optional[ToolInfo]:
-        """Get tool information"""
-        return self.tools.get(tool_name)
-    
-    async def get_available_tools(self) -> List[Dict[str, Any]]:
-        """Get list of all available tools"""
-        
-        tools_list = []
-        for tool_name, tool_info in self.tools.items():
-            tools_list.append({
-                "name": tool_name,
-                "description": tool_info.description,
-                "version": tool_info.version,
-                "usage_count": tool_info.usage_count,
-                "success_rate": tool_info.success_rate,
-                "dependencies": tool_info.dependencies
-            })
-        
-        return tools_list
-    
-    async def execute_tool(self, tool_name: str, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute_tool(
+        self,
+        tool_id: str,
+        inputs: Dict[str, Any],
+        timeout: int = 30
+    ) -> ToolExecutionResult:
         """Execute a tool with given inputs"""
         
-        if tool_name not in self.tools:
-            return {
-                "success": False,
-                "error": f"Tool {tool_name} not found"
-            }
+        if tool_id not in self.tools_registry:
+            return ToolExecutionResult(
+                tool_id=tool_id,
+                success=False,
+                output=None,
+                error="Tool not found in registry",
+                execution_time=0.0,
+                timestamp=datetime.now()
+            )
         
-        tool_info = self.tools[tool_name]
+        tool = self.tools_registry[tool_id]
         start_time = datetime.now()
         
         try:
-            # Load and execute tool
-            tool_file = self.tools_dir / f"{tool_name}.py"
-            
-            spec = importlib.util.spec_from_file_location(tool_name, tool_file)
-            if not spec or not spec.loader:
-                raise ImportError(f"Could not load tool module {tool_name}")
-            
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            
-            # Execute main function
-            if hasattr(module, 'main'):
-                result = module.main(**inputs)
+            if tool.metadata.tool_type == ToolType.PYTHON_FUNCTION:
+                result = await self._execute_python_tool(tool, inputs, timeout)
+            elif tool.metadata.tool_type == ToolType.SHELL_COMMAND:
+                result = await self._execute_shell_tool(tool, inputs, timeout)
             else:
-                raise AttributeError(f"Tool {tool_name} has no main function")
+                raise NotImplementedError(f"Tool type {tool.metadata.tool_type} not implemented")
             
-            execution_time = (datetime.now() - start_time).total_seconds()
+            # Update usage statistics
+            tool.metadata.usage_count += 1
+            tool.metadata.last_used = datetime.now()
             
-            # Update tool statistics
-            await self._update_tool_stats(tool_name, execution_time, True)
+            if result.success:
+                # Update success rate using exponential moving average
+                alpha = 0.1
+                tool.metadata.success_rate = (1 - alpha) * tool.metadata.success_rate + alpha * 1.0
+            else:
+                tool.metadata.success_rate = (1 - alpha) * tool.metadata.success_rate + alpha * 0.0
             
-            return {
-                "success": True,
-                "result": result,
-                "execution_time": execution_time
-            }
+            # Add to execution history
+            self.execution_history.append(result)
+            
+            # Save periodically
+            if len(self.execution_history) > 100:
+                await self._save_execution_history()
+            
+            await self._save_tools()
+            
+            return result
             
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds()
-            
-            # Update tool statistics for failure
-            await self._update_tool_stats(tool_name, execution_time, False, str(e))
-            
-            return {
-                "success": False,
-                "error": str(e),
-                "execution_time": execution_time
-            }
+            result = ToolExecutionResult(
+                tool_id=tool_id,
+                success=False,
+                output=None,
+                error=str(e),
+                execution_time=execution_time,
+                timestamp=datetime.now()
+            )
+            self.execution_history.append(result)
+            return result
     
-    async def _update_tool_stats(
+    async def _execute_python_tool(
         self,
-        tool_name: str,
-        execution_time: float,
-        success: bool,
-        error_msg: Optional[str] = None
-    ):
-        """Update tool usage statistics"""
+        tool: Tool,
+        inputs: Dict[str, Any],
+        timeout: int
+    ) -> ToolExecutionResult:
+        """Execute Python function tool"""
         
-        tool_info = self.tools[tool_name]
+        start_time = datetime.now()
         
-        # Update in-memory stats
-        tool_info.usage_count += 1
-        tool_info.last_used = datetime.now()
-        
-        # Calculate new success rate
-        with sqlite3.connect(self.db_path) as conn:
-            # Record execution
-            conn.execute("""
-                INSERT INTO tool_executions
-                (tool_id, execution_time, success, error_msg, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
-                tool_info.tool_id,
-                execution_time,
-                success,
-                error_msg,
-                datetime.now().isoformat()
-            ))
+        try:
+            # Load the tool code
+            tool_file = self.tools_code_dir / f"{tool.metadata.tool_id}.py"
             
-            # Calculate success rate
-            cursor = conn.execute("""
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN success THEN 1 ELSE 0 END) as successes
-                FROM tool_executions
-                WHERE tool_id = ?
-            """, (tool_info.tool_id,))
+            spec = importlib.util.spec_from_file_location("tool_module", tool_file)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
             
-            total, successes = cursor.fetchone()
-            tool_info.success_rate = successes / total if total > 0 else 1.0
+            # Find the main function (first defined function or 'main' function)
+            main_function = None
+            if hasattr(module, 'main'):
+                main_function = module.main
+            else:
+                functions = [obj for name, obj in inspect.getmembers(module) 
+                            if inspect.isfunction(obj) and obj.__module__ == module.__name__]
+                if functions:
+                    main_function = functions[0]
             
-            # Update database
-            conn.execute("""
-                UPDATE tools
-                SET usage_count = ?, success_rate = ?, last_used = ?
-                WHERE tool_id = ?
-            """, (
-                tool_info.usage_count,
-                tool_info.success_rate,
-                tool_info.last_used.isoformat(),
-                tool_info.tool_id
-            ))
+            if not main_function:
+                raise ValueError("No function found in tool implementation")
+            
+            # Execute with timeout
+            try:
+                if asyncio.iscoroutinefunction(main_function):
+                    output = await asyncio.wait_for(main_function(**inputs), timeout=timeout)
+                else:
+                    output = main_function(**inputs)
+                
+                execution_time = (datetime.now() - start_time).total_seconds()
+                
+                return ToolExecutionResult(
+                    tool_id=tool.metadata.tool_id,
+                    success=True,
+                    output=output,
+                    error=None,
+                    execution_time=execution_time,
+                    timestamp=datetime.now()
+                )
+                
+            except asyncio.TimeoutError:
+                raise TimeoutError(f"Tool execution timeout after {timeout} seconds")
+            
+        except Exception as e:
+            execution_time = (datetime.now() - start_time).total_seconds()
+            return ToolExecutionResult(
+                tool_id=tool.metadata.tool_id,
+                success=False,
+                output=None,
+                error=str(e),
+                execution_time=execution_time,
+                timestamp=datetime.now()
+            )
     
-    async def create_mcp(self, tools: List[str]) -> Dict[str, Any]:
-        """Create Model Context Protocol for a set of tools"""
+    async def _execute_shell_tool(
+        self,
+        tool: Tool,
+        inputs: Dict[str, Any],
+        timeout: int
+    ) -> ToolExecutionResult:
+        """Execute shell command tool"""
         
-        mcp_name = f"healthflow_mcp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        start_time = datetime.now()
         
-        # Get tool definitions
-        mcp_tools = []
-        for tool_name in tools:
-            if tool_name in self.tools:
-                tool_info = self.tools[tool_name]
-                mcp_tools.append({
-                    "name": tool_name,
-                    "description": tool_info.description,
-                    "inputSchema": self._extract_input_schema(tool_info.code),
-                    "outputSchema": self._extract_output_schema(tool_info.code)
-                })
+        try:
+            # Format command with inputs
+            command = tool.implementation.format(**inputs)
+            
+            # Execute command
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout
+            )
+            
+            execution_time = (datetime.now() - start_time).total_seconds()
+            
+            success = process.returncode == 0
+            output = stdout.decode() if success else stderr.decode()
+            
+            return ToolExecutionResult(
+                tool_id=tool.metadata.tool_id,
+                success=success,
+                output=output,
+                error=stderr.decode() if not success else None,
+                execution_time=execution_time,
+                timestamp=datetime.now()
+            )
+            
+        except Exception as e:
+            execution_time = (datetime.now() - start_time).total_seconds()
+            return ToolExecutionResult(
+                tool_id=tool.metadata.tool_id,
+                success=False,
+                output=None,
+                error=str(e),
+                execution_time=execution_time,
+                timestamp=datetime.now()
+            )
+    
+    def search_tools(
+        self,
+        query: str = None,
+        tool_type: ToolType = None,
+        tags: List[str] = None,
+        min_success_rate: float = 0.0
+    ) -> List[Tool]:
+        """Search for tools in the registry"""
         
-        # Create MCP definition
-        mcp_definition = MCPDefinition(
-            name=mcp_name,
-            version="1.0.0",
-            description=f"HealthFlow MCP with {len(mcp_tools)} specialized healthcare tools",
-            tools=mcp_tools,
-            resources=[],
-            prompts=[],
-            server_info={
-                "name": mcp_name,
-                "version": "1.0.0",
-                "description": "Auto-generated HealthFlow MCP server"
-            }
+        results = []
+        
+        for tool in self.tools_registry.values():
+            # Filter by query
+            if query and query.lower() not in tool.metadata.name.lower() and \
+               query.lower() not in tool.metadata.description.lower():
+                continue
+            
+            # Filter by tool type
+            if tool_type and tool.metadata.tool_type != tool_type:
+                continue
+            
+            # Filter by tags
+            if tags and not any(tag in tool.metadata.tags for tag in tags):
+                continue
+            
+            # Filter by success rate
+            if tool.metadata.success_rate < min_success_rate:
+                continue
+            
+            results.append(tool)
+        
+        # Sort by success rate and usage count
+        results.sort(
+            key=lambda t: (t.metadata.success_rate, t.metadata.usage_count),
+            reverse=True
         )
         
-        # Store MCP
-        mcp_id = hashlib.md5(f"{mcp_name}_{datetime.now().isoformat()}".encode()).hexdigest()
-        
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO mcps (mcp_id, name, version, definition, tools, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                mcp_id,
-                mcp_name,
-                "1.0.0",
-                json.dumps(asdict(mcp_definition)),
-                json.dumps(tools),
-                datetime.now().isoformat()
-            ))
-        
-        # Save MCP file
-        mcp_file = self.mcps_dir / f"{mcp_name}.json"
-        with open(mcp_file, 'w') as f:
-            json.dump(asdict(mcp_definition), f, indent=2)
-        
-        self.logger.info(f"Created MCP: {mcp_name} with {len(mcp_tools)} tools")
-        
-        return {
-            "success": True,
-            "mcp_id": mcp_id,
-            "name": mcp_name,
-            "tools_count": len(mcp_tools),
-            "file_path": str(mcp_file)
-        }
+        return results
     
-    def _extract_input_schema(self, code: str) -> Dict[str, Any]:
-        """Extract input schema from tool code"""
+    def get_tool_statistics(self) -> Dict[str, Any]:
+        """Get ToolBank statistics"""
         
-        # Simple extraction - in production would use AST parsing
-        # For now, return a generic schema
-        return {
-            "type": "object",
-            "properties": {
-                "data": {"type": "any", "description": "Input data for the tool"}
-            },
-            "required": ["data"]
-        }
-    
-    def _extract_output_schema(self, code: str) -> Dict[str, Any]:
-        """Extract output schema from tool code"""
+        if not self.tools_registry:
+            return {}
         
-        # Simple extraction - in production would use AST parsing
-        # For now, return a generic schema
-        return {
-            "type": "object",
-            "properties": {
-                "result": {"type": "any", "description": "Output result from the tool"}
-            }
-        }
-    
-    def get_toolbank_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive toolbank statistics"""
+        total_tools = len(self.tools_registry)
         
-        total_tools = len(self.tools)
+        # Count by type
+        type_counts = {}
+        for tool in self.tools_registry.values():
+            tool_type = tool.metadata.tool_type.value
+            type_counts[tool_type] = type_counts.get(tool_type, 0) + 1
         
-        if total_tools == 0:
-            return {
-                "total_tools": 0,
-                "message": "No tools in toolbank"
-            }
-        
-        # Calculate statistics
-        avg_usage = sum(tool.usage_count for tool in self.tools.values()) / total_tools
-        avg_success_rate = sum(tool.success_rate for tool in self.tools.values()) / total_tools
+        # Calculate average success rate
+        avg_success_rate = sum(t.metadata.success_rate for t in self.tools_registry.values()) / total_tools
         
         # Most used tools
         most_used = sorted(
-            [(name, info.usage_count) for name, info in self.tools.items()],
-            key=lambda x: x[1],
-            reverse=True
-        )[:5]
-        
-        # Tools by success rate
-        best_tools = sorted(
-            [(name, info.success_rate) for name, info in self.tools.items()],
-            key=lambda x: x[1],
+            self.tools_registry.values(),
+            key=lambda t: t.metadata.usage_count,
             reverse=True
         )[:5]
         
         return {
             "total_tools": total_tools,
-            "average_usage_count": avg_usage,
+            "tool_type_distribution": type_counts,
             "average_success_rate": avg_success_rate,
-            "most_used_tools": most_used,
-            "best_performing_tools": best_tools,
-            "tools_directory": str(self.tools_dir),
-            "mcps_directory": str(self.mcps_dir)
+            "most_used_tools": [
+                {
+                    "name": tool.metadata.name,
+                    "usage_count": tool.metadata.usage_count,
+                    "success_rate": tool.metadata.success_rate
+                }
+                for tool in most_used
+            ],
+            "total_executions": len(self.execution_history)
         }
+    
+    async def backup_tools(self, backup_path: Path):
+        """Backup all tools to specified path"""
+        backup_path.mkdir(parents=True, exist_ok=True)
+        
+        # Save registry as both JSONL and pickle
+        with open(backup_path / "tools_registry.jsonl", 'w') as f:
+            for tool in self.tools_registry.values():
+                f.write(json.dumps(tool.to_dict()) + '\n')
+        
+        with open(backup_path / "tools_metadata.pkl", 'wb') as f:
+            tools_data = [tool.to_dict() for tool in self.tools_registry.values()]
+            pickle.dump(tools_data, f)
+        
+        # Save execution history
+        if self.execution_history:
+            await self._save_execution_history()
+        
+        # Copy execution history parquet
+        if self.execution_history_path.exists():
+            import shutil
+            shutil.copy2(self.execution_history_path, backup_path / "execution_history.parquet")
+        
+        # Copy code and test files
+        import shutil
+        if self.tools_code_dir.exists():
+            shutil.copytree(self.tools_code_dir, backup_path / "code", dirs_exist_ok=True)
+        if self.tools_tests_dir.exists():
+            shutil.copytree(self.tools_tests_dir, backup_path / "tests", dirs_exist_ok=True)
+    
+    async def cleanup_unused_tools(self, days_unused: int = 30):
+        """Remove tools that haven't been used for specified days"""
+        cutoff_date = datetime.now() - pd.Timedelta(days=days_unused)
+        
+        tools_to_remove = []
+        for tool_id, tool in self.tools_registry.items():
+            if tool.metadata.last_used < cutoff_date and tool.metadata.usage_count == 0:
+                tools_to_remove.append(tool_id)
+        
+        for tool_id in tools_to_remove:
+            tool = self.tools_registry[tool_id]
+            
+            # Remove from registry
+            del self.tools_registry[tool_id]
+            
+            # Remove code files
+            tool_file = self.tools_code_dir / f"{tool_id}.py"
+            if tool_file.exists():
+                tool_file.unlink()
+            
+            test_file = self.tools_tests_dir / f"test_{tool_id}.py"
+            if test_file.exists():
+                test_file.unlink()
+        
+        await self._save_tools()
+        return len(tools_to_remove)

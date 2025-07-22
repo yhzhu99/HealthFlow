@@ -1,407 +1,890 @@
 """
-Core HealthFlow Agent - The main orchestrator for self-evolving healthcare agent system.
-
-Integrates experience accumulation, memory management, sensitive data protection,
-and multi-agent collaboration to create a continuously improving healthcare agent.
+HealthFlow Agent System
+Core agent implementation with self-evolution, multi-agent collaboration, and medical task capabilities
 """
 
 import asyncio
-import logging
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, asdict
 import json
+import uuid
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Any, Tuple, Union
+from dataclasses import dataclass
+from enum import Enum
 
-from .memory import MemoryManager
-from .evolution import ExperienceAccumulator
-from .security import DataProtector
+from .llm_provider import LLMProvider, LLMMessage, LLMResponse, create_llm_provider
+from .memory import MemoryManager, MemoryEntry, MemoryType
+from .config import HealthFlowConfig
+from .rewards import calculate_mi_reward, calculate_final_reward
 from ..tools.toolbank import ToolBank
 from ..evaluation.evaluator import TaskEvaluator
 
 
+class AgentRole(Enum):
+    """Agent roles in the multi-agent system"""
+    COORDINATOR = "coordinator"
+    MEDICAL_EXPERT = "medical_expert"
+    DATA_ANALYST = "data_analyst" 
+    RESEARCHER = "researcher"
+    DIAGNOSIS_SPECIALIST = "diagnosis_specialist"
+    TREATMENT_PLANNER = "treatment_planner"
+    CODE_EXECUTOR = "code_executor"
+
+
 @dataclass
+class AgentMessage:
+    """Message exchanged between agents"""
+    sender_id: str
+    receiver_id: str
+    message_type: str  # "request", "response", "notification", "collaboration"
+    content: Dict[str, Any]
+    timestamp: datetime
+    conversation_id: str
+    priority: int = 1  # 1-5, higher is more urgent
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'sender_id': self.sender_id,
+            'receiver_id': self.receiver_id,
+            'message_type': self.message_type,
+            'content': self.content,
+            'timestamp': self.timestamp.isoformat(),
+            'conversation_id': self.conversation_id,
+            'priority': self.priority
+        }
+
+
+@dataclass 
 class TaskResult:
-    """Represents the result of a task execution"""
+    """Result of task execution"""
     task_id: str
     success: bool
-    output: Any
-    feedback: str
+    result: Any
+    error: Optional[str]
     execution_time: float
-    memory_used: int
-    tools_used: List[str]
-    timestamp: datetime
-    error_msg: Optional[str] = None
-
-
-@dataclass
-class AgentState:
-    """Current state of the agent"""
     agent_id: str
-    active: bool
-    current_task: Optional[str]
-    experience_level: int
-    specialized_domains: List[str]
-    performance_metrics: Dict[str, float]
+    tools_used: List[str]
+    memory_entries: List[str]
+    evaluation: Optional[Dict[str, Any]]
 
 
 class HealthFlowAgent:
     """
-    Main HealthFlow Agent that orchestrates the self-evolving healthcare system.
-    
-    Key features:
-    - Experience accumulation and continuous learning
-    - Multi-agent collaboration with role assignment
-    - Sensitive healthcare data protection
-    - Dynamic tool creation and management
-    - Memory management for long-term context
+    Core HealthFlow Agent with self-evolution and multi-agent capabilities
     """
     
     def __init__(
         self,
         agent_id: str,
-        openai_api_key: str,
-        specialized_domains: Optional[List[str]] = None,
-        config: Optional[Dict[str, Any]] = None
+        role: AgentRole,
+        config: HealthFlowConfig,
+        llm_provider: Optional[LLMProvider] = None
     ):
         self.agent_id = agent_id
-        self.openai_api_key = openai_api_key
-        self.config = config or {}
+        self.role = role
+        self.config = config
         
-        # Initialize core components
-        self.memory_manager = MemoryManager(agent_id)
-        self.experience_accumulator = ExperienceAccumulator(agent_id)
-        self.data_protector = DataProtector()
-        self.toolbank = ToolBank(openai_api_key)
-        self.evaluator = TaskEvaluator()
+        # Initialize LLM provider
+        if llm_provider:
+            self.llm_provider = llm_provider
+        else:
+            self.llm_provider = create_llm_provider(
+                provider_type="auto",
+                api_key=config.api_key,
+                base_url=config.base_url,
+                model_name=config.model_name
+            )
+        
+        # Initialize components
+        self.memory_manager = MemoryManager(
+            config.memory_dir / agent_id,
+            max_memory_size=config.memory_window
+        )
+        self.tool_bank = ToolBank(config.tools_dir / agent_id)
+        self.evaluator = TaskEvaluator(config.evaluation_dir / agent_id)
         
         # Agent state
-        self.state = AgentState(
-            agent_id=agent_id,
-            active=True,
-            current_task=None,
-            experience_level=0,
-            specialized_domains=specialized_domains or [],
-            performance_metrics={}
-        )
+        self.is_active = True
+        self.current_task = None
+        self.conversation_history: List[AgentMessage] = []
+        self.collaboration_network: Dict[str, 'HealthFlowAgent'] = {}
         
-        # Task history
+        # Performance tracking
         self.task_history: List[TaskResult] = []
-        self.active_collaborations: Dict[str, List[str]] = {}
+        self.success_rate = 1.0
+        self.specialization_areas: List[str] = []
         
-        self.logger = logging.getLogger(f"HealthFlowAgent-{agent_id}")
-        self.logger.info(f"HealthFlow Agent {agent_id} initialized")
+        # Self-evolution parameters
+        self.experience_threshold = 10  # Tasks before evolution
+        self.evolution_generation = 1
+        
+        # Initialize system prompts based on role
+        self.system_prompts = self._initialize_system_prompts()
+    
+    async def initialize(self):
+        """Initialize agent components"""
+        await self.memory_manager.initialize()
+        await self.tool_bank.initialize()
+        
+        # Load agent-specific specializations from memory
+        await self._load_specializations()
+    
+    def _initialize_system_prompts(self) -> Dict[str, str]:
+        """Initialize role-specific system prompts"""
+        base_prompt = f"""
+You are a {self.role.value} agent in the HealthFlow medical AI system.
+Your ID is {self.agent_id}.
+
+Core capabilities:
+- Medical knowledge reasoning and analysis
+- Tool creation and usage
+- Code execution and data processing
+- Multi-agent collaboration
+- Self-improvement through experience
+
+Always prioritize patient safety, medical accuracy, and evidence-based practice.
+Communicate clearly with other agents and maintain detailed records of your reasoning.
+"""
+        
+        role_specific_prompts = {
+            AgentRole.COORDINATOR: base_prompt + """
+As a Coordinator, you orchestrate multi-agent collaborations, assign tasks to appropriate specialists, 
+and ensure efficient workflow management. You have a broad overview of all medical domains.
+""",
+            AgentRole.MEDICAL_EXPERT: base_prompt + """
+As a Medical Expert, you provide specialized medical knowledge, clinical reasoning, 
+and evidence-based recommendations. You stay current with medical literature and best practices.
+""",
+            AgentRole.DATA_ANALYST: base_prompt + """
+As a Data Analyst, you specialize in processing medical data, statistical analysis, 
+pattern recognition, and generating insights from complex healthcare datasets.
+""",
+            AgentRole.RESEARCHER: base_prompt + """
+As a Researcher, you conduct literature reviews, analyze clinical studies, 
+and provide evidence-based insights to support medical decision making.
+""",
+            AgentRole.DIAGNOSIS_SPECIALIST: base_prompt + """
+As a Diagnosis Specialist, you excel at differential diagnosis, symptom analysis, 
+and using diagnostic tools to identify medical conditions accurately.
+""",
+            AgentRole.TREATMENT_PLANNER: base_prompt + """
+As a Treatment Planner, you develop comprehensive treatment strategies, 
+consider drug interactions, and create personalized care plans.
+""",
+            AgentRole.CODE_EXECUTOR: base_prompt + """
+As a Code Executor, you run medical analysis code, create visualizations, 
+process data, and integrate computational tools into medical workflows.
+"""
+        }
+        
+        return {
+            "base": role_specific_prompts.get(self.role, base_prompt),
+            "task_execution": "Focus on executing the given task efficiently and accurately.",
+            "collaboration": "Collaborate effectively with other agents, sharing relevant insights.",
+            "self_reflection": "Reflect on your performance and identify areas for improvement."
+        }
     
     async def execute_task(
         self,
         task_description: str,
-        task_type: str,
-        data: Optional[Any] = None,
-        context: Optional[Dict[str, Any]] = None
+        task_context: Dict[str, Any] = None,
+        max_iterations: int = None
     ) -> TaskResult:
-        """
-        Execute a healthcare task with full self-evolution capabilities.
+        """Execute a medical task with self-evolution capabilities"""
         
-        Args:
-            task_description: Natural language description of the task
-            task_type: Type of task (diagnosis, analysis, research, etc.)
-            data: Input data (will be protected if sensitive)
-            context: Additional context for the task
-            
-        Returns:
-            TaskResult with execution details and outcomes
-        """
+        task_id = str(uuid.uuid4())
+        task_context = task_context or {}
+        max_iterations = max_iterations or self.config.max_iterations
+        
         start_time = datetime.now()
-        task_id = f"{self.agent_id}_{start_time.isoformat()}"
-        
-        self.logger.info(f"Starting task {task_id}: {task_description}")
-        self.state.current_task = task_id
+        tools_used = []
+        memory_entries_created = []
         
         try:
-            # Step 1: Protect sensitive data
-            protected_data = await self.data_protector.protect_data(data) if data else None
+            self.current_task = task_id
             
-            # Step 2: Retrieve relevant memories and experiences
-            relevant_memories = await self.memory_manager.retrieve_relevant_memories(
-                task_description, task_type
+            # Store initial task memory
+            initial_memory = MemoryEntry(
+                id=str(uuid.uuid4()),
+                memory_type=MemoryType.INTERACTION,
+                timestamp=datetime.now(),
+                agent_id=self.agent_id,
+                content={
+                    "task_id": task_id,
+                    "task_description": task_description,
+                    "task_context": task_context,
+                    "status": "started"
+                }
+            )
+            await self.memory_manager.add_memory(initial_memory)
+            memory_entries_created.append(initial_memory.id)
+            
+            # Retrieve relevant experiences
+            relevant_memories = await self.memory_manager.get_recent_memories(
+                limit=20, 
+                memory_type=MemoryType.EXPERIENCE
             )
             
-            # Step 3: Get experience-based recommendations
-            experience_insights = await self.experience_accumulator.get_task_insights(
-                task_type, task_description
+            # Plan task execution approach
+            execution_plan = await self._plan_task_execution(
+                task_description, task_context, relevant_memories
             )
             
-            # Step 4: Identify and create required tools
-            required_tools = await self.toolbank.identify_required_tools(
-                task_description, task_type, experience_insights
-            )
+            result = None
+            iteration = 0
             
-            created_tools = []
-            for tool_spec in required_tools:
-                if not await self.toolbank.tool_exists(tool_spec['name']):
-                    new_tool = await self.toolbank.create_tool(tool_spec)
-                    created_tools.append(new_tool)
+            while iteration < max_iterations:
+                iteration += 1
+                
+                # Execute current step
+                step_result = await self._execute_task_step(
+                    task_description,
+                    task_context,
+                    execution_plan,
+                    iteration,
+                    relevant_memories
+                )
+                
+                if step_result["tools_used"]:
+                    tools_used.extend(step_result["tools_used"])
+                
+                if step_result["memory_entries"]:
+                    memory_entries_created.extend(step_result["memory_entries"])
+                
+                # Check if task is complete
+                if step_result["completed"]:
+                    result = step_result["result"]
+                    break
+                
+                # Update execution plan if needed
+                if step_result.get("plan_update"):
+                    execution_plan = step_result["plan_update"]
             
-            # Step 5: Execute the task using available tools
-            execution_context = {
-                'task_id': task_id,
-                'memories': relevant_memories,
-                'experience_insights': experience_insights,
-                'available_tools': await self.toolbank.get_available_tools(),
-                'protected_data': protected_data,
-                **(context or {})
-            }
-            
-            result = await self._execute_with_tools(
-                task_description, task_type, execution_context
-            )
-            
-            # Step 6: Evaluate performance
+            # Evaluate result
             evaluation = await self.evaluator.evaluate_task_result(
-                task_description, result, task_type
+                task_description, result, task_context
             )
             
-            # Step 7: Accumulate experience
-            await self.experience_accumulator.add_experience(
-                task_type=task_type,
-                task_description=task_description,
-                execution_context=execution_context,
-                result=result,
-                evaluation=evaluation,
-                tools_used=created_tools + [t for t in required_tools if t.get('existing')]
-            )
-            
-            # Step 8: Update memory
-            await self.memory_manager.store_task_memory(
-                task_id=task_id,
-                task_description=task_description,
-                result=result,
-                evaluation=evaluation,
-                context=execution_context
-            )
-            
-            # Step 9: Create task result
+            success = evaluation.get("success", False)
             execution_time = (datetime.now() - start_time).total_seconds()
+            
+            # Store final result memory
+            result_memory = MemoryEntry(
+                id=str(uuid.uuid4()),
+                memory_type=MemoryType.EXPERIENCE,
+                timestamp=datetime.now(),
+                agent_id=self.agent_id,
+                content={
+                    "task_id": task_id,
+                    "task_description": task_description,
+                    "result": result,
+                    "evaluation": evaluation,
+                    "tools_used": tools_used,
+                    "iterations": iteration,
+                    "execution_time": execution_time
+                },
+                success=success,
+                reward=evaluation.get("reward", 0.0)
+            )
+            await self.memory_manager.add_memory(result_memory)
+            memory_entries_created.append(result_memory.id)
+            
+            # Create task result
             task_result = TaskResult(
                 task_id=task_id,
-                success=evaluation.get('success', False),
-                output=result,
-                feedback=evaluation.get('feedback', ''),
+                success=success,
+                result=result,
+                error=None,
                 execution_time=execution_time,
-                memory_used=len(json.dumps(asdict(self.state))),
-                tools_used=[t['name'] for t in created_tools],
-                timestamp=start_time
+                agent_id=self.agent_id,
+                tools_used=tools_used,
+                memory_entries=memory_entries_created,
+                evaluation=evaluation
             )
             
-            # Step 10: Update agent state
-            self._update_agent_state(task_result, evaluation)
-            
+            # Update agent statistics
             self.task_history.append(task_result)
-            self.state.current_task = None
+            await self._update_success_rate()
             
-            self.logger.info(f"Task {task_id} completed successfully")
+            # Trigger self-evolution if needed
+            if len(self.task_history) >= self.experience_threshold:
+                await self._trigger_self_evolution()
+            
+            self.current_task = None
             return task_result
             
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds()
-            error_result = TaskResult(
+            
+            error_memory = MemoryEntry(
+                id=str(uuid.uuid4()),
+                memory_type=MemoryType.FAILURE_ANALYSIS,
+                timestamp=datetime.now(),
+                agent_id=self.agent_id,
+                content={
+                    "task_id": task_id,
+                    "task_description": task_description,
+                    "error": str(e),
+                    "execution_time": execution_time
+                },
+                success=False
+            )
+            await self.memory_manager.add_memory(error_memory)
+            memory_entries_created.append(error_memory.id)
+            
+            task_result = TaskResult(
                 task_id=task_id,
                 success=False,
-                output=None,
-                feedback=f"Task failed: {str(e)}",
+                result=None,
+                error=str(e),
                 execution_time=execution_time,
-                memory_used=0,
-                tools_used=[],
-                timestamp=start_time,
-                error_msg=str(e)
+                agent_id=self.agent_id,
+                tools_used=tools_used,
+                memory_entries=memory_entries_created,
+                evaluation=None
             )
             
-            self.task_history.append(error_result)
-            self.state.current_task = None
+            self.task_history.append(task_result)
+            await self._update_success_rate()
             
-            self.logger.error(f"Task {task_id} failed: {e}")
-            return error_result
+            self.current_task = None
+            return task_result
     
-    async def _execute_with_tools(
+    async def _plan_task_execution(
         self,
         task_description: str,
-        task_type: str,
-        context: Dict[str, Any]
-    ) -> Any:
-        """Execute the actual task using available tools and context"""
+        task_context: Dict[str, Any],
+        relevant_memories: List[MemoryEntry]
+    ) -> Dict[str, Any]:
+        """Plan the execution approach for a task"""
         
-        # This is where the main LLM reasoning and tool orchestration happens
-        # For now, we'll implement a basic structure that can be expanded
+        # Get the best prompt from memory evolution
+        best_prompt = await self.memory_manager.get_best_prompt("task_planning")
+        if not best_prompt:
+            best_prompt = self.system_prompts["task_execution"]
         
-        from openai import AsyncOpenAI
+        # Create planning prompt
+        memory_context = "\n".join([
+            f"- {mem.content.get('task_description', '')}: {'Success' if mem.success else 'Failure'}"
+            for mem in relevant_memories[:5]
+        ])
         
-        client = AsyncOpenAI(api_key=self.openai_api_key)
+        planning_prompt = f"""
+{best_prompt}
+
+Task: {task_description}
+Context: {json.dumps(task_context, indent=2)}
+
+Relevant past experiences:
+{memory_context}
+
+Create an execution plan with:
+1. Approach strategy
+2. Required tools or capabilities
+3. Potential challenges
+4. Success criteria
+5. Collaboration needs (if any)
+
+Return your plan as a JSON object.
+"""
         
-        # Construct system prompt with context
-        system_prompt = self._build_system_prompt(context)
-        
-        # Create messages with task description
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Execute this healthcare task: {task_description}"}
-        ]
-        
-        # Add relevant memories to context
-        if context.get('memories'):
-            memory_context = "Relevant past experiences:\n" + "\n".join(
-                [f"- {mem['summary']}" for mem in context['memories'][:5]]
+        try:
+            messages = [LLMMessage(role="user", content=planning_prompt)]
+            response = await self.llm_provider.generate(
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.3
             )
-            messages.append({"role": "assistant", "content": memory_context})
+            
+            # Try to parse JSON response
+            try:
+                plan = json.loads(response.content)
+                return plan
+            except json.JSONDecodeError:
+                # Extract structured information if JSON parsing fails
+                return {
+                    "approach": "adaptive",
+                    "reasoning": response.content,
+                    "tools_needed": [],
+                    "collaboration_needed": False
+                }
+                
+        except Exception as e:
+            return {
+                "approach": "fallback",
+                "error": str(e),
+                "tools_needed": [],
+                "collaboration_needed": False
+            }
+    
+    async def _execute_task_step(
+        self,
+        task_description: str,
+        task_context: Dict[str, Any],
+        execution_plan: Dict[str, Any],
+        iteration: int,
+        relevant_memories: List[MemoryEntry]
+    ) -> Dict[str, Any]:
+        """Execute a single step of task execution"""
         
-        # Execute with OpenAI
-        response = await client.chat.completions.create(
-            model="gpt-4",
-            messages=messages,
-            temperature=0.3,
-            max_tokens=2000
+        step_prompt = f"""
+{self.system_prompts["base"]}
+
+Current task: {task_description}
+Execution plan: {json.dumps(execution_plan, indent=2)}
+Iteration: {iteration}
+
+Based on the plan and your role as {self.role.value}, execute the next step.
+If you need specific tools, indicate what tools are required.
+If you need to collaborate with other agents, specify the collaboration request.
+
+Provide your response in this format:
+{{
+    "action": "description of action taken",
+    "result": "result or output",
+    "completed": true/false,
+    "tools_needed": ["tool1", "tool2"],
+    "collaboration_request": {{
+        "agent_role": "role_needed",
+        "request": "what help is needed"
+    }},
+    "next_steps": "what to do next if not completed"
+}}
+"""
+        
+        try:
+            messages = [LLMMessage(role="user", content=step_prompt)]
+            response = await self.llm_provider.generate(
+                messages=messages,
+                max_tokens=1500,
+                temperature=0.5
+            )
+            
+            # Try to parse structured response
+            try:
+                step_result = json.loads(response.content)
+            except json.JSONDecodeError:
+                step_result = {
+                    "action": "reasoning",
+                    "result": response.content,
+                    "completed": False,
+                    "tools_needed": [],
+                    "next_steps": "continue analysis"
+                }
+            
+            # Handle tool usage
+            tools_used = []
+            if step_result.get("tools_needed"):
+                for tool_name in step_result["tools_needed"]:
+                    # Check if tool exists or needs to be created
+                    if await self._handle_tool_requirement(tool_name, task_context):
+                        tools_used.append(tool_name)
+            
+            # Handle collaboration request
+            if step_result.get("collaboration_request"):
+                await self._handle_collaboration_request(
+                    step_result["collaboration_request"],
+                    task_description,
+                    task_context
+                )
+            
+            # Store step memory
+            step_memory = MemoryEntry(
+                id=str(uuid.uuid4()),
+                memory_type=MemoryType.INTERACTION,
+                timestamp=datetime.now(),
+                agent_id=self.agent_id,
+                content={
+                    "step_iteration": iteration,
+                    "action": step_result.get("action"),
+                    "result": step_result.get("result"),
+                    "tools_used": tools_used
+                }
+            )
+            await self.memory_manager.add_memory(step_memory)
+            
+            return {
+                "completed": step_result.get("completed", False),
+                "result": step_result.get("result"),
+                "tools_used": tools_used,
+                "memory_entries": [step_memory.id],
+                "plan_update": step_result.get("plan_update")
+            }
+            
+        except Exception as e:
+            return {
+                "completed": False,
+                "result": f"Error in step execution: {str(e)}",
+                "tools_used": [],
+                "memory_entries": [],
+                "error": str(e)
+            }
+    
+    async def _handle_tool_requirement(
+        self, 
+        tool_name: str, 
+        task_context: Dict[str, Any]
+    ) -> bool:
+        """Handle tool requirement - find existing or create new tool"""
+        
+        # Search for existing tools
+        existing_tools = self.tool_bank.search_tools(
+            query=tool_name,
+            min_success_rate=0.5
         )
         
-        result = response.choices[0].message.content
+        if existing_tools:
+            return True
         
-        # Post-process result if needed
-        processed_result = await self._post_process_result(result, context)
+        # Tool doesn't exist - create it
+        try:
+            # Use LLM to generate tool specification
+            tool_spec = await self._generate_tool_specification(tool_name, task_context)
+            
+            if tool_spec:
+                tool_id = await self.tool_bank.create_python_tool(
+                    name=tool_name,
+                    description=tool_spec["description"],
+                    implementation=tool_spec["implementation"],
+                    parameters=tool_spec["parameters"],
+                    tags=tool_spec.get("tags", [])
+                )
+                
+                # Store tool creation memory
+                tool_memory = MemoryEntry(
+                    id=str(uuid.uuid4()),
+                    memory_type=MemoryType.TOOL_CREATION,
+                    timestamp=datetime.now(),
+                    agent_id=self.agent_id,
+                    content={
+                        "tool_name": tool_name,
+                        "tool_id": tool_id,
+                        "specification": tool_spec,
+                        "created_for_task": task_context.get("task_id")
+                    },
+                    success=True
+                )
+                await self.memory_manager.add_memory(tool_memory)
+                
+                return True
+                
+        except Exception as e:
+            print(f"Error creating tool {tool_name}: {e}")
         
-        return processed_result
+        return False
     
-    def _build_system_prompt(self, context: Dict[str, Any]) -> str:
-        """Build comprehensive system prompt with all available context"""
-        
-        prompt_parts = [
-            "You are HealthFlow, an advanced self-evolving healthcare AI agent.",
-            "You have access to a comprehensive toolbank, past experiences, and memory.",
-            "\nCORE CAPABILITIES:",
-            "- Medical reasoning and diagnosis support",
-            "- EHR analysis and pattern recognition", 
-            "- Drug discovery and repurposing",
-            "- Clinical decision support",
-            "- Medical literature analysis",
-            "- Sensitive data protection compliance",
-            "\nEXPERIENCE INSIGHTS:"
-        ]
-        
-        # Add experience insights
-        if context.get('experience_insights'):
-            for insight in context['experience_insights'][:3]:
-                prompt_parts.append(f"- {insight}")
-        
-        prompt_parts.extend([
-            "\nAVAILABLE TOOLS:"
-        ])
-        
-        # Add available tools
-        if context.get('available_tools'):
-            for tool in context['available_tools'][:10]:  # Limit to prevent context overflow
-                prompt_parts.append(f"- {tool['name']}: {tool['description']}")
-        
-        prompt_parts.extend([
-            "\nIMPORTANT:",
-            "- Always protect patient privacy and sensitive data",
-            "- Use evidence-based approaches",
-            "- Provide clear reasoning for recommendations",
-            "- Flag any data that appears sensitive or personal",
-            "- Continuously learn from each interaction"
-        ])
-        
-        return "\n".join(prompt_parts)
-    
-    async def _post_process_result(self, result: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Post-process LLM result to extract structured information"""
-        
-        # For now, return a structured format
-        # This can be enhanced to parse LLM output more intelligently
-        
-        return {
-            "response": result,
-            "reasoning": "Generated based on available context and tools",
-            "confidence": 0.8,  # This should be computed based on actual factors
-            "data_protection_applied": bool(context.get('protected_data')),
-            "tools_utilized": len(context.get('available_tools', [])),
-            "memory_references": len(context.get('memories', []))
-        }
-    
-    def _update_agent_state(self, task_result: TaskResult, evaluation: Dict[str, Any]):
-        """Update agent state based on task performance"""
-        
-        # Update experience level
-        if task_result.success:
-            self.state.experience_level += 1
-        
-        # Update performance metrics
-        if 'performance_score' in evaluation:
-            score = evaluation['performance_score']
-            if 'avg_performance' not in self.state.performance_metrics:
-                self.state.performance_metrics['avg_performance'] = score
-            else:
-                current_avg = self.state.performance_metrics['avg_performance']
-                self.state.performance_metrics['avg_performance'] = (current_avg + score) / 2
-        
-        # Update success rate
-        total_tasks = len(self.task_history)
-        successful_tasks = sum(1 for t in self.task_history if t.success)
-        self.state.performance_metrics['success_rate'] = successful_tasks / total_tasks if total_tasks > 0 else 0
-    
-    async def collaborate_with_agent(
+    async def _generate_tool_specification(
         self,
-        other_agent_id: str,
-        collaboration_type: str,
-        shared_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Collaborate with another HealthFlow agent.
-        This enables multi-agent workflows for complex healthcare tasks.
-        """
+        tool_name: str,
+        task_context: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Generate specification for a new tool"""
         
-        collaboration_id = f"{self.agent_id}_{other_agent_id}_{collaboration_type}"
+        spec_prompt = f"""
+Create a Python tool specification for: {tool_name}
+
+Context: This tool is needed for a medical task in the HealthFlow system.
+Task context: {json.dumps(task_context, indent=2)}
+
+Generate a complete tool specification with:
+1. description: Clear description of what the tool does
+2. implementation: Complete Python code with a main() function
+3. parameters: Dict describing input parameters and types
+4. tags: List of relevant tags
+
+The tool should be focused, reliable, and follow medical best practices.
+Return as JSON format.
+"""
         
-        self.logger.info(f"Starting collaboration {collaboration_id}")
-        
-        # For now, return a placeholder structure
-        # This should be implemented to enable real agent-to-agent communication
-        
-        collaboration_result = {
-            "collaboration_id": collaboration_id,
-            "type": collaboration_type,
-            "status": "initiated",
-            "shared_insights": {},
-            "combined_output": None
-        }
-        
-        # Track active collaborations
-        if collaboration_type not in self.active_collaborations:
-            self.active_collaborations[collaboration_type] = []
-        self.active_collaborations[collaboration_type].append(other_agent_id)
-        
-        return collaboration_result
+        try:
+            messages = [LLMMessage(role="user", content=spec_prompt)]
+            response = await self.llm_provider.generate(
+                messages=messages,
+                max_tokens=2000,
+                temperature=0.3
+            )
+            
+            return json.loads(response.content)
+        except Exception as e:
+            print(f"Error generating tool specification: {e}")
+            return None
     
-    def get_agent_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive statistics about the agent's performance and state"""
+    async def _handle_collaboration_request(
+        self,
+        collaboration_request: Dict[str, Any],
+        task_description: str,
+        task_context: Dict[str, Any]
+    ):
+        """Handle request for collaboration with other agents"""
         
+        requested_role = collaboration_request.get("agent_role")
+        request_content = collaboration_request.get("request")
+        
+        # Find appropriate agent for collaboration
+        collaborator = None
+        for agent in self.collaboration_network.values():
+            if agent.role.value == requested_role and agent.is_active:
+                collaborator = agent
+                break
+        
+        if collaborator:
+            # Send collaboration message
+            message = AgentMessage(
+                sender_id=self.agent_id,
+                receiver_id=collaborator.agent_id,
+                message_type="collaboration",
+                content={
+                    "original_task": task_description,
+                    "collaboration_request": request_content,
+                    "context": task_context
+                },
+                timestamp=datetime.now(),
+                conversation_id=str(uuid.uuid4()),
+                priority=2
+            )
+            
+            await collaborator.receive_message(message)
+    
+    async def receive_message(self, message: AgentMessage):
+        """Receive and process message from another agent"""
+        
+        self.conversation_history.append(message)
+        
+        # Store collaboration memory
+        collab_memory = MemoryEntry(
+            id=str(uuid.uuid4()),
+            memory_type=MemoryType.INTERACTION,
+            timestamp=datetime.now(),
+            agent_id=self.agent_id,
+            content={
+                "message_type": message.message_type,
+                "sender": message.sender_id,
+                "content": message.content,
+                "conversation_id": message.conversation_id
+            }
+        )
+        await self.memory_manager.add_memory(collab_memory)
+        
+        # Process based on message type
+        if message.message_type == "collaboration":
+            await self._process_collaboration_request(message)
+        elif message.message_type == "request":
+            await self._process_request(message)
+        elif message.message_type == "response":
+            await self._process_response(message)
+    
+    async def _process_collaboration_request(self, message: AgentMessage):
+        """Process collaboration request from another agent"""
+        
+        request_content = message.content.get("collaboration_request")
+        context = message.content.get("context", {})
+        
+        # Generate response to collaboration request
+        collab_prompt = f"""
+{self.system_prompts["collaboration"]}
+
+You received a collaboration request from agent {message.sender_id}:
+Request: {request_content}
+Context: {json.dumps(context, indent=2)}
+
+Based on your role as {self.role.value}, provide helpful assistance.
+Be specific and actionable in your response.
+"""
+        
+        try:
+            messages = [LLMMessage(role="user", content=collab_prompt)]
+            response = await self.llm_provider.generate(
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.4
+            )
+            
+            # Send response back
+            response_message = AgentMessage(
+                sender_id=self.agent_id,
+                receiver_id=message.sender_id,
+                message_type="response",
+                content={
+                    "collaboration_response": response.content,
+                    "original_request": request_content
+                },
+                timestamp=datetime.now(),
+                conversation_id=message.conversation_id,
+                priority=message.priority
+            )
+            
+            # Find sender agent and send response
+            sender_agent = self.collaboration_network.get(message.sender_id)
+            if sender_agent:
+                await sender_agent.receive_message(response_message)
+                
+        except Exception as e:
+            print(f"Error processing collaboration request: {e}")
+    
+    async def _trigger_self_evolution(self):
+        """Trigger self-evolution based on accumulated experience"""
+        
+        # Analyze recent performance
+        recent_tasks = self.task_history[-self.experience_threshold:]
+        success_count = sum(1 for task in recent_tasks if task.success)
+        success_rate = success_count / len(recent_tasks)
+        
+        # Get successful and failed experiences
+        successful_experiences = await self.memory_manager.get_successful_experiences(limit=20)
+        failed_experiences = await self.memory_manager.get_failed_experiences(limit=10)
+        
+        # Extract patterns
+        if successful_experiences:
+            success_pattern = await self.memory_manager.extract_experience_pattern(successful_experiences)
+        
+        if failed_experiences:
+            failure_pattern = await self.memory_manager.extract_experience_pattern(failed_experiences)
+        
+        # Evolve prompts based on experience
+        if success_rate < 0.7:  # If performance is below threshold
+            await self._evolve_prompts(successful_experiences, failed_experiences)
+        
+        # Update specialization areas
+        await self._update_specializations()
+        
+        self.evolution_generation += 1
+        
+        # Store evolution memory
+        evolution_memory = MemoryEntry(
+            id=str(uuid.uuid4()),
+            memory_type=MemoryType.PROMPT_EVOLUTION,
+            timestamp=datetime.now(),
+            agent_id=self.agent_id,
+            content={
+                "generation": self.evolution_generation,
+                "success_rate": success_rate,
+                "improvements": "Evolved prompts and specializations based on experience"
+            },
+            success=True
+        )
+        await self.memory_manager.add_memory(evolution_memory)
+    
+    async def _evolve_prompts(
+        self,
+        successful_experiences: List[MemoryEntry],
+        failed_experiences: List[MemoryEntry]
+    ):
+        """Evolve agent prompts based on experience"""
+        
+        # Analyze what works and what doesn't
+        success_patterns = [exp.content for exp in successful_experiences[:5]]
+        failure_patterns = [exp.content for exp in failed_experiences[:3]]
+        
+        evolution_prompt = f"""
+Analyze the following successful and failed task experiences to improve agent performance.
+
+Successful experiences:
+{json.dumps(success_patterns, indent=2)}
+
+Failed experiences:
+{json.dumps(failure_patterns, indent=2)}
+
+Based on this analysis, suggest improvements to the agent's approach:
+1. What patterns lead to success?
+2. What should be avoided?
+3. How can the agent's reasoning be improved?
+4. What additional capabilities might be needed?
+
+Provide specific improvements as a structured response.
+"""
+        
+        try:
+            messages = [LLMMessage(role="user", content=evolution_prompt)]
+            response = await self.llm_provider.generate(
+                messages=messages,
+                max_tokens=1500,
+                temperature=0.3
+            )
+            
+            # Store evolved prompt
+            performance_metrics = {"success_rate": self.success_rate}
+            improvements = [response.content]
+            
+            await self.memory_manager.evolve_prompt(
+                current_prompt=self.system_prompts["base"],
+                performance_metrics=performance_metrics,
+                improvements=improvements
+            )
+            
+        except Exception as e:
+            print(f"Error evolving prompts: {e}")
+    
+    async def _update_specializations(self):
+        """Update agent specialization areas based on successful tasks"""
+        
+        # Analyze successful tasks to identify specialization patterns
+        successful_tasks = [task for task in self.task_history if task.success]
+        
+        if len(successful_tasks) >= 5:
+            # Extract common patterns from successful tasks
+            task_descriptions = [task.result for task in successful_tasks[-10:]]
+            # Simple keyword extraction for specialization areas
+            # In a real implementation, this would use more sophisticated NLP
+            
+            specialization_areas = []
+            medical_keywords = [
+                'diagnosis', 'treatment', 'analysis', 'research', 'planning',
+                'cardiology', 'oncology', 'neurology', 'radiology'
+            ]
+            
+            for keyword in medical_keywords:
+                count = sum(1 for desc in task_descriptions 
+                           if keyword.lower() in str(desc).lower())
+                if count >= 3:  # If keyword appears in multiple successful tasks
+                    specialization_areas.append(keyword)
+            
+            self.specialization_areas = specialization_areas[:5]  # Keep top 5
+    
+    async def _load_specializations(self):
+        """Load agent specializations from memory"""
+        
+        # Load previous specializations from memory
+        specialization_memories = await self.memory_manager.get_recent_memories(
+            limit=5,
+            memory_type=MemoryType.SUCCESS_PATTERN
+        )
+        
+        for memory in specialization_memories:
+            if 'specializations' in memory.content:
+                self.specialization_areas.extend(memory.content['specializations'])
+        
+        # Remove duplicates
+        self.specialization_areas = list(set(self.specialization_areas))
+    
+    async def _update_success_rate(self):
+        """Update agent success rate with exponential moving average"""
+        
+        if not self.task_history:
+            return
+        
+        recent_task = self.task_history[-1]
+        alpha = 0.1  # Learning rate
+        
+        if recent_task.success:
+            self.success_rate = (1 - alpha) * self.success_rate + alpha * 1.0
+        else:
+            self.success_rate = (1 - alpha) * self.success_rate + alpha * 0.0
+    
+    def add_collaborator(self, agent: 'HealthFlowAgent'):
+        """Add another agent to collaboration network"""
+        self.collaboration_network[agent.agent_id] = agent
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get current agent status"""
         return {
-            "agent_state": asdict(self.state),
-            "task_history_summary": {
-                "total_tasks": len(self.task_history),
-                "successful_tasks": sum(1 for t in self.task_history if t.success),
-                "average_execution_time": sum(t.execution_time for t in self.task_history) / len(self.task_history) if self.task_history else 0,
-                "most_used_tools": self._get_most_used_tools()
-            },
-            "memory_status": self.memory_manager.get_memory_statistics(),
-            "toolbank_status": {
-                "total_tools": len(self.toolbank.tools) if hasattr(self.toolbank, 'tools') else 0,
-                "custom_tools_created": 0  # Will be implemented
-            },
-            "collaboration_status": self.active_collaborations
+            "agent_id": self.agent_id,
+            "role": self.role.value,
+            "is_active": self.is_active,
+            "current_task": self.current_task,
+            "success_rate": self.success_rate,
+            "total_tasks": len(self.task_history),
+            "successful_tasks": sum(1 for task in self.task_history if task.success),
+            "specialization_areas": self.specialization_areas,
+            "evolution_generation": self.evolution_generation,
+            "collaboration_network_size": len(self.collaboration_network)
         }
-    
-    def _get_most_used_tools(self) -> List[str]:
-        """Get the most frequently used tools"""
-        
-        tool_usage = {}
-        for task in self.task_history:
-            for tool in task.tools_used:
-                tool_usage[tool] = tool_usage.get(tool, 0) + 1
-        
-        return sorted(tool_usage.items(), key=lambda x: x[1], reverse=True)[:5]

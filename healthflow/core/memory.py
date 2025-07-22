@@ -1,600 +1,431 @@
 """
-Memory Management System for HealthFlow Agents
-
-Implements sophisticated memory mechanisms including:
-- Short-term and long-term memory
-- Episode memory for task sequences
-- Semantic memory for knowledge storage
-- Patient-specific memory (with privacy protection)
-- Memory consolidation and retrieval
+Memory Management System for HealthFlow
+Supports persistent storage using jsonl, parquet, and pickle formats
+Implements experience accumulation and self-evolving capabilities
 """
 
 import json
-import sqlite3
-import numpy as np
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta
-import hashlib
-import logging
+import pickle
+import asyncio
+from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Any, Union
+from dataclasses import dataclass, asdict
+from enum import Enum
+import uuid
 
-from .security import DataProtector
+import pandas as pd
+import numpy as np
+from pydantic import BaseModel
+
+
+class MemoryType(Enum):
+    """Types of memory entries"""
+    INTERACTION = "interaction"
+    EXPERIENCE = "experience" 
+    PROMPT_EVOLUTION = "prompt_evolution"
+    TOOL_CREATION = "tool_creation"
+    FAILURE_ANALYSIS = "failure_analysis"
+    SUCCESS_PATTERN = "success_pattern"
 
 
 @dataclass
-class MemoryItem:
-    """Individual memory item"""
-    memory_id: str
-    content: Any
-    memory_type: str  # short_term, long_term, episodic, semantic, patient_specific
-    importance_score: float
-    access_count: int
+class MemoryEntry:
+    """Individual memory entry with metadata"""
+    id: str
+    memory_type: MemoryType
+    timestamp: datetime
+    agent_id: str
+    content: Dict[str, Any]
+    success: Optional[bool] = None
+    reward: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            'id': self.id,
+            'memory_type': self.memory_type.value,
+            'timestamp': self.timestamp.isoformat(),
+            'agent_id': self.agent_id,
+            'content': self.content,
+            'success': self.success,
+            'reward': self.reward,
+            'metadata': self.metadata or {}
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MemoryEntry':
+        """Create from dictionary"""
+        return cls(
+            id=data['id'],
+            memory_type=MemoryType(data['memory_type']),
+            timestamp=datetime.fromisoformat(data['timestamp']),
+            agent_id=data['agent_id'],
+            content=data['content'],
+            success=data.get('success'),
+            reward=data.get('reward'),
+            metadata=data.get('metadata', {})
+        )
+
+
+class ExperiencePattern(BaseModel):
+    """Pattern extracted from successful/failed experiences"""
+    pattern_id: str
+    pattern_type: str  # "success", "failure", "optimization"
+    description: str
+    conditions: Dict[str, Any]
+    actions: List[str]
+    outcomes: Dict[str, Any]
+    confidence: float
+    usage_count: int = 0
+    last_updated: datetime
+    
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class PromptEvolution(BaseModel):
+    """Evolution of prompts over time"""
+    prompt_id: str
+    version: int
+    prompt_text: str
+    performance_metrics: Dict[str, float]
+    improvements: List[str]
     created_at: datetime
-    last_accessed: datetime
-    tags: List[str]
-    patient_id: Optional[str] = None  # For patient-specific memories
-    privacy_level: str = "low"  # low, medium, high
-
-
-@dataclass
-class MemoryQuery:
-    """Memory query structure"""
-    query_text: str
-    memory_types: List[str]
-    time_range: Optional[Tuple[datetime, datetime]] = None
-    patient_id: Optional[str] = None
-    min_importance: float = 0.0
-    max_results: int = 10
+    parent_prompt_id: Optional[str] = None
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 
 class MemoryManager:
-    """
-    Advanced memory management system for healthcare agents.
+    """Advanced memory management with multiple storage formats and self-evolving capabilities"""
     
-    Features:
-    - Multi-level memory hierarchy
-    - Privacy-aware patient memory
-    - Automatic memory consolidation
-    - Similarity-based retrieval
-    - Memory importance scoring
-    """
-    
-    def __init__(self, agent_id: str, memory_dir: str = "memory"):
-        self.agent_id = agent_id
+    def __init__(self, memory_dir: Path, max_memory_size: int = 10000):
         self.memory_dir = Path(memory_dir)
-        self.memory_dir.mkdir(exist_ok=True)
+        self.max_memory_size = max_memory_size
         
-        # Initialize data protector for sensitive memories
-        self.data_protector = DataProtector()
+        # Storage paths
+        self.jsonl_path = self.memory_dir / "interactions.jsonl"
+        self.parquet_path = self.memory_dir / "experiences.parquet"
+        self.patterns_path = self.memory_dir / "patterns.pkl"
+        self.prompts_path = self.memory_dir / "prompt_evolution.pkl"
         
-        # Initialize databases
-        self.db_path = self.memory_dir / f"{agent_id}_memory.db"
-        self._init_database()
+        # In-memory stores
+        self.recent_memories: List[MemoryEntry] = []
+        self.experience_patterns: Dict[str, ExperiencePattern] = {}
+        self.prompt_evolution: Dict[str, List[PromptEvolution]] = {}
         
-        # Memory configuration
-        self.config = {
-            "short_term_capacity": 100,
-            "long_term_capacity": 10000,
-            "consolidation_threshold": 24,  # hours
-            "importance_decay_rate": 0.95,
-            "similarity_threshold": 0.7
-        }
+        # Create directory
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
         
-        self.logger = logging.getLogger(f"MemoryManager-{agent_id}")
-        self.logger.info(f"Memory manager initialized for agent {agent_id}")
+    async def initialize(self):
+        """Initialize and load all data"""
+        await self._load_all_data()
     
-    def _init_database(self):
-        """Initialize SQLite database for memory storage"""
-        
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS memories (
-                    memory_id TEXT PRIMARY KEY,
-                    content TEXT NOT NULL,
-                    memory_type TEXT NOT NULL,
-                    importance_score REAL NOT NULL,
-                    access_count INTEGER DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    last_accessed TEXT NOT NULL,
-                    tags TEXT NOT NULL,
-                    patient_id TEXT,
-                    privacy_level TEXT DEFAULT 'low'
-                )
-            """)
-            
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS memory_embeddings (
-                    memory_id TEXT PRIMARY KEY,
-                    embedding BLOB NOT NULL,
-                    FOREIGN KEY (memory_id) REFERENCES memories (memory_id)
-                )
-            """)
-            
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS memory_relationships (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    memory_id_1 TEXT NOT NULL,
-                    memory_id_2 TEXT NOT NULL,
-                    relationship_type TEXT NOT NULL,
-                    strength REAL NOT NULL,
-                    FOREIGN KEY (memory_id_1) REFERENCES memories (memory_id),
-                    FOREIGN KEY (memory_id_2) REFERENCES memories (memory_id)
-                )
-            """)
-            
-            # Create indexes for faster queries
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_type ON memories (memory_type)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_patient_id ON memories (patient_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_importance ON memories (importance_score)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON memories (created_at)")
+    async def _load_all_data(self):
+        """Load all persistent data"""
+        await asyncio.gather(
+            self._load_jsonl_data(),
+            self._load_parquet_data(), 
+            self._load_patterns(),
+            self._load_prompt_evolution()
+        )
     
-    async def store_memory(
-        self,
-        content: Any,
-        memory_type: str,
-        importance_score: float,
-        tags: List[str],
-        patient_id: Optional[str] = None,
-        privacy_level: str = "low"
-    ) -> str:
-        """Store a new memory item"""
+    async def _load_jsonl_data(self):
+        """Load recent interactions from JSONL"""
+        if not self.jsonl_path.exists():
+            return
+            
+        try:
+            with open(self.jsonl_path, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        data = json.loads(line)
+                        memory = MemoryEntry.from_dict(data)
+                        self.recent_memories.append(memory)
+        except Exception as e:
+            print(f"Error loading JSONL data: {e}")
+    
+    async def _load_parquet_data(self):
+        """Load experience data from Parquet"""
+        if not self.parquet_path.exists():
+            return
+            
+        try:
+            df = pd.read_parquet(self.parquet_path)
+            # Convert back to memory entries if needed
+            # This is for analytical queries, main storage is in recent_memories
+        except Exception as e:
+            print(f"Error loading Parquet data: {e}")
+    
+    async def _load_patterns(self):
+        """Load experience patterns from pickle"""
+        if not self.patterns_path.exists():
+            return
+            
+        try:
+            with open(self.patterns_path, 'rb') as f:
+                self.experience_patterns = pickle.load(f)
+        except Exception as e:
+            print(f"Error loading patterns: {e}")
+    
+    async def _load_prompt_evolution(self):
+        """Load prompt evolution history from pickle"""
+        if not self.prompts_path.exists():
+            return
+            
+        try:
+            with open(self.prompts_path, 'rb') as f:
+                self.prompt_evolution = pickle.load(f)
+        except Exception as e:
+            print(f"Error loading prompt evolution: {e}")
+    
+    async def add_memory(self, memory: MemoryEntry):
+        """Add new memory entry"""
+        self.recent_memories.append(memory)
         
-        # Generate unique memory ID
-        content_str = json.dumps(content, default=str)
-        memory_id = hashlib.md5(
-            f"{self.agent_id}_{datetime.now().isoformat()}_{content_str}".encode()
-        ).hexdigest()
+        # Write to JSONL immediately for durability
+        await self._append_to_jsonl(memory)
         
-        # Protect sensitive content if needed
-        if privacy_level in ["medium", "high"]:
-            content = await self.data_protector.protect_data(content)
+        # Maintain memory size limit
+        if len(self.recent_memories) > self.max_memory_size:
+            # Archive oldest memories to parquet
+            await self._archive_old_memories()
+    
+    async def _append_to_jsonl(self, memory: MemoryEntry):
+        """Append memory to JSONL file"""
+        try:
+            with open(self.jsonl_path, 'a') as f:
+                f.write(json.dumps(memory.to_dict()) + '\n')
+        except Exception as e:
+            print(f"Error writing to JSONL: {e}")
+    
+    async def _archive_old_memories(self):
+        """Archive old memories to parquet format"""
+        try:
+            # Take oldest 20% of memories for archival
+            archive_count = len(self.recent_memories) // 5
+            to_archive = self.recent_memories[:archive_count]
+            
+            # Convert to DataFrame
+            data = [memory.to_dict() for memory in to_archive]
+            df = pd.DataFrame(data)
+            
+            # Append to existing parquet or create new
+            if self.parquet_path.exists():
+                existing_df = pd.read_parquet(self.parquet_path)
+                df = pd.concat([existing_df, df], ignore_index=True)
+            
+            df.to_parquet(self.parquet_path, index=False)
+            
+            # Remove from recent memories
+            self.recent_memories = self.recent_memories[archive_count:]
+            
+            # Rewrite JSONL with remaining memories
+            await self._rewrite_jsonl()
+            
+        except Exception as e:
+            print(f"Error archiving memories: {e}")
+    
+    async def _rewrite_jsonl(self):
+        """Rewrite JSONL file with current recent memories"""
+        try:
+            with open(self.jsonl_path, 'w') as f:
+                for memory in self.recent_memories:
+                    f.write(json.dumps(memory.to_dict()) + '\n')
+        except Exception as e:
+            print(f"Error rewriting JSONL: {e}")
+    
+    async def get_recent_memories(self, limit: int = 100, memory_type: Optional[MemoryType] = None) -> List[MemoryEntry]:
+        """Get recent memories with optional filtering"""
+        memories = self.recent_memories
         
-        # Create memory item
-        memory_item = MemoryItem(
-            memory_id=memory_id,
-            content=content,
-            memory_type=memory_type,
-            importance_score=importance_score,
-            access_count=0,
+        if memory_type:
+            memories = [m for m in memories if m.memory_type == memory_type]
+        
+        return memories[-limit:] if memories else []
+    
+    async def get_successful_experiences(self, limit: int = 50) -> List[MemoryEntry]:
+        """Get successful experiences for learning"""
+        successful = [m for m in self.recent_memories if m.success is True and m.reward and m.reward > 0]
+        return sorted(successful, key=lambda x: x.reward or 0, reverse=True)[:limit]
+    
+    async def get_failed_experiences(self, limit: int = 50) -> List[MemoryEntry]:
+        """Get failed experiences for learning"""
+        failed = [m for m in self.recent_memories if m.success is False]
+        return failed[-limit:]
+    
+    async def extract_experience_pattern(self, experiences: List[MemoryEntry]) -> Optional[ExperiencePattern]:
+        """Extract common patterns from experiences"""
+        if not experiences:
+            return None
+        
+        # Analyze common conditions, actions, and outcomes
+        conditions = {}
+        actions = []
+        outcomes = {}
+        
+        for exp in experiences:
+            content = exp.content
+            if 'conditions' in content:
+                for k, v in content['conditions'].items():
+                    conditions[k] = conditions.get(k, []) + [v]
+            if 'actions' in content:
+                actions.extend(content['actions'])
+            if 'outcomes' in content:
+                for k, v in content['outcomes'].items():
+                    outcomes[k] = outcomes.get(k, []) + [v]
+        
+        # Create pattern
+        pattern_id = str(uuid.uuid4())
+        pattern_type = "success" if experiences[0].success else "failure"
+        
+        pattern = ExperiencePattern(
+            pattern_id=pattern_id,
+            pattern_type=pattern_type,
+            description=f"Pattern extracted from {len(experiences)} {pattern_type} experiences",
+            conditions=conditions,
+            actions=list(set(actions)),
+            outcomes=outcomes,
+            confidence=min(1.0, len(experiences) / 10.0),
+            last_updated=datetime.now()
+        )
+        
+        self.experience_patterns[pattern_id] = pattern
+        await self._save_patterns()
+        
+        return pattern
+    
+    async def evolve_prompt(self, current_prompt: str, performance_metrics: Dict[str, float], 
+                          improvements: List[str]) -> PromptEvolution:
+        """Create evolved version of prompt based on experience"""
+        prompt_id = str(uuid.uuid4())
+        
+        # Find parent prompt if exists
+        parent_id = None
+        for pid, evolutions in self.prompt_evolution.items():
+            if evolutions and evolutions[-1].prompt_text == current_prompt:
+                parent_id = pid
+                break
+        
+        # Create new evolution
+        version = 1
+        if parent_id and parent_id in self.prompt_evolution:
+            version = len(self.prompt_evolution[parent_id]) + 1
+        
+        evolution = PromptEvolution(
+            prompt_id=prompt_id,
+            version=version,
+            prompt_text=current_prompt,
+            performance_metrics=performance_metrics,
+            improvements=improvements,
             created_at=datetime.now(),
-            last_accessed=datetime.now(),
-            tags=tags,
-            patient_id=patient_id,
-            privacy_level=privacy_level
+            parent_prompt_id=parent_id
         )
         
-        # Store in database
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT INTO memories 
-                (memory_id, content, memory_type, importance_score, access_count, 
-                 created_at, last_accessed, tags, patient_id, privacy_level)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory_item.memory_id,
-                json.dumps(memory_item.content, default=str),
-                memory_item.memory_type,
-                memory_item.importance_score,
-                memory_item.access_count,
-                memory_item.created_at.isoformat(),
-                memory_item.last_accessed.isoformat(),
-                json.dumps(memory_item.tags),
-                memory_item.patient_id,
-                memory_item.privacy_level
-            ))
-        
-        # Generate and store embedding for similarity search
-        await self._store_embedding(memory_id, content_str)
-        
-        # Trigger memory consolidation if needed
-        await self._check_consolidation()
-        
-        self.logger.info(f"Stored memory {memory_id} of type {memory_type}")
-        return memory_id
-    
-    async def retrieve_memories(self, query: MemoryQuery) -> List[MemoryItem]:
-        """Retrieve memories based on query"""
-        
-        # Start with database query
-        with sqlite3.connect(self.db_path) as conn:
-            # Build SQL query
-            conditions = []
-            params = []
-            
-            if query.memory_types:
-                placeholders = ",".join("?" * len(query.memory_types))
-                conditions.append(f"memory_type IN ({placeholders})")
-                params.extend(query.memory_types)
-            
-            if query.patient_id:
-                conditions.append("patient_id = ?")
-                params.append(query.patient_id)
-            
-            if query.min_importance > 0:
-                conditions.append("importance_score >= ?")
-                params.append(query.min_importance)
-            
-            if query.time_range:
-                conditions.append("created_at >= ? AND created_at <= ?")
-                params.extend([t.isoformat() for t in query.time_range])
-            
-            where_clause = " AND ".join(conditions) if conditions else "1=1"
-            
-            sql = f"""
-                SELECT memory_id, content, memory_type, importance_score, 
-                       access_count, created_at, last_accessed, tags, 
-                       patient_id, privacy_level
-                FROM memories 
-                WHERE {where_clause}
-                ORDER BY importance_score DESC, last_accessed DESC
-                LIMIT ?
-            """
-            params.append(query.max_results)
-            
-            cursor = conn.execute(sql, params)
-            rows = cursor.fetchall()
-        
-        # Convert to MemoryItem objects
-        memories = []
-        for row in rows:
-            memory = MemoryItem(
-                memory_id=row[0],
-                content=json.loads(row[1]),
-                memory_type=row[2],
-                importance_score=row[3],
-                access_count=row[4],
-                created_at=datetime.fromisoformat(row[5]),
-                last_accessed=datetime.fromisoformat(row[6]),
-                tags=json.loads(row[7]),
-                patient_id=row[8],
-                privacy_level=row[9]
-            )
-            memories.append(memory)
-        
-        # Update access counts
-        memory_ids = [m.memory_id for m in memories]
-        if memory_ids:
-            await self._update_access_counts(memory_ids)
-        
-        # If we have query text, do semantic similarity search
-        if query.query_text and memories:
-            memories = await self._rank_by_similarity(query.query_text, memories)
-        
-        self.logger.info(f"Retrieved {len(memories)} memories for query: {query.query_text[:50]}...")
-        return memories
-    
-    async def retrieve_relevant_memories(
-        self,
-        task_description: str,
-        task_type: str,
-        patient_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        """Retrieve memories relevant to a specific task"""
-        
-        # Create query
-        memory_query = MemoryQuery(
-            query_text=task_description,
-            memory_types=["episodic", "semantic", "long_term"],
-            patient_id=patient_id,
-            min_importance=0.3,
-            max_results=10
-        )
-        
-        # Add patient-specific memories if available
-        if patient_id:
-            patient_query = MemoryQuery(
-                query_text=task_description,
-                memory_types=["patient_specific"],
-                patient_id=patient_id,
-                min_importance=0.1,
-                max_results=5
-            )
-            patient_memories = await self.retrieve_memories(patient_query)
+        # Store evolution
+        if parent_id:
+            self.prompt_evolution[parent_id].append(evolution)
         else:
-            patient_memories = []
+            self.prompt_evolution[prompt_id] = [evolution]
         
-        # Retrieve general memories
-        general_memories = await self.retrieve_memories(memory_query)
-        
-        # Combine and format results
-        all_memories = general_memories + patient_memories
-        
-        # Convert to simple dict format for easy consumption
-        formatted_memories = []
-        for memory in all_memories:
-            formatted_memories.append({
-                "memory_id": memory.memory_id,
-                "summary": str(memory.content)[:200] + "..." if len(str(memory.content)) > 200 else str(memory.content),
-                "type": memory.memory_type,
-                "importance": memory.importance_score,
-                "tags": memory.tags,
-                "patient_specific": memory.patient_id is not None
-            })
-        
-        return formatted_memories
+        await self._save_prompt_evolution()
+        return evolution
     
-    async def store_task_memory(
-        self,
-        task_id: str,
-        task_description: str,
-        result: Any,
-        evaluation: Dict[str, Any],
-        context: Dict[str, Any]
-    ):
-        """Store memory of a completed task"""
+    async def get_best_prompt(self, task_type: str) -> Optional[str]:
+        """Get best performing prompt for a task type"""
+        best_prompt = None
+        best_score = -1
         
-        # Calculate importance based on evaluation
-        importance = self._calculate_task_importance(evaluation)
+        for evolutions in self.prompt_evolution.values():
+            for evolution in evolutions:
+                if task_type in evolution.performance_metrics:
+                    score = evolution.performance_metrics[task_type]
+                    if score > best_score:
+                        best_score = score
+                        best_prompt = evolution.prompt_text
         
-        # Extract patient ID if present
-        patient_id = context.get('patient_id')
-        
-        # Determine privacy level
-        privacy_level = "high" if patient_id else "low"
-        
-        # Create comprehensive memory content
-        memory_content = {
-            "task_id": task_id,
-            "description": task_description,
-            "result": result,
-            "evaluation": evaluation,
-            "context": {k: v for k, v in context.items() if k != 'protected_data'},  # Exclude sensitive data
-            "lessons_learned": self._extract_lessons_learned(result, evaluation)
-        }
-        
-        # Store as episodic memory
-        await self.store_memory(
-            content=memory_content,
-            memory_type="episodic",
-            importance_score=importance,
-            tags=self._generate_memory_tags(task_description, result),
-            patient_id=patient_id,
-            privacy_level=privacy_level
-        )
-        
-        # If this task generated new knowledge, store as semantic memory too
-        if evaluation.get('novel_insights'):
-            semantic_content = {
-                "insights": evaluation['novel_insights'],
-                "task_context": task_description,
-                "validation": evaluation.get('confidence', 0.5)
-            }
-            
-            await self.store_memory(
-                content=semantic_content,
-                memory_type="semantic",
-                importance_score=importance * 1.2,  # Boost importance for insights
-                tags=["insight", "knowledge"] + self._generate_memory_tags(task_description, result),
-                privacy_level="low"  # General knowledge is typically not sensitive
-            )
+        return best_prompt
     
-    async def _store_embedding(self, memory_id: str, content: str):
-        """Generate and store embedding for similarity search"""
-        
-        # For now, create a simple hash-based embedding
-        # In production, use actual embeddings from OpenAI or similar
-        
-        # Simple bag-of-words embedding for demonstration
-        words = content.lower().split()
-        word_counts = {}
-        for word in words:
-            word_counts[word] = word_counts.get(word, 0) + 1
-        
-        # Create a simple fixed-size vector
-        common_words = ['patient', 'medical', 'diagnosis', 'treatment', 'symptom', 
-                       'disease', 'health', 'clinical', 'therapy', 'medicine',
-                       'hospital', 'doctor', 'nurse', 'surgery', 'medication']
-        
-        embedding = np.array([word_counts.get(word, 0) for word in common_words])
-        embedding = embedding / (np.linalg.norm(embedding) + 1e-8)  # Normalize
-        
-        # Store in database
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO memory_embeddings (memory_id, embedding)
-                VALUES (?, ?)
-            """, (memory_id, embedding.tobytes()))
+    async def _save_patterns(self):
+        """Save experience patterns to pickle"""
+        try:
+            with open(self.patterns_path, 'wb') as f:
+                pickle.dump(self.experience_patterns, f)
+        except Exception as e:
+            print(f"Error saving patterns: {e}")
     
-    async def _rank_by_similarity(
-        self,
-        query_text: str,
-        memories: List[MemoryItem]
-    ) -> List[MemoryItem]:
-        """Rank memories by similarity to query text"""
-        
-        # Generate query embedding
-        words = query_text.lower().split()
-        word_counts = {}
-        for word in words:
-            word_counts[word] = word_counts.get(word, 0) + 1
-        
-        common_words = ['patient', 'medical', 'diagnosis', 'treatment', 'symptom', 
-                       'disease', 'health', 'clinical', 'therapy', 'medicine',
-                       'hospital', 'doctor', 'nurse', 'surgery', 'medication']
-        
-        query_embedding = np.array([word_counts.get(word, 0) for word in common_words])
-        query_embedding = query_embedding / (np.linalg.norm(query_embedding) + 1e-8)
-        
-        # Calculate similarities
-        similarities = []
-        with sqlite3.connect(self.db_path) as conn:
-            for memory in memories:
-                cursor = conn.execute(
-                    "SELECT embedding FROM memory_embeddings WHERE memory_id = ?",
-                    (memory.memory_id,)
-                )
-                row = cursor.fetchone()
-                if row:
-                    memory_embedding = np.frombuffer(row[0], dtype=np.float64)
-                    similarity = np.dot(query_embedding, memory_embedding)
-                    similarities.append((similarity, memory))
-                else:
-                    similarities.append((0.0, memory))
-        
-        # Sort by similarity
-        similarities.sort(key=lambda x: x[0], reverse=True)
-        
-        return [memory for _, memory in similarities]
+    async def _save_prompt_evolution(self):
+        """Save prompt evolution to pickle"""
+        try:
+            with open(self.prompts_path, 'wb') as f:
+                pickle.dump(self.prompt_evolution, f)
+        except Exception as e:
+            print(f"Error saving prompt evolution: {e}")
     
-    async def _update_access_counts(self, memory_ids: List[str]):
-        """Update access counts for retrieved memories"""
+    async def analyze_memory_trends(self) -> Dict[str, Any]:
+        """Analyze trends in memory data"""
+        if not self.recent_memories:
+            return {}
         
-        with sqlite3.connect(self.db_path) as conn:
-            for memory_id in memory_ids:
-                conn.execute("""
-                    UPDATE memories 
-                    SET access_count = access_count + 1, 
-                        last_accessed = ?
-                    WHERE memory_id = ?
-                """, (datetime.now().isoformat(), memory_id))
-    
-    async def _check_consolidation(self):
-        """Check if memory consolidation is needed"""
+        # Success rate over time
+        recent_success = [m for m in self.recent_memories[-100:] if m.success is not None]
+        success_rate = sum(1 for m in recent_success if m.success) / len(recent_success) if recent_success else 0
         
-        # Count short-term memories older than threshold
-        threshold_time = datetime.now() - timedelta(hours=self.config["consolidation_threshold"])
+        # Average reward trend
+        recent_rewards = [m.reward for m in self.recent_memories[-100:] if m.reward is not None]
+        avg_reward = sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0
         
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT COUNT(*) FROM memories 
-                WHERE memory_type = 'short_term' AND created_at < ?
-            """, (threshold_time.isoformat(),))
-            
-            old_short_term_count = cursor.fetchone()[0]
-        
-        if old_short_term_count > 0:
-            await self._consolidate_memories()
-    
-    async def _consolidate_memories(self):
-        """Consolidate old short-term memories to long-term"""
-        
-        threshold_time = datetime.now() - timedelta(hours=self.config["consolidation_threshold"])
-        
-        with sqlite3.connect(self.db_path) as conn:
-            # Find short-term memories to consolidate
-            cursor = conn.execute("""
-                SELECT memory_id, importance_score, access_count 
-                FROM memories 
-                WHERE memory_type = 'short_term' AND created_at < ?
-                ORDER BY importance_score DESC, access_count DESC
-            """, (threshold_time.isoformat(),))
-            
-            candidates = cursor.fetchall()
-            
-            # Move high-importance memories to long-term
-            for memory_id, importance, access_count in candidates:
-                if importance > 0.5 or access_count > 5:
-                    conn.execute("""
-                        UPDATE memories 
-                        SET memory_type = 'long_term',
-                            importance_score = importance_score * 1.1
-                        WHERE memory_id = ?
-                    """, (memory_id,))
-                else:
-                    # Delete low-importance memories
-                    conn.execute("DELETE FROM memories WHERE memory_id = ?", (memory_id,))
-                    conn.execute("DELETE FROM memory_embeddings WHERE memory_id = ?", (memory_id,))
-        
-        self.logger.info("Completed memory consolidation")
-    
-    def _calculate_task_importance(self, evaluation: Dict[str, Any]) -> float:
-        """Calculate importance score for a task memory"""
-        
-        base_importance = 0.5
-        
-        # Boost importance for successful tasks
-        if evaluation.get('success', False):
-            base_importance += 0.2
-        
-        # Boost for high confidence
-        confidence = evaluation.get('confidence', 0.5)
-        base_importance += confidence * 0.2
-        
-        # Boost for novel insights
-        if evaluation.get('novel_insights'):
-            base_importance += 0.3
-        
-        # Boost for high performance score
-        performance = evaluation.get('performance_score', 0.5)
-        base_importance += performance * 0.1
-        
-        return min(base_importance, 1.0)
-    
-    def _extract_lessons_learned(self, result: Any, evaluation: Dict[str, Any]) -> List[str]:
-        """Extract lessons learned from task execution"""
-        
-        lessons = []
-        
-        if not evaluation.get('success', False) and evaluation.get('feedback'):
-            lessons.append(f"Failed task lesson: {evaluation['feedback']}")
-        
-        if evaluation.get('improvement_suggestions'):
-            lessons.extend(evaluation['improvement_suggestions'])
-        
-        if evaluation.get('novel_insights'):
-            lessons.extend([f"Insight: {insight}" for insight in evaluation['novel_insights']])
-        
-        return lessons
-    
-    def _generate_memory_tags(self, task_description: str, result: Any) -> List[str]:
-        """Generate tags for memory indexing"""
-        
-        tags = []
-        
-        # Extract medical terms (simplified)
-        medical_keywords = [
-            'diagnosis', 'treatment', 'symptom', 'disease', 'patient',
-            'clinical', 'medical', 'health', 'therapy', 'medication',
-            'surgery', 'hospital', 'doctor', 'nurse', 'laboratory'
-        ]
-        
-        description_lower = task_description.lower()
-        for keyword in medical_keywords:
-            if keyword in description_lower:
-                tags.append(keyword)
-        
-        # Add result-based tags
-        result_str = str(result).lower() if result else ""
-        if 'positive' in result_str:
-            tags.append('positive_result')
-        if 'negative' in result_str:
-            tags.append('negative_result')
-        if 'uncertain' in result_str or 'unclear' in result_str:
-            tags.append('uncertain_result')
-        
-        return list(set(tags))  # Remove duplicates
-    
-    def get_memory_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive memory statistics"""
-        
-        with sqlite3.connect(self.db_path) as conn:
-            # Count by type
-            cursor = conn.execute("""
-                SELECT memory_type, COUNT(*), AVG(importance_score)
-                FROM memories 
-                GROUP BY memory_type
-            """)
-            
-            type_stats = {}
-            for memory_type, count, avg_importance in cursor.fetchall():
-                type_stats[memory_type] = {
-                    "count": count,
-                    "avg_importance": avg_importance
-                }
-            
-            # Total statistics
-            cursor = conn.execute("SELECT COUNT(*), AVG(importance_score) FROM memories")
-            total_count, avg_importance = cursor.fetchone()
-            
-            # Patient-specific statistics
-            cursor = conn.execute("SELECT COUNT(DISTINCT patient_id) FROM memories WHERE patient_id IS NOT NULL")
-            unique_patients = cursor.fetchone()[0]
+        # Memory type distribution
+        type_counts = {}
+        for memory in self.recent_memories[-200:]:
+            type_counts[memory.memory_type.value] = type_counts.get(memory.memory_type.value, 0) + 1
         
         return {
-            "total_memories": total_count,
-            "average_importance": avg_importance,
-            "memory_types": type_stats,
-            "unique_patients": unique_patients,
-            "database_path": str(self.db_path)
+            'success_rate': success_rate,
+            'average_reward': avg_reward,
+            'memory_type_distribution': type_counts,
+            'total_memories': len(self.recent_memories),
+            'experience_patterns': len(self.experience_patterns),
+            'prompt_evolutions': sum(len(evols) for evols in self.prompt_evolution.values())
         }
+    
+    async def cleanup_old_data(self, days_to_keep: int = 30):
+        """Clean up old data beyond retention period"""
+        cutoff_date = datetime.now() - pd.Timedelta(days=days_to_keep)
+        
+        # Remove old memories
+        self.recent_memories = [m for m in self.recent_memories if m.timestamp > cutoff_date]
+        
+        # Rewrite files
+        await self._rewrite_jsonl()
+        
+        # Clean up parquet file
+        if self.parquet_path.exists():
+            try:
+                df = pd.read_parquet(self.parquet_path)
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df = df[df['timestamp'] > cutoff_date]
+                df.to_parquet(self.parquet_path, index=False)
+            except Exception as e:
+                print(f"Error cleaning parquet data: {e}")
+    
+    async def export_analytics_data(self, output_path: Path):
+        """Export data for analytics in multiple formats"""
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Export recent memories as JSON
+        with open(output_path / "recent_memories.json", 'w') as f:
+            json.dump([m.to_dict() for m in self.recent_memories], f, indent=2)
+        
+        # Export patterns as JSON
+        patterns_dict = {k: v.dict() for k, v in self.experience_patterns.items()}
+        with open(output_path / "experience_patterns.json", 'w') as f:
+            json.dump(patterns_dict, f, indent=2, default=str)
+        
+        # Export analytics summary
+        trends = await self.analyze_memory_trends()
+        with open(output_path / "analytics_summary.json", 'w') as f:
+            json.dump(trends, f, indent=2)

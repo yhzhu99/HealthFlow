@@ -1,379 +1,325 @@
-# HealthFlow 🏥🤖
+# HealthFlow: Self-Evolving Healthcare AI Agent System
 
-**Self-Evolving LLM Agent for Healthcare with Experience Accumulation and Sensitive Data Protection**
-
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-
-HealthFlow is an advanced self-evolving multi-agent system designed specifically for healthcare applications. It combines cutting-edge LLM capabilities with sophisticated experience accumulation, memory management, and sensitive data protection to create continuously improving healthcare AI agents.
+HealthFlow is a state-of-the-art multi-agent healthcare AI system that features self-evolution, dynamic tool creation, and advanced medical reasoning capabilities. Built for academic research and healthcare applications, it surpasses traditional agent frameworks through continuous learning and improvement.
 
 ## 🌟 Key Features
 
-### 🔄 Self-Evolution & Experience Accumulation
-- **Prompt Evolution**: Continuously improves reasoning strategies based on past successes and failures
-- **Experience-based Learning**: Accumulates insights from every task execution
-- **Pattern Recognition**: Automatically identifies successful approaches and failure patterns
-- **Performance Optimization**: Evolves tool usage and collaboration strategies over time
+### Core Capabilities
+- **Self-Evolving Agents**: Agents continuously learn and improve from experience
+- **Multi-Agent Collaboration**: 7 specialized agents working together
+- **Dynamic Tool Creation**: Automatic creation and management of tools via ToolBank
+- **Medical-Specific Rewards**: Mutual information rewards for diagnostic tasks
+- **File-Based Persistence**: No database dependencies, uses JSONL/Parquet/Pickle
+- **Multi-Provider LLM Support**: OpenAI, Anthropic, Gemini, and more
 
-### 🔒 Healthcare Data Protection
-- **HIPAA Compliance**: Built-in sensitive data detection and protection
-- **Smart Anonymization**: Multi-level data anonymization (low, medium, high)
-- **Schema-only Transmission**: Option to transmit data structure without actual values
-- **Mock Data Generation**: Creates realistic test data while preserving structure
-- **Audit Trails**: Complete logging of all data protection activities
+### Advanced Features
+- **Memory Management**: Sophisticated memory with prompt evolution
+- **Experience Accumulation**: Learn from successes and failures
+- **Medical Safety**: Built-in safety checks and compliance monitoring
+- **Code Execution**: Integrated Python code execution capabilities
+- **Comprehensive Evaluation**: Medical-focused task evaluation metrics
 
-### 🧠 Advanced Memory Management
-- **Multi-level Memory**: Short-term, long-term, episodic, and semantic memory systems
-- **Patient-specific Memory**: Privacy-preserving patient context retention
-- **Memory Consolidation**: Automatic promotion of important memories
-- **Contextual Retrieval**: Intelligent memory search based on task relevance
+## 🏗️ Architecture
 
-### 🛠️ Dynamic Tool Creation (MCP-driven)
-- **Automatic Tool Generation**: Creates specialized healthcare tools on-demand
-- **MCP Integration**: Model Context Protocol for standardized tool interfaces
-- **Tool Validation**: Automatic testing and validation of generated tools
-- **Tool Evolution**: Performance-based tool improvement and versioning
+HealthFlow consists of several key components:
 
-### 🤝 Multi-Agent Collaboration
-- **Role-based Agents**: Specialized agents for different healthcare domains
-- **Intelligent Collaboration**: Dynamic role assignment based on task requirements
-- **Shared Context**: Secure information sharing between collaborating agents
-- **Collective Learning**: Shared experience across agent teams
+1. **Core Agent System** (`healthflow/core/`)
+   - Multi-role agents with self-evolution
+   - Advanced memory management
+   - LLM provider abstraction
+   - Reward system with mutual information
 
-### 📊 Comprehensive Evaluation
-- **Multi-dimensional Assessment**: Accuracy, safety, compliance, efficiency metrics
-- **Clinical Relevance Scoring**: Healthcare-specific quality measures
-- **Safety Monitoring**: Automatic detection of potentially harmful recommendations
-- **Continuous Improvement**: Performance-based agent optimization
+2. **Tool Management** (`healthflow/tools/`)
+   - Dynamic tool creation and execution
+   - MCP (Model Context Protocol) support
+   - Tool performance tracking
+
+3. **Evaluation System** (`healthflow/evaluation/`)
+   - Medical safety assessment
+   - Evidence-based scoring
+   - Performance tracking
+
+4. **CLI Interface** (`healthflow/cli.py`)
+   - Interactive and batch processing modes
+   - Task file processing
+   - System monitoring
 
 ## 🚀 Quick Start
 
-### Installation
+### 1. Environment Setup
+
+First, activate the virtual environment and install dependencies:
 
 ```bash
-# Clone the repository
-git clone https://github.com/healthflow/healthflow.git
-cd healthflow
-
-# Install with pip
-pip install -e .
-
-# Or install with development dependencies
-pip install -e ".[dev]"
+source ./.venv/bin/activate
+uv sync
 ```
 
-### Environment Setup
+### 2. Configuration
+
+Copy and configure the environment file:
 
 ```bash
-# Set your OpenAI API key
-export OPENAI_API_KEY="your-openai-api-key-here"
-
-# Activate virtual environment (optional but recommended)
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+cp .env.example .env
 ```
 
-### Basic Usage
+Edit `.env` with your API credentials:
+
+```bash
+# LLM Configuration
+BASE_URL=https://api.openai.com/v1  # or your preferred provider
+API_KEY=your_api_key_here
+MODEL_NAME=gpt-4-turbo-preview
+
+# Optional: Other providers
+# BASE_URL=https://api.anthropic.com
+# MODEL_NAME=claude-3-sonnet-20240229
+
+# Data directories (optional, will use defaults)
+# DATA_DIR=./data
+# MEMORY_DIR=./data/memory
+# TOOLS_DIR=./data/tools
+```
+
+### 3. Run HealthFlow
+
+#### Interactive Mode (Default)
+```bash
+python run_healthflow.py
+```
+
+#### Single Task Execution
+```bash
+python run_healthflow.py --task "Analyze the symptoms: fever, cough, shortness of breath"
+```
+
+#### Process Task File
+```bash
+python run_healthflow.py --file scripts/extract_task/tasks/1_tasks.jsonl --max-tasks 5
+```
+
+#### System Status
+```bash
+python run_healthflow.py --status
+```
+
+## 💡 Usage Examples
+
+### Interactive Mode
+
+```bash
+$ python run_healthflow.py
+HealthFlow> help
+HealthFlow> What are the differential diagnoses for chest pain in a 45-year-old male?
+HealthFlow> analyze patient data with symptoms: headache, nausea, photophobia
+HealthFlow> status
+HealthFlow> exit
+```
+
+### Batch Processing
+
+Create a task file `my_tasks.jsonl`:
+```json
+{"task": "Explain the mechanism of action of ACE inhibitors"}
+{"task": "What are the contraindications for MRI in patients with implants?"}
+{"task": "Analyze drug interactions between warfarin and antibiotics"}
+```
+
+Run batch processing:
+```bash
+python run_healthflow.py --file my_tasks.jsonl
+```
+
+### Python API Usage
 
 ```python
 import asyncio
-from healthflow.core.agent import HealthFlowAgent
+from healthflow.cli import HealthFlowCLI
 
 async def main():
-    # Create a diagnostic specialist agent
-    agent = HealthFlowAgent(
-        agent_id="diagnostic_specialist",
-        openai_api_key="your-openai-api-key",
-        specialized_domains=["diagnosis", "symptom_analysis"],
-        config={"max_reasoning_steps": 10}
+    cli = HealthFlowCLI()
+    await cli.initialize()
+    
+    result = await cli.execute_task(
+        "Diagnose based on symptoms: fever, rash, joint pain",
+        {"patient_age": 35, "patient_sex": "female"}
     )
     
-    # Execute a diagnostic task
-    result = await agent.execute_task(
-        task_description="Analyze patient with fever, cough, and shortness of breath",
-        task_type="diagnosis",
-        data={
-            "symptoms": ["fever", "cough", "shortness_of_breath"],
-            "duration": "3 days",
-            "severity": "moderate"
-        }
-    )
-    
-    print(f"Diagnosis completed: {result.success}")
-    print(f"Response: {result.output}")
+    print(f"Result: {result['result']}")
+    print(f"Success: {result['success']}")
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### Command Line Interface
+## 🤖 Agent Roles
+
+HealthFlow includes 7 specialized agents:
+
+- **Coordinator**: Orchestrates multi-agent tasks and workflows
+- **Medical Expert**: Provides specialized medical knowledge and clinical reasoning
+- **Data Analyst**: Processes medical data and performs statistical analysis
+- **Researcher**: Conducts literature reviews and evidence analysis
+- **Diagnosis Specialist**: Excels at differential diagnosis and symptom analysis
+- **Treatment Planner**: Develops treatment strategies and care plans
+- **Code Executor**: Runs analysis code and creates visualizations
+
+## 🛠️ Tool System
+
+HealthFlow's ToolBank enables dynamic tool creation:
+
+- **Automatic Tool Generation**: Agents create tools as needed
+- **Tool Performance Tracking**: Success rates and usage statistics
+- **Medical-Specific Tools**: Specialized for healthcare tasks
+- **Code Generation**: Dynamic Python tool creation
+- **Persistent Storage**: Tools saved for reuse across sessions
+
+## 📊 Evaluation System
+
+Comprehensive evaluation with medical-specific metrics:
+
+- **Medical Safety**: Safety checks and contraindication detection
+- **Evidence-Based Assessment**: Evaluation against medical literature
+- **Completeness**: Comprehensive response analysis
+- **Accuracy**: Medical knowledge accuracy assessment
+- **Performance Tracking**: Success rates and improvement trends
+
+## 🔬 Research Applications
+
+HealthFlow is designed for cutting-edge healthcare AI research:
+
+### Self-Evolution Features
+- **Experience Accumulation**: Learn from task execution history
+- **Prompt Evolution**: Automatically improve prompts based on performance
+- **Tool Development**: Create and refine tools through usage
+- **Memory Management**: Sophisticated short and long-term memory
+
+### Medical AI Research
+- **Diagnostic Accuracy**: Evaluate diagnostic reasoning capabilities
+- **Treatment Planning**: Test treatment recommendation systems
+- **Multi-Modal Analysis**: Process various medical data types
+- **Safety Assessment**: Built-in medical safety evaluation
+
+## 📁 Project Structure
+
+```
+HealthFlow/
+├── healthflow/                 # Main package
+│   ├── core/                  # Core agent system
+│   │   ├── agent.py          # Multi-agent framework
+│   │   ├── config.py         # Configuration management
+│   │   ├── llm_provider.py   # LLM abstraction layer
+│   │   ├── memory.py         # Memory management
+│   │   └── rewards.py        # Reward functions
+│   ├── tools/                # Tool management
+│   │   └── toolbank.py       # Dynamic tool creation
+│   ├── evaluation/           # Evaluation system
+│   │   └── evaluator.py      # Medical evaluation metrics
+│   └── cli.py               # Command line interface
+├── baselines/               # Research baselines
+├── scripts/                # Utility scripts
+├── data/                   # Data storage (created at runtime)
+├── pyproject.toml          # Dependencies and project config
+├── .env.example           # Environment configuration template
+└── README.md              # This file
+```
+
+## 🔧 Configuration Options
+
+Environment variables for customization:
 
 ```bash
-# Create a new agent
-healthflow create --agent-id my_agent --domains diagnosis analysis
+# LLM Settings
+BASE_URL=https://api.openai.com/v1
+API_KEY=your_key
+MODEL_NAME=gpt-4-turbo-preview
+MAX_TOKENS=4096
+TEMPERATURE=0.7
 
-# Execute a task
-healthflow execute --agent-id my_agent --task "Analyze lab results" --type analysis
+# System Settings
+MAX_ITERATIONS=10
+MAX_AGENTS=7
+MEMORY_WINDOW=1000
+TOOL_TIMEOUT=30
 
-# Run demonstration
-healthflow demo --scenario all
+# Storage
+DATA_DIR=./data
+MEMORY_DIR=./data/memory
+TOOLS_DIR=./data/tools
+EVALUATION_DIR=./data/evaluation
 
-# View agent statistics
-healthflow stats --agent-id my_agent
+# Logging
+LOG_LEVEL=INFO
+LOG_FILE=./logs/healthflow.log
 ```
 
-## 📋 Use Cases
+## 🚀 Advanced Usage
 
-### 🔍 Clinical Diagnosis Support
+### Custom Agent Creation
+
 ```python
-diagnostic_agent = HealthFlowAgent(
-    agent_id="diagnostician",
-    specialized_domains=["differential_diagnosis", "symptom_analysis"]
-)
+from healthflow.core.agent import HealthFlowAgent, AgentRole
+from healthflow.core.config import HealthFlowConfig
 
-result = await diagnostic_agent.execute_task(
-    task_description="Patient presents with chest pain, analyze potential causes",
-    task_type="diagnosis",
-    context={"urgency": "high", "patient_age": 55}
-)
-```
-
-### 💊 Drug Interaction Analysis
-```python
-pharma_agent = HealthFlowAgent(
-    agent_id="pharmacist",
-    specialized_domains=["drug_interactions", "medication_management"]
-)
-
-result = await pharma_agent.execute_task(
-    task_description="Check interactions between warfarin, aspirin, and lisinopril",
-    task_type="drug_interaction",
-    data={"medications": ["warfarin", "aspirin", "lisinopril"]}
-)
-```
-
-### 📊 Medical Data Analysis
-```python
-analyst_agent = HealthFlowAgent(
-    agent_id="data_analyst", 
-    specialized_domains=["statistical_analysis", "pattern_recognition"]
-)
-
-result = await analyst_agent.execute_task(
-    task_description="Analyze EHR data for readmission risk factors",
-    task_type="data_analysis",
-    data=protected_ehr_data  # Automatically protected
-)
-```
-
-### 🏥 Treatment Planning
-```python
-clinical_agent = HealthFlowAgent(
-    agent_id="clinician",
-    specialized_domains=["treatment_planning", "clinical_guidelines"]
-)
-
-result = await clinical_agent.execute_task(
-    task_description="Develop treatment plan for Type 2 diabetes with hypertension",
-    task_type="treatment_planning",
-    data={"conditions": ["diabetes_t2", "hypertension"], "contraindications": []}
-)
-```
-
-## 🏗️ Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     HealthFlow Agent                            │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌──────────────┐  ┌─────────────────┐   │
-│  │ Experience      │  │ Memory       │  │ Data Protection │   │
-│  │ Accumulator     │  │ Manager      │  │ Layer           │   │
-│  │ - Prompt Evol.  │  │ - Multi-level│  │ - Anonymization │   │
-│  │ - Pattern Learn.│  │ - Contextual │  │ - Schema-only   │   │
-│  │ - Performance   │  │ - Patient    │  │ - Audit Trail   │   │
-│  └─────────────────┘  └──────────────┘  └─────────────────┘   │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌──────────────┐  ┌─────────────────┐   │
-│  │ ToolBank        │  │ Evaluator    │  │ Collaboration   │   │
-│  │ - MCP-driven    │  │ - Multi-dim. │  │ - Role Assignment│   │
-│  │ - Auto Creation │  │ - Safety     │  │ - Shared Context │   │
-│  │ - Validation    │  │ - Compliance │  │ - Collective    │   │
-│  └─────────────────┘  └──────────────┘  └─────────────────┘   │
-├─────────────────────────────────────────────────────────────────┤
-│                     Core LLM Integration                       │
-│                  (OpenAI GPT-4 + Custom Logic)                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## 🔧 Advanced Configuration
-
-### Agent Configuration
-```python
-config = {
-    "max_reasoning_steps": 15,
-    "confidence_threshold": 0.8,
-    "safety_checks": True,
-    "memory_consolidation_hours": 24,
-    "tool_creation_enabled": True,
-    "collaboration_mode": "dynamic"
-}
-
+config = HealthFlowConfig.from_env()
 agent = HealthFlowAgent(
-    agent_id="advanced_agent",
-    openai_api_key=api_key,
-    specialized_domains=["cardiology", "emergency_medicine"],
+    agent_id="custom_agent",
+    role=AgentRole.MEDICAL_EXPERT,
     config=config
 )
+await agent.initialize()
+
+result = await agent.execute_task("Custom medical task")
 ```
 
-### Data Protection Configuration
+### Tool Development
+
 ```python
-from healthflow.core.security import DataProtector, ProtectionConfig
+from healthflow.tools.toolbank import ToolBank
 
-protector = DataProtector(ProtectionConfig(
-    anonymization_level="high",
-    preserve_structure=True,
-    generate_mock_data=True,
-    schema_only_mode=False
-))
+toolbank = ToolBank(Path("./data/tools"))
+await toolbank.initialize()
 
-protected_data = await protector.protect_data(sensitive_patient_data)
-```
-
-### Memory Management
-```python
-from healthflow.core.memory import MemoryQuery
-
-# Store important clinical insight
-memory_id = await agent.memory_manager.store_memory(
-    content={"insight": "Early antibiotic therapy improves outcomes in sepsis"},
-    memory_type="semantic",
-    importance_score=0.9,
-    tags=["sepsis", "antibiotics", "clinical_protocol"],
-    privacy_level="low"  # General medical knowledge
+tool_id = await toolbank.create_medical_analyzer_tool(
+    name="Blood Pressure Analyzer",
+    medical_domain="cardiology",
+    analysis_type="blood_pressure_classification",
+    implementation="def analyze_bp(systolic, diastolic): ...",
+    input_schema={"systolic": "int", "diastolic": "int"},
+    output_schema={"classification": "str", "risk": "str"}
 )
-
-# Retrieve relevant memories
-memories = await agent.memory_manager.retrieve_memories(
-    MemoryQuery(
-        query_text="sepsis treatment protocols",
-        memory_types=["semantic", "episodic"],
-        min_importance=0.7
-    )
-)
-```
-
-## 📊 Evaluation & Monitoring
-
-HealthFlow provides comprehensive evaluation capabilities:
-
-```python
-# Get agent performance statistics
-stats = agent.get_agent_statistics()
-print(f"Success rate: {stats['task_history_summary']['successful_tasks']}")
-print(f"Experience level: {stats['agent_state']['experience_level']}")
-
-# Get evaluation metrics
-eval_stats = agent.evaluator.get_evaluation_statistics()
-print(f"Average performance: {eval_stats['average_score']}")
-print(f"Performance trend: {eval_stats['performance_trend']}")
-
-# Get memory system status
-memory_stats = agent.memory_manager.get_memory_statistics()
-print(f"Total memories: {memory_stats['total_memories']}")
-print(f"Patient-specific memories: {memory_stats['unique_patients']}")
-```
-
-## 🛡️ Security & Compliance
-
-HealthFlow is designed with healthcare security in mind:
-
-- **HIPAA Compliance**: Automatic PII/PHI detection and protection
-- **Data Anonymization**: Multiple levels of data de-identification
-- **Audit Logging**: Complete trail of all data processing activities
-- **Access Controls**: Role-based access to sensitive functionalities
-- **Secure Communication**: Encrypted agent-to-agent communication
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-pytest
-
-# Run specific test categories
-pytest -m unit          # Unit tests only
-pytest -m integration   # Integration tests only
-pytest -m security      # Security-related tests
-pytest -m memory        # Memory management tests
-
-# Run with coverage
-pytest --cov=healthflow --cov-report=html
-```
-
-## 📈 Performance Benchmarking
-
-HealthFlow includes built-in benchmarking capabilities:
-
-```python
-# Run performance benchmark
-from healthflow.evaluation.benchmark import HealthcareBenchmark
-
-benchmark = HealthcareBenchmark()
-results = await benchmark.run_comprehensive_evaluation(agent)
-
-print(f"Diagnostic accuracy: {results['diagnostic_accuracy']}")
-print(f"Treatment planning score: {results['treatment_planning']}")
-print(f"Safety compliance: {results['safety_score']}")
 ```
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+This project is designed for academic research. Key areas for contribution:
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Make your changes and add tests
-4. Run tests: `pytest`
-5. Commit your changes: `git commit -m 'Add amazing feature'`
-6. Push to the branch: `git push origin feature/amazing-feature`
-7. Open a Pull Request
+1. **Medical Knowledge Enhancement**: Improve medical reasoning capabilities
+2. **Evaluation Metrics**: Develop better healthcare-specific evaluation
+3. **Tool Development**: Create specialized medical analysis tools
+4. **Safety Features**: Enhance medical safety checking
+5. **Multi-Modal Support**: Add support for medical imaging, lab results
 
-## 📄 License
+## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is designed for academic and research purposes. Please respect medical AI safety guidelines and regulations when using for clinical applications.
 
-## 🙏 Acknowledgments
+## 🏥 Medical AI Safety
 
-- Inspired by recent advances in healthcare AI and multi-agent systems
-- Built on top of OpenAI's powerful language models
-- Incorporates best practices from medical informatics and AI safety research
+HealthFlow includes several safety features:
 
-## 📞 Support
+- **Safety Evaluation**: Built-in medical safety assessment
+- **Evidence Requirements**: Emphasis on evidence-based recommendations
+- **Uncertainty Handling**: Appropriate uncertainty acknowledgment
+- **Compliance Checking**: Healthcare regulation compliance
+- **Professional Guidance**: Recommendations to consult healthcare professionals
 
-- **Documentation**: [https://healthflow.readthedocs.io](https://healthflow.readthedocs.io)
-- **Issues**: [GitHub Issues](https://github.com/healthflow/healthflow/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/healthflow/healthflow/discussions)
-- **Email**: support@healthflow.ai
+**Important**: This system is for research and educational purposes. Always consult qualified healthcare professionals for medical decisions.
+
+## 📚 Research Citations
+
+If you use HealthFlow in your research, please consider citing relevant medical AI and multi-agent system papers that inspired this work.
 
 ---
 
-**⚠️ Important**: HealthFlow is designed for research and development purposes. It should not be used as a substitute for professional medical advice, diagnosis, or treatment. Always consult with qualified healthcare professionals for medical decisions.
-
-## 📊 Data Curation (Research Context)
-
-The project also includes comprehensive healthcare AI research data curation:
-
-### Data Extraction Pipeline
-- **Conference Papers**: KDD, WWW, ICLR, ICML, NeurIPS, AAAI, IJCAI
-- **Journal Papers**: Nature series, NEJM AI
-- **Extraction Methods**: Web scraping, BibTeX parsing, XML processing
-- **Time Range**: 2020-2025 publications
-- **Focus**: AI for Healthcare applications
-
-### Directory Structure
-- `title_extract/`: Conference/journal-specific extraction scripts
-- `filter_paper/`: Healthcare AI paper filtering and classification  
-- `extract_task/`: Task extraction from healthcare AI papers
-- `baselines/`: Reference implementations (Biomni, Alita, OpenEvolve)
+**HealthFlow**: Advancing Healthcare AI through Self-Evolution and Multi-Agent Collaboration 🚀🏥

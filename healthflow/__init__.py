@@ -1,21 +1,55 @@
-# HealthFlow: Self-Evolving LLM Agent for Healthcare
+"""
+HealthFlow: Self-Evolving Healthcare AI Agent System
 
-__version__ = "0.1.0"
-__author__ = "HealthFlow Development Team"
-__description__ = "Self-evolving multi-agent system for healthcare tasks with experience accumulation and sensitive data protection"
+A comprehensive multi-agent healthcare AI system featuring:
+- Self-evolving agents with experience accumulation
+- Dynamic tool creation and management
+- Medical-specific evaluation and safety checks
+- Multi-provider LLM support
+- File-based persistence (no databases required)
+"""
 
-from .core.agent import HealthFlowAgent
-from .core.memory import MemoryManager
-from .core.evolution import ExperienceAccumulator
-from .core.security import DataProtector
-from .tools.toolbank import ToolBank
+__version__ = "1.0.0"
+__author__ = "HealthFlow Team"
+__email__ = "healthflow@example.com"
+
+# Core imports
+from .core.config import HealthFlowConfig
+from .core.agent import HealthFlowAgent, AgentRole
+from .core.llm_provider import LLMProvider, create_llm_provider
+from .core.memory import MemoryManager, MemoryEntry, MemoryType
+from .core.rewards import calculate_mi_reward, calculate_final_reward
+
+# Tool system
+from .tools.toolbank import ToolBank, Tool, ToolType
+
+# Evaluation system
 from .evaluation.evaluator import TaskEvaluator
 
+# CLI interface
+from .cli import HealthFlowCLI
+
 __all__ = [
+    # Core
+    "HealthFlowConfig",
     "HealthFlowAgent",
-    "MemoryManager", 
-    "ExperienceAccumulator",
-    "DataProtector",
+    "AgentRole",
+    "LLMProvider",
+    "create_llm_provider",
+    "MemoryManager",
+    "MemoryEntry", 
+    "MemoryType",
+    "calculate_mi_reward",
+    "calculate_final_reward",
+    
+    # Tools
     "ToolBank",
-    "TaskEvaluator"
+    "Tool",
+    "ToolType",
+    
+    # Evaluation
+    "TaskEvaluator",
+    
+    # CLI
+    "HealthFlowCLI"
 ]
