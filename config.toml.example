@@ -1,0 +1,37 @@
+
+# HealthFlow Configuration Example
+
+# Select the active LLM provider
+active_llm = "openai"
+
+[llm.openai]
+base_url = "https://api.openai.com/v1"
+api_key = "YOUR_OPENAI_API_KEY"
+model_name = "gpt-4-turbo-preview"
+
+[llm.deepseek]
+base_url = "https://api.deepseek.com/v1"
+api_key = "YOUR_DEEPSEEK_API_KEY"
+model_name = "deepseek-chat"
+
+[llm.another_provider]
+base_url = "https://api.another-provider.com/v1"
+api_key = "YOUR_OTHER_API_KEY"
+model_name = "model-name"
+
+[data]
+data_dir = "./data"
+memory_dir = "./data/memory"
+tools_dir = "./data/tools"
+cache_dir = "./data/cache"
+evaluation_dir = "./data/evaluation"
+
+[agent]
+max_iterations = 10
+max_agents = 5
+memory_window = 1000
+tool_timeout = 30
+
+[logging]
+log_level = "INFO"
+# log_file = "/path/to/healthflow.log"

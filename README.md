@@ -57,28 +57,27 @@ uv sync
 
 ### 2. Configuration
 
-Copy and configure the environment file:
+Copy the example configuration file:
 
 ```bash
-cp .env.example .env
+cp config.toml.example config.toml
 ```
 
-Edit `.env` with your API credentials:
+Edit `config.toml` to select your LLM provider and add your API key:
 
-```bash
-# LLM Configuration
-BASE_URL=https://api.openai.com/v1  # or your preferred provider
-API_KEY=your_api_key_here
-MODEL_NAME=gpt-4-turbo-preview
+```toml
+# Select the active LLM provider
+active_llm = "openai"
 
-# Optional: Other providers
-# BASE_URL=https://api.anthropic.com
-# MODEL_NAME=claude-3-sonnet-20240229
+[llm.openai]
+base_url = "https://api.openai.com/v1"
+api_key = "YOUR_OPENAI_API_KEY"
+model_name = "gpt-4-turbo-preview"
 
-# Data directories (optional, will use defaults)
-# DATA_DIR=./data
-# MEMORY_DIR=./data/memory
-# TOOLS_DIR=./data/tools
+[llm.deepseek]
+base_url = "https://api.deepseek.com/v1"
+api_key = "YOUR_DEEPSEEK_API_KEY"
+model_name = "deepseek-chat"
 ```
 
 ### 3. Run HealthFlow
@@ -220,37 +219,48 @@ HealthFlow/
 ├── scripts/                # Utility scripts
 ├── data/                   # Data storage (created at runtime)
 ├── pyproject.toml          # Dependencies and project config
-├── .env.example           # Environment configuration template
+├── config.toml.example    # Configuration template
 └── README.md              # This file
 ```
 
 ## 🔧 Configuration Options
 
-Environment variables for customization:
+Configuration is managed through `config.toml`.
 
-```bash
-# LLM Settings
-BASE_URL=https://api.openai.com/v1
-API_KEY=your_key
-MODEL_NAME=gpt-4-turbo-preview
-MAX_TOKENS=4096
-TEMPERATURE=0.7
+### LLM Providers
+You can define multiple LLM providers and switch between them by setting `active_llm`.
 
-# System Settings
-MAX_ITERATIONS=10
-MAX_AGENTS=7
-MEMORY_WINDOW=1000
-TOOL_TIMEOUT=30
+```toml
+# Select the active LLM provider
+active_llm = "openai"
 
-# Storage
-DATA_DIR=./data
-MEMORY_DIR=./data/memory
-TOOLS_DIR=./data/tools
-EVALUATION_DIR=./data/evaluation
+[llm.openai]
+base_url = "https://api.openai.com/v1"
+api_key = "YOUR_OPENAI_API_KEY"
+model_name = "gpt-4-turbo-preview"
 
-# Logging
-LOG_LEVEL=INFO
-LOG_FILE=./logs/healthflow.log
+[llm.deepseek]
+base_url = "https://api.deepseek.com/v1"
+api_key = "YOUR_DEEPSEEK_API_KEY"
+model_name = "deepseek-chat"
+```
+
+### Other Settings
+Data, agent, and logging settings are also in `config.toml`.
+
+```toml
+[data]
+data_dir = "./data"
+memory_dir = "./data/memory"
+# ...
+
+[agent]
+max_iterations = 10
+# ...
+
+[logging]
+log_level = "INFO"
+# ...
 ```
 
 ## 🚀 Advanced Usage
@@ -261,7 +271,7 @@ LOG_FILE=./logs/healthflow.log
 from healthflow.core.agent import HealthFlowAgent, AgentRole
 from healthflow.core.config import HealthFlowConfig
 
-config = HealthFlowConfig.from_env()
+config = HealthFlowConfig.from_toml()
 agent = HealthFlowAgent(
     agent_id="custom_agent",
     role=AgentRole.MEDICAL_EXPERT,
