@@ -109,6 +109,10 @@ class DataProtector:
         # Generate mock data if needed
         mock_data = self._generate_mock_data(data, classification) if self.config.generate_mock_data else None
         
+        # For schema-only mode, replace sensitive data with schema
+        if self.config.schema_only_mode and (classification.contains_phi or classification.contains_pii):
+            protected_data = schema
+        
         # Log protection action
         self._log_protection_action(classification, protection_applied)
         
@@ -542,3 +546,199 @@ class DataProtector:
             recommendations.append("Implement access controls and user authentication")
         
         return recommendations
+    
+    async def prepare_for_api_transmission(self, data: Any) -> Dict[str, Any]:
+        """
+        Prepare data for safe API transmission by applying appropriate protection
+        
+        This method specifically handles the requirement to send only schema
+        to API endpoints while protecting sensitive data.
+        """
+        
+        # Classify the data
+        classification = self._classify_data(data)
+        
+        # For sensitive data, only send schema and mock data
+        if classification.contains_phi or classification.contains_pii:
+            schema = self._generate_schema(data)
+            mock_data = self._generate_mock_data(data, classification)
+            
+            return {
+                "transmission_mode": "schema_only",
+                "schema": schema,
+                "sample_data": mock_data,
+                "data_classification": {
+                    "sensitivity_level": classification.sensitivity_level,
+                    "contains_pii": classification.contains_pii,
+                    "contains_phi": classification.contains_phi
+                },
+                "protection_notice": "Actual sensitive data not transmitted for privacy protection"
+            }
+        
+        else:
+            # For non-sensitive data, can transmit actual data
+            return {
+                "transmission_mode": "full_data", 
+                "data": data,
+                "data_classification": {
+                    "sensitivity_level": classification.sensitivity_level,
+                    "contains_pii": classification.contains_pii,
+                    "contains_phi": classification.contains_phi
+                }
+            }
+    
+    def create_mock_patient_data(self, data_type: str = "comprehensive") -> Dict[str, Any]:
+        """
+        Create comprehensive mock patient data for testing and training
+        
+        Args:
+            data_type: Type of mock data to generate (comprehensive, basic, clinical)
+        """
+        
+        if data_type == "comprehensive":
+            return {
+                "patient_info": {
+                    "patient_id": f"MOCK_{random.randint(100000,999999)}",
+                    "mrn": f"MRN{random.randint(1000000,9999999)}",
+                    "name": {
+                        "first": random.choice(["John", "Jane", "Alex", "Sam", "Chris"]),
+                        "last": random.choice(["Smith", "Johnson", "Brown", "Davis", "Wilson"])
+                    },
+                    "date_of_birth": (datetime.now() - timedelta(days=random.randint(6570, 32850))).strftime("%Y-%m-%d"),  # 18-90 years old
+                    "gender": random.choice(["M", "F", "Other"]),
+                    "phone": f"555-{random.randint(100,999):03d}-{random.randint(1000,9999):04d}",
+                    "email": f"patient{random.randint(1,999)}@example.com",
+                    "address": {
+                        "street": f"{random.randint(100,999)} Mock Avenue",
+                        "city": "Test City",
+                        "state": "TC",
+                        "zip": f"{random.randint(10000,99999)}"
+                    }
+                },
+                "vitals": {
+                    "blood_pressure": f"{random.randint(110,140)}/{random.randint(70,90)}",
+                    "heart_rate": random.randint(60, 100),
+                    "temperature": round(random.uniform(97.0, 99.5), 1),
+                    "respiratory_rate": random.randint(12, 20),
+                    "height_cm": random.randint(150, 200),
+                    "weight_kg": round(random.uniform(50, 120), 1)
+                },
+                "medical_history": {
+                    "allergies": random.sample(["Penicillin", "Peanuts", "Shellfish", "None"], 1),
+                    "medications": [
+                        f"Mock Medication {i+1} {random.randint(5,50)}mg"
+                        for i in range(random.randint(0, 3))
+                    ],
+                    "conditions": random.sample([
+                        "Hypertension", "Diabetes Type 2", "Asthma", "None"
+                    ], random.randint(0, 2))
+                },
+                "lab_results": {
+                    "glucose": round(random.uniform(70, 140), 1),
+                    "cholesterol": random.randint(150, 250),
+                    "hemoglobin": round(random.uniform(12, 16), 1),
+                    "test_date": datetime.now().strftime("%Y-%m-%d")
+                }
+            }
+        
+        elif data_type == "basic":
+            return {
+                "patient_id": f"MOCK_{random.randint(100000,999999)}",
+                "age": random.randint(18, 90),
+                "gender": random.choice(["M", "F"]),
+                "chief_complaint": random.choice([
+                    "Chest pain", "Headache", "Fatigue", "Cough", "Fever"
+                ])
+            }
+        
+        elif data_type == "clinical":
+            return {
+                "encounter_id": f"ENC_{random.randint(1000000,9999999)}",
+                "patient_id": f"MOCK_{random.randint(100000,999999)}",
+                "provider": "Dr. Mock Provider",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "diagnosis": {
+                    "primary": random.choice(["R50.9 - Fever", "M79.3 - Panniculitis", "J44.1 - COPD"]),
+                    "secondary": []
+                },
+                "treatment_plan": [
+                    "Continue current medications",
+                    "Follow up in 2 weeks",
+                    "Lab work as ordered"
+                ],
+                "notes": "Mock clinical notes for testing purposes. Patient responded well to treatment."
+            }
+        
+        else:
+            return {"error": f"Unknown mock data type: {data_type}"}
+    
+    def validate_hipaa_compliance(self, data: Any) -> Dict[str, Any]:
+        """
+        Validate HIPAA compliance for healthcare data
+        
+        Returns detailed compliance assessment with recommendations
+        """
+        
+        classification = self._classify_data(data)
+        compliance_score = 100  # Start with perfect score
+        violations = []
+        warnings = []
+        
+        # Check for unprotected PHI
+        if classification.contains_phi:
+            data_str = json.dumps(data, default=str) if not isinstance(data, str) else data
+            
+            # Check for specific PHI elements
+            phi_elements = {
+                'names': ['patient', 'name', 'first', 'last'],
+                'dates': ['birth', 'dob', 'date_of_birth'],
+                'identifiers': ['ssn', 'mrn', 'patient_id', 'medical_record'],
+                'contact': ['phone', 'email', 'address']
+            }
+            
+            for category, keywords in phi_elements.items():
+                if any(keyword in data_str.lower() for keyword in keywords):
+                    if not self.config.schema_only_mode:
+                        violations.append(f"Unprotected {category} detected in data transmission")
+                        compliance_score -= 20
+                    else:
+                        warnings.append(f"{category} detected but protected by schema-only mode")
+        
+        # Check for minimum necessary principle
+        if not self.config.schema_only_mode and classification.sensitivity_level == "restricted":
+            violations.append("Full data transmission for restricted data violates minimum necessary principle")
+            compliance_score -= 30
+        
+        # Check for audit trail
+        if not hasattr(self, 'protection_log') or not self.protection_log:
+            warnings.append("No audit trail found for data protection activities")
+            compliance_score -= 10
+        
+        # Determine compliance level
+        if compliance_score >= 90:
+            compliance_level = "Compliant"
+        elif compliance_score >= 70:
+            compliance_level = "Mostly Compliant"
+        elif compliance_score >= 50:
+            compliance_level = "Partially Compliant"
+        else:
+            compliance_level = "Non-Compliant"
+        
+        recommendations = []
+        if violations:
+            recommendations.extend([
+                "Enable schema-only mode for PHI transmission",
+                "Implement data anonymization for sensitive fields",
+                "Add encryption for data at rest and in transit"
+            ])
+        
+        return {
+            "compliance_level": compliance_level,
+            "compliance_score": compliance_score,
+            "violations": violations,
+            "warnings": warnings,
+            "recommendations": recommendations,
+            "phi_detected": classification.contains_phi,
+            "pii_detected": classification.contains_pii,
+            "assessment_timestamp": datetime.now().isoformat()
+        }
