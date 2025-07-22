@@ -222,7 +222,7 @@ class HealthFlowCLI:
             total_successful += status['successful_tasks']
 
         # Get evaluator statistics
-        evaluator = TaskEvaluator()
+        evaluator = TaskEvaluator(config=self.config)
         eval_stats = evaluator.get_evaluation_statistics()
 
         return {

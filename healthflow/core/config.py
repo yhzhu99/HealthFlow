@@ -92,6 +92,8 @@ class HealthFlowConfig:
         """Validate configuration settings"""
         if not self.api_key or "YOUR_" in self.api_key:
             raise ValueError("API_KEY must be provided and should not be a placeholder.")
+        if not self.base_url:
+            raise ValueError("base_url must be provided in the configuration.")
 
         if self.max_iterations <= 0:
             raise ValueError("MAX_ITERATIONS must be positive")

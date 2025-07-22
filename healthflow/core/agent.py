@@ -100,7 +100,7 @@ class HealthFlowAgent:
             max_memory_size=config.memory_window
         )
         self.tool_bank = ToolBank(config.tools_dir / agent_id)
-        self.evaluator = TaskEvaluator(config.evaluation_dir / agent_id)
+        self.evaluator = TaskEvaluator(config.evaluation_dir / agent_id, config=config)
 
         # Agent state
         self.is_active = True

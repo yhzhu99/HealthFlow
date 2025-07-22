@@ -13,6 +13,7 @@ from pathlib import Path
 import uuid
 
 from ..core.llm_provider import LLMProvider, LLMMessage, create_llm_provider
+from ..core.config import HealthFlowConfig
 
 
 @dataclass
@@ -65,15 +66,32 @@ class LLMTaskEvaluator:
     def __init__(
         self,
         evaluation_dir: Optional[Path] = None,
-        llm_provider: Optional[LLMProvider] = None
+        llm_provider: Optional[LLMProvider] = None,
+        config: Optional[HealthFlowConfig] = None
     ):
         self.evaluation_dir = evaluation_dir or Path("./data/evaluation")
         self.evaluation_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize LLM provider for evaluation
-        self.llm_provider = llm_provider or create_llm_provider(
-            model_name="gpt-4"  # Use powerful model for evaluation
-        )
+        if llm_provider:
+            self.llm_provider = llm_provider
+        elif config:
+            self.llm_provider = create_llm_provider(
+                api_key=config.api_key,
+                base_url=config.base_url,
+                model_name=config.model_name  # Use configured model for evaluation
+            )
+        else:
+            # Fallback: load config from default location
+            try:
+                config = HealthFlowConfig.from_toml()
+                self.llm_provider = create_llm_provider(
+                    api_key=config.api_key,
+                    base_url=config.base_url,
+                    model_name=config.model_name
+                )
+            except Exception as e:
+                raise RuntimeError(f"Could not create LLM provider for evaluation: {e}. Please provide llm_provider or config parameter.")
 
         # Storage paths - all JSON format
         self.evaluations_path = self.evaluation_dir / "evaluations.json"
