@@ -30,7 +30,7 @@ class EvaluationResult:
     llm_reasoning: str
     novel_insights: Optional[List[str]] = None
     evaluation_id: str = ""
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         return {
@@ -52,7 +52,7 @@ class EvaluationResult:
 class LLMTaskEvaluator:
     """
     Advanced LLM-based task evaluator with comprehensive medical assessment
-    
+
     Features:
     - Uses LLM judges for nuanced evaluation
     - Multiple evaluation criteria with medical focus
@@ -61,32 +61,31 @@ class LLMTaskEvaluator:
     - Code execution error analysis
     - QA task judgment
     """
-    
+
     def __init__(
-        self, 
+        self,
         evaluation_dir: Optional[Path] = None,
         llm_provider: Optional[LLMProvider] = None
     ):
         self.evaluation_dir = evaluation_dir or Path("./data/evaluation")
         self.evaluation_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize LLM provider for evaluation
         self.llm_provider = llm_provider or create_llm_provider(
-            provider_type="auto",
             model_name="gpt-4"  # Use powerful model for evaluation
         )
-        
+
         # Storage paths - all JSON format
         self.evaluations_path = self.evaluation_dir / "evaluations.json"
         self.evaluation_history_path = self.evaluation_dir / "evaluation_history.json"
         self.judge_feedback_path = self.evaluation_dir / "judge_feedback.json"
         self.performance_trends_path = self.evaluation_dir / "performance_trends.json"
-        
+
         # In-memory stores
         self.evaluation_history: List[Dict[str, Any]] = []
         self.judge_feedback_history: List[Dict[str, Any]] = []
         self.performance_trends: Dict[str, List[float]] = {}
-        
+
         # Evaluation thresholds
         self.performance_thresholds = {
             "success": 0.7,
@@ -95,10 +94,10 @@ class LLMTaskEvaluator:
             "evidence_based": 0.7,
             "code_execution": 0.8
         }
-        
+
         # Initialize evaluation prompts
         self.evaluation_prompts = self._initialize_evaluation_prompts()
-    
+
     def _initialize_evaluation_prompts(self) -> Dict[str, str]:
         """Initialize LLM evaluation prompts for different aspects"""
         return {
@@ -131,7 +130,7 @@ Provide your evaluation in this JSON format:
     "strengths": ["strength 1", "strength 2"]
 }}
 """,
-            
+
             "code_execution_judge": """
 You are an expert code execution evaluator for medical AI tasks.
 
@@ -162,7 +161,7 @@ Provide your evaluation in this JSON format:
     "code_quality_feedback": "Feedback on code quality and best practices"
 }}
 """,
-            
+
             "task_completion_judge": """
 You are an expert task completion evaluator for healthcare AI systems.
 
@@ -195,11 +194,11 @@ Provide your evaluation in this JSON format:
 }}
 """
         }
-    
+
     async def initialize(self):
         """Initialize evaluator and load historical data"""
         await self._load_evaluation_data()
-    
+
     async def _load_evaluation_data(self):
         """Load evaluation data from JSON files"""
         # Load evaluation history
@@ -210,7 +209,7 @@ Provide your evaluation in this JSON format:
                     self.evaluation_history = data.get('evaluations', [])
             except Exception as e:
                 print(f"Error loading evaluation history: {e}")
-        
+
         # Load judge feedback history
         if self.judge_feedback_path.exists():
             try:
@@ -219,7 +218,7 @@ Provide your evaluation in this JSON format:
                     self.judge_feedback_history = data.get('feedback', [])
             except Exception as e:
                 print(f"Error loading judge feedback: {e}")
-        
+
         # Load performance trends
         if self.performance_trends_path.exists():
             try:
@@ -227,7 +226,7 @@ Provide your evaluation in this JSON format:
                     self.performance_trends = json.load(f)
             except Exception as e:
                 print(f"Error loading performance trends: {e}")
-    
+
     async def evaluate_task_result(
         self,
         task_description: str,
@@ -236,36 +235,36 @@ Provide your evaluation in this JSON format:
     ) -> Dict[str, Any]:
         """
         Comprehensive LLM-based evaluation of task execution result
-        
+
         Args:
             task_description: Original task description
             result: Task execution result (can be text, code output, etc.)
             task_context: Additional context including tools used, errors, etc.
-            
+
         Returns:
             Detailed evaluation metrics and feedback
         """
-        
+
         task_context = task_context or {}
         evaluation_id = str(uuid.uuid4())
-        
+
         try:
             # Determine evaluation type based on context
             evaluation_type = self._determine_evaluation_type(task_description, result, task_context)
-            
+
             # Run LLM-based evaluation
             llm_evaluation = await self._run_llm_evaluation(
                 evaluation_type, task_description, result, task_context
             )
-            
+
             # Calculate composite scores
             composite_scores = self._calculate_composite_scores(llm_evaluation, evaluation_type)
-            
+
             # Generate overall assessment
             overall_assessment = await self._generate_overall_assessment(
                 task_description, result, llm_evaluation, composite_scores
             )
-            
+
             # Create evaluation result
             evaluation_result = {
                 "evaluation_id": evaluation_id,
@@ -274,10 +273,10 @@ Provide your evaluation in this JSON format:
                 "result_summary": str(result)[:500],  # Truncate for storage
                 "evaluation_type": evaluation_type,
                 "context": task_context,
-                
+
                 # LLM evaluation results
                 "llm_scores": llm_evaluation,
-                
+
                 # Composite scores
                 "success": composite_scores["success"],
                 "confidence": composite_scores["confidence"],
@@ -286,31 +285,31 @@ Provide your evaluation in this JSON format:
                 "completeness": composite_scores["completeness"],
                 "medical_safety": composite_scores["medical_safety"],
                 "evidence_based": composite_scores["evidence_based"],
-                
+
                 # Feedback and suggestions
                 "feedback": overall_assessment["feedback"],
                 "improvement_suggestions": overall_assessment["improvement_suggestions"],
                 "llm_reasoning": llm_evaluation.get("reasoning", ""),
-                
+
                 # Reward for agent learning
                 "reward": self._calculate_reward(composite_scores),
-                
+
                 # Novel insights detection
                 "novel_insights": overall_assessment.get("novel_insights"),
-                
+
                 # Safety analysis
                 "safety_concerns": llm_evaluation.get("safety_concerns", []),
                 "strengths": llm_evaluation.get("strengths", [])
             }
-            
+
             # Store evaluation
             await self._store_evaluation(evaluation_result)
-            
+
             # Update performance trends
             await self._update_performance_trends(evaluation_result)
-            
+
             return evaluation_result
-            
+
         except Exception as e:
             # Return error evaluation
             error_evaluation = {
@@ -332,29 +331,29 @@ Provide your evaluation in this JSON format:
                 "reward": 0.0,
                 "error": str(e)
             }
-            
+
             await self._store_evaluation(error_evaluation)
             return error_evaluation
-    
+
     def _determine_evaluation_type(
-        self, 
-        task_description: str, 
-        result: Any, 
+        self,
+        task_description: str,
+        result: Any,
         context: Dict[str, Any]
     ) -> str:
         """Determine the type of evaluation needed"""
-        
+
         # Check for code execution context
         if context.get("tools_used") or context.get("error_messages") or context.get("code_execution"):
             return "code_execution"
-        
+
         # Check for QA context
         if any(word in task_description.lower() for word in ["question", "answer", "explain", "what", "how", "why"]):
             return "medical_qa"
-        
+
         # Default to general task completion evaluation
         return "task_completion"
-    
+
     async def _run_llm_evaluation(
         self,
         evaluation_type: str,
@@ -363,17 +362,17 @@ Provide your evaluation in this JSON format:
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Run LLM-based evaluation using appropriate prompt"""
-        
+
         # Select appropriate evaluation prompt
         prompt_template = self.evaluation_prompts.get(f"{evaluation_type}_judge")
         if not prompt_template:
             prompt_template = self.evaluation_prompts["task_completion_judge"]
-        
+
         # Format prompt with specific context
         prompt = self._format_evaluation_prompt(
             prompt_template, evaluation_type, task_description, result, context
         )
-        
+
         try:
             # Call LLM for evaluation
             messages = [LLMMessage(role="user", content=prompt)]
@@ -382,7 +381,7 @@ Provide your evaluation in this JSON format:
                 max_tokens=1500,
                 temperature=0.1  # Low temperature for consistent evaluation
             )
-            
+
             # Parse LLM response
             try:
                 evaluation_result = json.loads(response.content)
@@ -390,11 +389,11 @@ Provide your evaluation in this JSON format:
             except json.JSONDecodeError:
                 # Fallback: extract structured information from text
                 return self._extract_evaluation_from_text(response.content, evaluation_type)
-                
+
         except Exception as e:
             print(f"Error in LLM evaluation: {e}")
             return self._get_fallback_evaluation(evaluation_type)
-    
+
     def _format_evaluation_prompt(
         self,
         prompt_template: str,
@@ -404,7 +403,7 @@ Provide your evaluation in this JSON format:
         context: Dict[str, Any]
     ) -> str:
         """Format evaluation prompt with specific details"""
-        
+
         format_dict = {
             "task_description": task_description,
             "response": str(result),
@@ -415,12 +414,12 @@ Provide your evaluation in this JSON format:
             "error_messages": context.get("error_messages", "None"),
             "execution_result": str(result)
         }
-        
+
         return prompt_template.format(**format_dict)
-    
+
     def _extract_evaluation_from_text(self, text: str, evaluation_type: str) -> Dict[str, Any]:
         """Extract evaluation metrics from unstructured LLM text response"""
-        
+
         # Basic fallback evaluation based on text analysis
         evaluation = {
             "overall_score": 0.6,  # Neutral score
@@ -429,17 +428,17 @@ Provide your evaluation in this JSON format:
             "strengths": [],
             "safety_concerns": []
         }
-        
+
         # Try to extract scores from text
         import re
-        
+
         # Look for score patterns
         score_patterns = [
             r"(\w+):\s*([0-9]*\.?[0-9]+)",
             r"(\w+)\s*=\s*([0-9]*\.?[0-9]+)",
             r"(\w+)\s*score:\s*([0-9]*\.?[0-9]+)"
         ]
-        
+
         for pattern in score_patterns:
             matches = re.findall(pattern, text.lower())
             for metric, score_str in matches:
@@ -451,12 +450,12 @@ Provide your evaluation in this JSON format:
                         evaluation[metric] = score / 10
                 except ValueError:
                     continue
-        
+
         return evaluation
-    
+
     def _get_fallback_evaluation(self, evaluation_type: str) -> Dict[str, Any]:
         """Get fallback evaluation when LLM evaluation fails"""
-        
+
         fallback = {
             "overall_score": 0.5,
             "reasoning": f"Fallback evaluation due to {evaluation_type} assessment failure",
@@ -464,7 +463,7 @@ Provide your evaluation in this JSON format:
             "strengths": [],
             "safety_concerns": []
         }
-        
+
         # Add type-specific defaults
         if evaluation_type == "medical_qa":
             fallback.update({
@@ -490,16 +489,16 @@ Provide your evaluation in this JSON format:
                 "efficiency": 0.5,
                 "output_quality": 0.4
             })
-        
+
         return fallback
-    
+
     def _calculate_composite_scores(
-        self, 
-        llm_evaluation: Dict[str, Any], 
+        self,
+        llm_evaluation: Dict[str, Any],
         evaluation_type: str
     ) -> Dict[str, Any]:
         """Calculate composite scores from LLM evaluation results"""
-        
+
         # Extract individual scores based on evaluation type
         if evaluation_type == "medical_qa":
             accuracy = llm_evaluation.get("medical_accuracy", 0.5)
@@ -507,7 +506,7 @@ Provide your evaluation in this JSON format:
             medical_safety = llm_evaluation.get("medical_safety", 0.7)
             evidence_based = llm_evaluation.get("evidence_based", 0.4)
             clarity = llm_evaluation.get("clarity", 0.5)
-            
+
             # Calculate performance score
             performance_score = (
                 accuracy * 0.3 +
@@ -516,19 +515,19 @@ Provide your evaluation in this JSON format:
                 evidence_based * 0.15 +
                 clarity * 0.05
             )
-            
+
         elif evaluation_type == "code_execution":
             execution_success = llm_evaluation.get("execution_success", 0.3)
             result_quality = llm_evaluation.get("result_quality", 0.4)
             error_handling = llm_evaluation.get("error_handling", 0.5)
             performance = llm_evaluation.get("performance", 0.5)
             medical_relevance = llm_evaluation.get("medical_relevance", 0.4)
-            
+
             accuracy = (execution_success + result_quality) / 2
             completeness = result_quality
             medical_safety = min(medical_relevance, error_handling)
             evidence_based = medical_relevance
-            
+
             performance_score = (
                 execution_success * 0.3 +
                 result_quality * 0.25 +
@@ -536,19 +535,19 @@ Provide your evaluation in this JSON format:
                 performance * 0.15 +
                 medical_relevance * 0.1
             )
-            
+
         else:  # task_completion
             task_completion = llm_evaluation.get("task_completion", 0.4)
             approach_quality = llm_evaluation.get("approach_quality", 0.5)
             tool_usage = llm_evaluation.get("tool_usage", 0.4)
             efficiency = llm_evaluation.get("efficiency", 0.5)
             output_quality = llm_evaluation.get("output_quality", 0.4)
-            
+
             accuracy = (approach_quality + output_quality) / 2
             completeness = task_completion
             medical_safety = 0.7  # Default safe assumption
             evidence_based = output_quality
-            
+
             performance_score = (
                 task_completion * 0.3 +
                 approach_quality * 0.2 +
@@ -556,17 +555,17 @@ Provide your evaluation in this JSON format:
                 efficiency * 0.15 +
                 output_quality * 0.15
             )
-        
+
         # Calculate overall success
         success = (
             performance_score >= self.performance_thresholds["success"] and
             medical_safety >= self.performance_thresholds["medical_safety"]
         )
-        
+
         # Calculate confidence based on score consistency
         all_scores = [accuracy, completeness, medical_safety, evidence_based]
         confidence = self._calculate_confidence(all_scores)
-        
+
         return {
             "success": success,
             "confidence": confidence,
@@ -576,29 +575,29 @@ Provide your evaluation in this JSON format:
             "medical_safety": medical_safety,
             "evidence_based": evidence_based
         }
-    
+
     def _calculate_confidence(self, scores: List[float]) -> float:
         """Calculate confidence based on consistency of scores"""
-        
+
         if not scores:
             return 0.0
-        
+
         # Calculate standard deviation
         mean_score = sum(scores) / len(scores)
         if len(scores) == 1:
             return mean_score
-            
+
         variance = sum((score - mean_score) ** 2 for score in scores) / len(scores)
         std_dev = variance ** 0.5
-        
+
         # Higher consistency = higher confidence
         confidence = max(0.0, 1.0 - (std_dev * 2))
-        
+
         # Adjust based on mean score
         confidence = (confidence + mean_score) / 2
-        
+
         return min(1.0, confidence)
-    
+
     async def _generate_overall_assessment(
         self,
         task_description: str,
@@ -607,10 +606,10 @@ Provide your evaluation in this JSON format:
         composite_scores: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Generate overall assessment and improvement suggestions"""
-        
+
         feedback_parts = []
         improvements = []
-        
+
         # Performance-based feedback
         performance = composite_scores["performance_score"]
         if performance >= 0.8:
@@ -619,35 +618,35 @@ Provide your evaluation in this JSON format:
             feedback_parts.append("Good task execution with room for improvement.")
         else:
             feedback_parts.append("Task execution needs significant improvement.")
-        
+
         # Safety feedback (critical)
         safety = composite_scores["medical_safety"]
         if safety < 0.8:
             feedback_parts.append("⚠️ IMPORTANT: Medical safety considerations need attention.")
             improvements.append("Prioritize patient safety and include appropriate medical disclaimers")
-        
+
         # Accuracy feedback
         accuracy = composite_scores["accuracy"]
         if accuracy < 0.7:
             feedback_parts.append("Accuracy could be improved with better evidence and validation.")
             improvements.append("Enhance accuracy through evidence-based approaches and fact-checking")
-        
+
         # Completeness feedback
         completeness = composite_scores["completeness"]
         if completeness < 0.7:
             feedback_parts.append("Response could be more comprehensive and complete.")
             improvements.append("Provide more detailed and thorough responses")
-        
+
         # Evidence-based feedback
         evidence = composite_scores["evidence_based"]
         if evidence < 0.6:
             feedback_parts.append("Response would benefit from more evidence-based information.")
             improvements.append("Include references to medical literature and clinical guidelines")
-        
+
         # Add LLM-specific suggestions
         llm_suggestions = llm_evaluation.get("improvement_suggestions", [])
         improvements.extend(llm_suggestions)
-        
+
         # Identify novel insights
         novel_insights = None
         if result:
@@ -655,51 +654,51 @@ Provide your evaluation in this JSON format:
             insight_keywords = ["novel", "new", "innovative", "unique", "breakthrough", "unprecedented"]
             if any(keyword in result_str for keyword in insight_keywords):
                 novel_insights = ["Potential novel insight detected in response"]
-        
+
         return {
             "feedback": " ".join(feedback_parts),
             "improvement_suggestions": list(set(improvements)),  # Remove duplicates
             "novel_insights": novel_insights
         }
-    
+
     def _calculate_reward(self, composite_scores: Dict[str, Any]) -> float:
         """Calculate reward signal for agent learning and optimization"""
-        
+
         performance = composite_scores["performance_score"]
         safety = composite_scores["medical_safety"]
         success = composite_scores["success"]
-        
+
         # Base reward from performance
         reward = performance
-        
+
         # Safety is critical - heavily weight it
         safety_factor = min(safety * 1.5, 1.0)
         reward *= safety_factor
-        
+
         # Success bonus
         if success:
             reward += 0.2
-        
+
         # High performance bonus
         if performance > 0.8:
             reward += (performance - 0.8) * 0.5
-        
+
         # Safety penalty for low safety scores
         if safety < 0.7:
             reward *= 0.5
-        
+
         return max(0.0, min(1.0, reward))
-    
+
     async def _store_evaluation(self, evaluation_result: Dict[str, Any]):
         """Store evaluation result to JSON files"""
-        
+
         # Add to evaluation history
         self.evaluation_history.append(evaluation_result)
-        
+
         # Keep history manageable (last 1000 evaluations)
         if len(self.evaluation_history) > 1000:
             self.evaluation_history = self.evaluation_history[-1000:]
-        
+
         # Save to JSON
         try:
             history_data = {
@@ -707,76 +706,76 @@ Provide your evaluation in this JSON format:
                 "last_updated": datetime.now().isoformat(),
                 "total_count": len(self.evaluation_history)
             }
-            
+
             with open(self.evaluation_history_path, 'w', encoding='utf-8') as f:
                 json.dump(history_data, f, ensure_ascii=False, indent=2)
-        
+
         except Exception as e:
             print(f"Error saving evaluation: {e}")
-    
+
     async def _update_performance_trends(self, evaluation_result: Dict[str, Any]):
         """Update performance trends for monitoring improvement"""
-        
+
         timestamp = datetime.now().isoformat()
         performance_score = evaluation_result["performance_score"]
-        
+
         # Update trends by day
         day_key = datetime.now().strftime("%Y-%m-%d")
         if day_key not in self.performance_trends:
             self.performance_trends[day_key] = []
-        
+
         self.performance_trends[day_key].append(performance_score)
-        
+
         # Keep only recent trends (last 30 days)
         cutoff_date = datetime.now() - timedelta(days=30)
         cutoff_key = cutoff_date.strftime("%Y-%m-%d")
-        
+
         self.performance_trends = {
-            k: v for k, v in self.performance_trends.items() 
+            k: v for k, v in self.performance_trends.items()
             if k >= cutoff_key
         }
-        
+
         # Save trends
         try:
             with open(self.performance_trends_path, 'w', encoding='utf-8') as f:
                 json.dump(self.performance_trends, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"Error saving performance trends: {e}")
-    
+
     def get_evaluation_statistics(self) -> Dict[str, Any]:
         """Get comprehensive evaluation statistics"""
-        
+
         if not self.evaluation_history:
             return {"message": "No evaluations available"}
-        
+
         evaluations = self.evaluation_history
         total_evals = len(evaluations)
-        
+
         # Calculate basic statistics
         avg_performance = sum(e.get("performance_score", 0) for e in evaluations) / total_evals
         success_rate = sum(1 for e in evaluations if e.get("success", False)) / total_evals
         avg_confidence = sum(e.get("confidence", 0) for e in evaluations) / total_evals
         avg_safety = sum(e.get("medical_safety", 0) for e in evaluations) / total_evals
-        
+
         # Safety analysis
         safety_concerns_count = sum(
             len(e.get("safety_concerns", [])) for e in evaluations
         )
-        
+
         # Novel insights count
         novel_insights_count = sum(
             1 for e in evaluations if e.get("novel_insights")
         )
-        
+
         # Performance trend analysis
         trend_analysis = self._analyze_performance_trends()
-        
+
         # Evaluation type distribution
         type_distribution = {}
         for eval_result in evaluations:
             eval_type = eval_result.get("evaluation_type", "unknown")
             type_distribution[eval_type] = type_distribution.get(eval_type, 0) + 1
-        
+
         return {
             "total_evaluations": total_evals,
             "average_performance": avg_performance,
@@ -789,76 +788,76 @@ Provide your evaluation in this JSON format:
             "performance_trend": trend_analysis,
             "last_evaluation": evaluations[-1]["timestamp"] if evaluations else None
         }
-    
+
     def _analyze_performance_trends(self) -> str:
         """Analyze performance trends over time"""
-        
+
         if len(self.evaluation_history) < 10:
             return "insufficient_data"
-        
+
         # Get recent performance scores
         recent_scores = [
-            e.get("performance_score", 0) 
+            e.get("performance_score", 0)
             for e in self.evaluation_history[-20:]
         ]
-        
+
         if len(recent_scores) < 10:
             return "insufficient_recent_data"
-        
+
         # Compare first and second half
         mid_point = len(recent_scores) // 2
         early_avg = sum(recent_scores[:mid_point]) / mid_point
         late_avg = sum(recent_scores[mid_point:]) / (len(recent_scores) - mid_point)
-        
+
         if late_avg > early_avg + 0.1:
             return "improving"
         elif late_avg < early_avg - 0.1:
             return "declining"
         else:
             return "stable"
-    
+
     async def get_improvement_recommendations(
-        self, 
-        task_type: str = None, 
+        self,
+        task_type: str = None,
         limit: int = 5
     ) -> List[str]:
         """Get improvement recommendations based on evaluation history"""
-        
+
         if not self.evaluation_history:
             return ["No evaluation history available for recommendations"]
-        
+
         # Filter evaluations by task type if specified
         relevant_evaluations = self.evaluation_history
         if task_type:
             relevant_evaluations = [
-                e for e in self.evaluation_history 
+                e for e in self.evaluation_history
                 if task_type.lower() in e.get("task_description", "").lower()
             ]
-        
+
         if not relevant_evaluations:
             return ["No relevant evaluations found for this task type"]
-        
+
         # Aggregate improvement suggestions
         suggestion_counts = {}
         for evaluation in relevant_evaluations[-50:]:  # Last 50 evaluations
             suggestions = evaluation.get("improvement_suggestions", [])
             for suggestion in suggestions:
                 suggestion_counts[suggestion] = suggestion_counts.get(suggestion, 0) + 1
-        
+
         # Sort by frequency and return top suggestions
         top_suggestions = sorted(
             suggestion_counts.items(),
             key=lambda x: x[1],
             reverse=True
         )
-        
+
         return [suggestion for suggestion, count in top_suggestions[:limit]]
-    
+
     async def export_evaluation_report(self, output_path: Path):
         """Export comprehensive evaluation report in JSON format"""
-        
+
         output_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Generate comprehensive report
         report = {
             "report_timestamp": datetime.now().isoformat(),
@@ -869,28 +868,28 @@ Provide your evaluation in this JSON format:
             "evaluation_thresholds": self.performance_thresholds,
             "report_version": "1.0"
         }
-        
+
         # Save report
         with open(output_path / "evaluation_report.json", 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
-        
+
         # Save detailed evaluation history
         with open(output_path / "detailed_evaluation_history.json", 'w', encoding='utf-8') as f:
             json.dump(self.evaluation_history, f, ensure_ascii=False, indent=2)
-    
+
     async def backup_evaluations(self, backup_path: Path):
         """Create comprehensive backup of all evaluation data"""
-        
+
         backup_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Copy all JSON files
         import shutil
-        
-        for file_path in [self.evaluation_history_path, self.judge_feedback_path, 
+
+        for file_path in [self.evaluation_history_path, self.judge_feedback_path,
                          self.performance_trends_path]:
             if file_path.exists():
                 shutil.copy2(file_path, backup_path / file_path.name)
-        
+
         # Create backup manifest
         manifest = {
             "backup_timestamp": datetime.now().isoformat(),
@@ -901,7 +900,7 @@ Provide your evaluation in this JSON format:
                 "latest": self.evaluation_history[-1]["timestamp"] if self.evaluation_history else None
             }
         }
-        
+
         with open(backup_path / "backup_manifest.json", 'w', encoding='utf-8') as f:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
 
