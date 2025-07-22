@@ -10,6 +10,7 @@ TASK.md
 *.jsonl
 *.lock
 tmp/
+prompt.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
