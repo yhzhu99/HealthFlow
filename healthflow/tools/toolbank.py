@@ -520,32 +520,42 @@ class HierarchicalToolBank:
         limit: int = 10
     ) -> List[Tool]:
         """
-        Advanced hierarchical search for tools using context-aware retrieval
+        Advanced hierarchical search for tools using efficient tag-based pre-filtering.
+        
+        Implementation follows the NeurIPS-quality approach:
+        1. Fast pre-filtering using hierarchical tags to reduce search space
+        2. Secondary scoring only on the pre-filtered subset
+        3. Performance-optimized for large tool registries
         """
         
-        results = []
+        # Step 1: FAST PRE-FILTERING - Dramatically reduce search space using hierarchical tags
+        candidate_tools = []
         
-        for tool in self.tools_registry.values():
-            score = 0.0
-            
-            # Text similarity scoring
-            if query:
-                if query.lower() in tool.metadata.name.lower():
-                    score += 10.0
-                if query.lower() in tool.metadata.description.lower():
-                    score += 5.0
-            
-            # Tool type matching
-            if tool_type and tool.metadata.tool_type == tool_type:
-                score += 3.0
-            
-            # Hierarchical tag matching with weighted scoring
-            if hierarchical_tags:
+        if hierarchical_tags:
+            # Pre-filter based on hierarchical tags - this is the key efficiency optimization
+            for tool in self.tools_registry.values():
+                # Quick rejection filters
+                if tool.metadata.success_rate < min_success_rate:
+                    continue
+                if tool_type and tool.metadata.tool_type != tool_type:
+                    continue
+                
+                # Hierarchical tag matching - prioritize by importance
+                matches_required_tags = True
+                tag_match_score = 0
+                
                 for category, query_tags in hierarchical_tags.items():
                     tool_tags = tool.metadata.hierarchical_tags.get(category, [])
                     tag_intersection = set(query_tags) & set(tool_tags)
+                    
+                    # For high-priority categories, require at least one match
+                    if category in [TagHierarchy.DOMAIN, TagHierarchy.FUNCTIONALITY]:
+                        if not tag_intersection:
+                            matches_required_tags = False
+                            break
+                    
+                    # Accumulate tag match strength
                     if tag_intersection:
-                        # Weight different categories differently
                         category_weights = {
                             TagHierarchy.DOMAIN: 5.0,
                             TagHierarchy.FUNCTIONALITY: 4.0,
@@ -554,27 +564,110 @@ class HierarchicalToolBank:
                             TagHierarchy.COMPLEXITY: 2.0
                         }
                         weight = category_weights.get(category, 2.0)
-                        score += len(tag_intersection) * weight
+                        tag_match_score += len(tag_intersection) * weight
+                
+                # Only include tools that match required hierarchical criteria
+                if matches_required_tags and tag_match_score > 0:
+                    candidate_tools.append((tool, tag_match_score))
+        else:
+            # If no hierarchical tags provided, use all tools but still apply basic filters
+            for tool in self.tools_registry.values():
+                if tool.metadata.success_rate >= min_success_rate:
+                    if not tool_type or tool.metadata.tool_type == tool_type:
+                        candidate_tools.append((tool, 0.0))
+        
+        # If no candidates after pre-filtering, return empty
+        if not candidate_tools:
+            return []
+        
+        # Step 2: SECONDARY SCORING - Only on the pre-filtered subset (much smaller)
+        results = []
+        
+        for tool, base_tag_score in candidate_tools:
+            total_score = base_tag_score
             
-            # Context-aware scoring
+            # Text similarity scoring (expensive operation, but now on smaller set)
+            if query:
+                if query.lower() in tool.metadata.name.lower():
+                    total_score += 10.0
+                if query.lower() in tool.metadata.description.lower():
+                    total_score += 5.0
+                # Keyword matching in tool tags
+                all_tags = []
+                for tag_list in tool.metadata.hierarchical_tags.values():
+                    all_tags.extend(tag_list)
+                if any(query.lower() in tag.lower() for tag in all_tags):
+                    total_score += 3.0
+            
+            # Context-aware scoring (only for pre-filtered candidates)
             if task_context:
                 context_score = await self._calculate_context_score(tool, task_context)
-                score += context_score
+                total_score += context_score
             
             # Performance-based scoring
             performance_score = self._calculate_performance_score(tool)
-            score += performance_score
+            total_score += performance_score
             
-            # Success rate filtering
-            if tool.metadata.success_rate < min_success_rate:
-                continue
-            
-            if score > 0:
-                results.append((tool, score))
+            results.append((tool, total_score))
         
-        # Sort by score and return top results
+        # Step 3: EFFICIENT SORTING - Sort by final score and return top results
         results.sort(key=lambda x: x[1], reverse=True)
         return [tool for tool, score in results[:limit]]
+    
+    async def find_tools_for_task(
+        self,
+        task_description: str,
+        domain: List[str] = None,
+        functionality: List[str] = None,
+        task_type: List[str] = None,
+        data_type: List[str] = None,
+        complexity: List[str] = None,
+        limit: int = 5
+    ) -> List[Tool]:
+        """
+        Convenient interface for agents to find tools for specific tasks.
+        This method provides a simplified API over the full hierarchical search.
+        
+        Args:
+            task_description: Natural language description of the task
+            domain: Domain tags (e.g., ['medical', 'research'])  
+            functionality: Functionality tags (e.g., ['analysis', 'visualization'])
+            task_type: Task type tags (e.g., ['diagnosis', 'treatment'])
+            data_type: Data type tags (e.g., ['clinical', 'imaging'])
+            complexity: Complexity tags (e.g., ['basic', 'advanced'])
+            limit: Maximum number of tools to return
+            
+        Returns:
+            List of most relevant tools for the task
+        """
+        
+        # Build hierarchical tags from provided parameters
+        hierarchical_tags = {}
+        
+        if domain:
+            hierarchical_tags[TagHierarchy.DOMAIN] = domain
+        if functionality:
+            hierarchical_tags[TagHierarchy.FUNCTIONALITY] = functionality  
+        if task_type:
+            hierarchical_tags[TagHierarchy.TASK_TYPE] = task_type
+        if data_type:
+            hierarchical_tags[TagHierarchy.DATA_TYPE] = data_type
+        if complexity:
+            hierarchical_tags[TagHierarchy.COMPLEXITY] = complexity
+        
+        # Create task context from description
+        task_context = {
+            "description": task_description,
+            "keywords": task_description.lower().split()
+        }
+        
+        # Use the optimized hierarchical search
+        return await self.search_tools(
+            query=task_description,
+            hierarchical_tags=hierarchical_tags if hierarchical_tags else None,
+            task_context=task_context,
+            limit=limit
+        )
     
     async def _calculate_context_score(self, tool: Tool, task_context: Dict[str, Any]) -> float:
         """Calculate context relevance score for a tool"""

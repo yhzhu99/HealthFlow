@@ -1,66 +1,196 @@
 """
-LLM-Based Task Evaluator for HealthFlow
-Evaluates task execution results using LLM judges and provides performance feedback
-Uses JSON format for all persistence - no pandas/pickle dependencies
+Advanced LLM-Based Task Evaluator for HealthFlow
+The core innovation of HealthFlow: monitors the entire process lifecycle and provides 
+rich supervision signals for evaluation-driven self-improvement.
+
+Key Features:
+- Process monitoring throughout task execution
+- Multi-dimensional evaluation across critical criteria
+- Rich structured feedback for system evolution
+- NeurIPS-quality comprehensive evaluation framework
 """
 
 import json
 import asyncio
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Any, Tuple, Union
+from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
+from enum import Enum
 import uuid
 
 from ..core.llm_provider import LLMProvider, LLMMessage, create_llm_provider
 from ..core.config import HealthFlowConfig
 
 
-@dataclass
-class EvaluationResult:
-    """Result of LLM-based task evaluation"""
-    success: bool
-    confidence: float
-    performance_score: float
-    accuracy: float
-    completeness: float
-    medical_safety: float
-    evidence_based: float
-    feedback: str
-    improvement_suggestions: List[str]
-    llm_reasoning: str
-    novel_insights: Optional[List[str]] = None
-    evaluation_id: str = ""
+class ProcessStage(Enum):
+    """Stages of task execution that can be monitored"""
+    PLANNING = "planning"
+    TOOL_SELECTION = "tool_selection"
+    TOOL_EXECUTION = "tool_execution"
+    AGENT_COLLABORATION = "agent_collaboration"
+    REASONING = "reasoning" 
+    RESULT_SYNTHESIS = "result_synthesis"
+    FINAL_OUTPUT = "final_output"
 
+
+@dataclass
+class ProcessStep:
+    """Individual step in the task execution process"""
+    stage: ProcessStage
+    timestamp: datetime
+    agent_id: str
+    action: str
+    input_data: Dict[str, Any]
+    output_data: Dict[str, Any]
+    tools_used: List[str]
+    collaboration_messages: List[Dict[str, Any]]
+    reasoning_trace: str
+    success: bool
+    execution_time: float
+    metadata: Dict[str, Any] = None
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         return {
-            'evaluation_id': self.evaluation_id,
+            'stage': self.stage.value,
+            'timestamp': self.timestamp.isoformat(),
+            'agent_id': self.agent_id,
+            'action': self.action,
+            'input_data': self.input_data,
+            'output_data': self.output_data,
+            'tools_used': self.tools_used,
+            'collaboration_messages': self.collaboration_messages,
+            'reasoning_trace': self.reasoning_trace,
             'success': self.success,
-            'confidence': self.confidence,
-            'performance_score': self.performance_score,
-            'accuracy': self.accuracy,
-            'completeness': self.completeness,
-            'medical_safety': self.medical_safety,
-            'evidence_based': self.evidence_based,
-            'feedback': self.feedback,
-            'improvement_suggestions': self.improvement_suggestions,
-            'llm_reasoning': self.llm_reasoning,
-            'novel_insights': self.novel_insights
+            'execution_time': self.execution_time,
+            'metadata': self.metadata or {}
         }
+
+
+@dataclass 
+class ExecutionTrace:
+    """Complete trace of task execution process - the key input to evaluation"""
+    task_id: str
+    initial_plan: Dict[str, Any]
+    process_steps: List[ProcessStep]
+    final_result: Any
+    total_execution_time: float
+    agents_involved: List[str]
+    tools_used: List[str]
+    collaboration_patterns: Dict[str, Any]
+    error_incidents: List[Dict[str, Any]]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'task_id': self.task_id,
+            'initial_plan': self.initial_plan,
+            'process_steps': [step.to_dict() for step in self.process_steps],
+            'final_result': self.final_result,
+            'total_execution_time': self.total_execution_time,
+            'agents_involved': self.agents_involved,
+            'tools_used': self.tools_used,
+            'collaboration_patterns': self.collaboration_patterns,
+            'error_incidents': self.error_incidents
+        }
+
+
+@dataclass
+class EvaluationCriteria:
+    """Multi-dimensional evaluation criteria with scores and detailed feedback"""
+    medical_accuracy: float  # 0-10: Correctness of medical information
+    safety: float           # 0-10: Adherence to safety protocols  
+    reasoning_quality: float # 0-10: Logical soundness of reasoning
+    tool_usage_efficiency: float # 0-10: Appropriateness of tool selection/usage
+    collaboration_effectiveness: float # 0-10: Quality of inter-agent collaboration
+    completeness: float     # 0-10: How completely the task was addressed
+    clarity: float          # 0-10: Clarity of final output
+    
+    # Detailed textual feedback for each dimension
+    medical_accuracy_feedback: str = ""
+    safety_feedback: str = ""
+    reasoning_quality_feedback: str = ""
+    tool_usage_feedback: str = ""
+    collaboration_feedback: str = ""
+    completeness_feedback: str = ""
+    clarity_feedback: str = ""
+
+
+@dataclass
+class EvaluationResult:
+    """Rich evaluation result with process monitoring and improvement suggestions"""
+    evaluation_id: str
+    task_id: str
+    timestamp: datetime
+    
+    # Overall assessment
+    overall_success: bool
+    overall_score: float  # 0-10 composite score
+    confidence: float     # 0-1 confidence in evaluation
+    
+    # Multi-dimensional criteria scores  
+    criteria: EvaluationCriteria
+    
+    # Rich textual feedback
+    executive_summary: str
+    detailed_feedback: str
+    
+    # Actionable improvement suggestions (the key supervision signal)
+    improvement_suggestions: Dict[str, List[str]]  # Category -> suggestions
+    
+    # Process insights
+    process_insights: Dict[str, Any]
+    collaboration_analysis: Dict[str, Any]
+    efficiency_analysis: Dict[str, Any]
+    
+    # LLM evaluator reasoning
+    evaluator_reasoning: str
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization"""
+        result = asdict(self)
+        result['timestamp'] = self.timestamp.isoformat()
+        return result
+        
+    def get_composite_score(self) -> float:
+        """Calculate weighted composite score across all criteria"""
+        weights = {
+            'medical_accuracy': 0.20,
+            'safety': 0.20, 
+            'reasoning_quality': 0.15,
+            'tool_usage_efficiency': 0.15,
+            'collaboration_effectiveness': 0.10,
+            'completeness': 0.15,
+            'clarity': 0.05
+        }
+        
+        weighted_sum = (
+            self.criteria.medical_accuracy * weights['medical_accuracy'] +
+            self.criteria.safety * weights['safety'] +
+            self.criteria.reasoning_quality * weights['reasoning_quality'] +
+            self.criteria.tool_usage_efficiency * weights['tool_usage_efficiency'] +
+            self.criteria.collaboration_effectiveness * weights['collaboration_effectiveness'] +
+            self.criteria.completeness * weights['completeness'] +
+            self.criteria.clarity * weights['clarity']
+        )
+        
+        return weighted_sum
 
 
 class LLMTaskEvaluator:
     """
-    Advanced LLM-based task evaluator with comprehensive medical assessment
-
+    Advanced LLM-based Task Evaluator - The Core Innovation of HealthFlow
+    
+    This evaluator monitors the ENTIRE process lifecycle and provides rich supervision 
+    signals for evaluation-driven self-improvement. Key to NeurIPS contribution.
+    
     Features:
-    - Uses LLM judges for nuanced evaluation
-    - Multiple evaluation criteria with medical focus
-    - Continuous improvement based on feedback
-    - JSON-only storage (no pandas/pickle)
-    - Code execution error analysis
-    - QA task judgment
+    - Process monitoring throughout task execution (not just final outcomes)
+    - Multi-dimensional evaluation across critical medical criteria
+    - Rich structured feedback for system evolution 
+    - Actionable improvement suggestions as supervision signals
+    - Comprehensive collaboration and efficiency analysis
     """
 
     def __init__(
@@ -79,7 +209,7 @@ class LLMTaskEvaluator:
             self.llm_provider = create_llm_provider(
                 api_key=config.api_key,
                 base_url=config.base_url,
-                model_name=config.model_name  # Use configured model for evaluation
+                model_name=config.model_name
             )
         else:
             # Fallback: load config from default location
@@ -91,836 +221,552 @@ class LLMTaskEvaluator:
                     model_name=config.model_name
                 )
             except Exception as e:
-                raise RuntimeError(f"Could not create LLM provider for evaluation: {e}. Please provide llm_provider or config parameter.")
+                raise RuntimeError(f"Could not initialize LLM provider for evaluation: {e}")
 
         # Storage paths - all JSON format
         self.evaluations_path = self.evaluation_dir / "evaluations.json"
-        self.evaluation_history_path = self.evaluation_dir / "evaluation_history.json"
-        self.judge_feedback_path = self.evaluation_dir / "judge_feedback.json"
-        self.performance_trends_path = self.evaluation_dir / "performance_trends.json"
-
+        self.process_traces_path = self.evaluation_dir / "process_traces.json"
+        self.improvement_history_path = self.evaluation_dir / "improvement_history.json"
+        self.performance_analytics_path = self.evaluation_dir / "performance_analytics.json"
+        
         # In-memory stores
-        self.evaluation_history: List[Dict[str, Any]] = []
-        self.judge_feedback_history: List[Dict[str, Any]] = []
-        self.performance_trends: Dict[str, List[float]] = {}
-
-        # Evaluation thresholds
-        self.performance_thresholds = {
-            "success": 0.7,
-            "confidence": 0.6,
-            "medical_safety": 0.9,  # High threshold for safety
-            "evidence_based": 0.7,
-            "code_execution": 0.8
-        }
-
-        # Initialize evaluation prompts
-        self.evaluation_prompts = self._initialize_evaluation_prompts()
-
-    def _initialize_evaluation_prompts(self) -> Dict[str, str]:
-        """Initialize LLM evaluation prompts for different aspects"""
-        return {
-            "medical_qa_judge": """
-You are an expert medical AI evaluator. Your task is to assess the quality and safety of medical responses.
-
-Task Description: {task_description}
-Agent Response: {response}
-Context: {context}
-
-Evaluate the response across these dimensions (score 0.0-1.0 for each):
-
-1. MEDICAL ACCURACY: Is the information medically accurate and up-to-date?
-2. COMPLETENESS: Does the response fully address the question/task?
-3. SAFETY: Is the advice safe? Does it include appropriate warnings/disclaimers?
-4. EVIDENCE-BASED: Is the response based on clinical evidence and guidelines?
-5. CLARITY: Is the response clear and understandable?
-
-Provide your evaluation in this JSON format:
-{{
-    "medical_accuracy": 0.0-1.0,
-    "completeness": 0.0-1.0,
-    "medical_safety": 0.0-1.0,
-    "evidence_based": 0.0-1.0,
-    "clarity": 0.0-1.0,
-    "overall_score": 0.0-1.0,
-    "reasoning": "Detailed explanation of your assessment",
-    "improvement_suggestions": ["suggestion 1", "suggestion 2"],
-    "safety_concerns": ["concern 1", "concern 2"] or [],
-    "strengths": ["strength 1", "strength 2"]
-}}
-""",
-
-            "code_execution_judge": """
-You are an expert code execution evaluator for medical AI tasks.
-
-Task Description: {task_description}
-Code Execution Result: {execution_result}
-Error Messages: {error_messages}
-Context: {context}
-
-Evaluate the code execution across these dimensions (score 0.0-1.0 for each):
-
-1. EXECUTION_SUCCESS: Did the code execute without errors?
-2. RESULT_QUALITY: Is the output meaningful and correct?
-3. ERROR_HANDLING: How well were errors handled and reported?
-4. PERFORMANCE: Was the execution efficient and timely?
-5. MEDICAL_RELEVANCE: Is the result medically relevant and useful?
-
-Provide your evaluation in this JSON format:
-{{
-    "execution_success": 0.0-1.0,
-    "result_quality": 0.0-1.0,
-    "error_handling": 0.0-1.0,
-    "performance": 0.0-1.0,
-    "medical_relevance": 0.0-1.0,
-    "overall_score": 0.0-1.0,
-    "reasoning": "Detailed explanation of your assessment",
-    "improvement_suggestions": ["suggestion 1", "suggestion 2"],
-    "error_analysis": "Analysis of any errors encountered",
-    "code_quality_feedback": "Feedback on code quality and best practices"
-}}
-""",
-
-            "task_completion_judge": """
-You are an expert task completion evaluator for healthcare AI systems.
-
-Original Task: {task_description}
-Agent Result: {result}
-Tools Used: {tools_used}
-Execution Time: {execution_time}
-Context: {context}
-
-Evaluate the task completion across these dimensions (score 0.0-1.0 for each):
-
-1. TASK_COMPLETION: Was the original task fully completed?
-2. APPROACH_QUALITY: Was the approach logical and well-structured?
-3. TOOL_USAGE: Were appropriate tools selected and used effectively?
-4. EFFICIENCY: Was the task completed efficiently?
-5. OUTPUT_QUALITY: Is the final output high-quality and useful?
-
-Provide your evaluation in this JSON format:
-{{
-    "task_completion": 0.0-1.0,
-    "approach_quality": 0.0-1.0,
-    "tool_usage": 0.0-1.0,
-    "efficiency": 0.0-1.0,
-    "output_quality": 0.0-1.0,
-    "overall_score": 0.0-1.0,
-    "reasoning": "Detailed explanation of your assessment",
-    "improvement_suggestions": ["suggestion 1", "suggestion 2"],
-    "best_practices": ["practice 1", "practice 2"],
-    "alternative_approaches": ["approach 1", "approach 2"] or []
-}}
-"""
-        }
-
-    async def initialize(self):
-        """Initialize evaluator and load historical data"""
-        await self._load_evaluation_data()
-
-    async def _load_evaluation_data(self):
-        """Load evaluation data from JSON files"""
-        # Load evaluation history
-        if self.evaluation_history_path.exists():
-            try:
-                with open(self.evaluation_history_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.evaluation_history = data.get('evaluations', [])
-            except Exception as e:
-                print(f"Error loading evaluation history: {e}")
-
-        # Load judge feedback history
-        if self.judge_feedback_path.exists():
-            try:
-                with open(self.judge_feedback_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.judge_feedback_history = data.get('feedback', [])
-            except Exception as e:
-                print(f"Error loading judge feedback: {e}")
-
-        # Load performance trends
-        if self.performance_trends_path.exists():
-            try:
-                with open(self.performance_trends_path, 'r', encoding='utf-8') as f:
-                    self.performance_trends = json.load(f)
-            except Exception as e:
-                print(f"Error loading performance trends: {e}")
-
-    async def evaluate_task_result(
-        self,
-        task_description: str,
-        result: Any,
-        task_context: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
+        self.evaluation_history: List[EvaluationResult] = []
+        self.process_traces: List[ExecutionTrace] = []
+        
+        # Load existing data
+        self._load_evaluation_data()
+    
+    async def evaluate_task(self, execution_trace: ExecutionTrace) -> EvaluationResult:
         """
-        Comprehensive LLM-based evaluation of task execution result
-
+        Main evaluation method - The core of HealthFlow's innovation.
+        
+        Monitors the ENTIRE process lifecycle and provides rich supervision signals.
+        This is what enables the evaluation-driven self-improvement loop.
+        
         Args:
-            task_description: Original task description
-            result: Task execution result (can be text, code output, etc.)
-            task_context: Additional context including tools used, errors, etc.
-
+            execution_trace: Complete trace of task execution process
+            
         Returns:
-            Detailed evaluation metrics and feedback
+            Rich evaluation result with multi-dimensional feedback
         """
-
-        task_context = task_context or {}
+        
         evaluation_id = str(uuid.uuid4())
-
-        try:
-            # Determine evaluation type based on context
-            evaluation_type = self._determine_evaluation_type(task_description, result, task_context)
-
-            # Run LLM-based evaluation
-            llm_evaluation = await self._run_llm_evaluation(
-                evaluation_type, task_description, result, task_context
-            )
-
-            # Calculate composite scores
-            composite_scores = self._calculate_composite_scores(llm_evaluation, evaluation_type)
-
-            # Generate overall assessment
-            overall_assessment = await self._generate_overall_assessment(
-                task_description, result, llm_evaluation, composite_scores
-            )
-
-            # Create evaluation result
-            evaluation_result = {
-                "evaluation_id": evaluation_id,
-                "timestamp": datetime.now().isoformat(),
-                "task_description": task_description,
-                "result_summary": str(result)[:500],  # Truncate for storage
-                "evaluation_type": evaluation_type,
-                "context": task_context,
-
-                # LLM evaluation results
-                "llm_scores": llm_evaluation,
-
-                # Composite scores
-                "success": composite_scores["success"],
-                "confidence": composite_scores["confidence"],
-                "performance_score": composite_scores["performance_score"],
-                "accuracy": composite_scores["accuracy"],
-                "completeness": composite_scores["completeness"],
-                "medical_safety": composite_scores["medical_safety"],
-                "evidence_based": composite_scores["evidence_based"],
-
-                # Feedback and suggestions
-                "feedback": overall_assessment["feedback"],
-                "improvement_suggestions": overall_assessment["improvement_suggestions"],
-                "llm_reasoning": llm_evaluation.get("reasoning", ""),
-
-                # Reward for agent learning
-                "reward": self._calculate_reward(composite_scores),
-
-                # Novel insights detection
-                "novel_insights": overall_assessment.get("novel_insights"),
-
-                # Safety analysis
-                "safety_concerns": llm_evaluation.get("safety_concerns", []),
-                "strengths": llm_evaluation.get("strengths", [])
-            }
-
-            # Store evaluation
-            await self._store_evaluation(evaluation_result)
-
-            # Update performance trends
-            await self._update_performance_trends(evaluation_result)
-
-            return evaluation_result
-
-        except Exception as e:
-            # Return error evaluation
-            error_evaluation = {
-                "evaluation_id": evaluation_id,
-                "timestamp": datetime.now().isoformat(),
-                "task_description": task_description,
-                "result_summary": str(result)[:500] if result else "",
-                "evaluation_type": "error",
-                "success": False,
-                "confidence": 0.0,
-                "performance_score": 0.0,
-                "accuracy": 0.0,
-                "completeness": 0.0,
-                "medical_safety": 0.5,
-                "evidence_based": 0.0,
-                "feedback": f"Evaluation failed: {str(e)}",
-                "improvement_suggestions": ["Fix evaluation system error"],
-                "llm_reasoning": f"Error during evaluation: {str(e)}",
-                "reward": 0.0,
-                "error": str(e)
-            }
-
-            await self._store_evaluation(error_evaluation)
-            return error_evaluation
-
-    def _determine_evaluation_type(
-        self,
-        task_description: str,
-        result: Any,
-        context: Dict[str, Any]
-    ) -> str:
-        """Determine the type of evaluation needed"""
-
-        # Check for code execution context
-        if context.get("tools_used") or context.get("error_messages") or context.get("code_execution"):
-            return "code_execution"
-
-        # Check for QA context
-        if any(word in task_description.lower() for word in ["question", "answer", "explain", "what", "how", "why"]):
-            return "medical_qa"
-
-        # Default to general task completion evaluation
-        return "task_completion"
-
-    async def _run_llm_evaluation(
-        self,
-        evaluation_type: str,
-        task_description: str,
-        result: Any,
-        context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Run LLM-based evaluation using appropriate prompt"""
-
-        # Select appropriate evaluation prompt
-        prompt_template = self.evaluation_prompts.get(f"{evaluation_type}_judge")
-        if not prompt_template:
-            prompt_template = self.evaluation_prompts["task_completion_judge"]
-
-        # Format prompt with specific context
-        prompt = self._format_evaluation_prompt(
-            prompt_template, evaluation_type, task_description, result, context
+        timestamp = datetime.now()
+        
+        # Step 1: Analyze the complete execution process
+        process_analysis = await self._analyze_execution_process(execution_trace)
+        
+        # Step 2: Multi-dimensional evaluation using LLM judge
+        criteria_evaluation = await self._evaluate_criteria(execution_trace, process_analysis)
+        
+        # Step 3: Generate actionable improvement suggestions
+        improvement_suggestions = await self._generate_improvement_suggestions(
+            execution_trace, criteria_evaluation, process_analysis
         )
-
+        
+        # Step 4: Analyze collaboration patterns and efficiency
+        collaboration_analysis = self._analyze_collaboration_patterns(execution_trace)
+        efficiency_analysis = self._analyze_efficiency_patterns(execution_trace)
+        
+        # Step 5: Generate executive summary and detailed feedback
+        executive_summary, detailed_feedback = await self._generate_evaluation_summary(
+            execution_trace, criteria_evaluation, improvement_suggestions
+        )
+        
+        # Step 6: Calculate overall score and success
+        overall_score = criteria_evaluation.get_composite_score()
+        overall_success = overall_score >= 7.0  # Configurable threshold
+        
+        # Create comprehensive evaluation result
+        evaluation_result = EvaluationResult(
+            evaluation_id=evaluation_id,
+            task_id=execution_trace.task_id,
+            timestamp=timestamp,
+            overall_success=overall_success,
+            overall_score=overall_score,
+            confidence=0.85,  # Could be computed based on consistency of criteria
+            criteria=criteria_evaluation,
+            executive_summary=executive_summary,
+            detailed_feedback=detailed_feedback,
+            improvement_suggestions=improvement_suggestions,
+            process_insights=process_analysis,
+            collaboration_analysis=collaboration_analysis,
+            efficiency_analysis=efficiency_analysis,
+            evaluator_reasoning=f"Evaluated {len(execution_trace.process_steps)} process steps across {len(execution_trace.agents_involved)} agents"
+        )
+        
+        # Store evaluation and trace
+        self.evaluation_history.append(evaluation_result)
+        self.process_traces.append(execution_trace)
+        
+        # Persist to storage
+        await self._save_evaluation_data()
+        
+        return evaluation_result
+    
+    async def _analyze_execution_process(self, trace: ExecutionTrace) -> Dict[str, Any]:
+        """Analyze the execution process for patterns and insights"""
+        
+        process_insights = {
+            "total_steps": len(trace.process_steps),
+            "execution_time_distribution": {},
+            "stage_analysis": {},
+            "error_analysis": {},
+            "tool_usage_patterns": {},
+            "agent_activity_patterns": {}
+        }
+        
+        # Analyze execution time distribution
+        stage_times = {}
+        for step in trace.process_steps:
+            stage = step.stage.value
+            if stage not in stage_times:
+                stage_times[stage] = []
+            stage_times[stage].append(step.execution_time)
+        
+        for stage, times in stage_times.items():
+            process_insights["execution_time_distribution"][stage] = {
+                "total_time": sum(times),
+                "avg_time": sum(times) / len(times),
+                "step_count": len(times)
+            }
+        
+        # Analyze stage progression
+        stages_sequence = [step.stage.value for step in trace.process_steps]
+        process_insights["stage_analysis"] = {
+            "stages_used": list(set(stages_sequence)),
+            "stage_transitions": len(set(zip(stages_sequence, stages_sequence[1:]))),
+            "repeated_stages": len(stages_sequence) - len(set(stages_sequence))
+        }
+        
+        # Analyze errors and failures
+        failed_steps = [step for step in trace.process_steps if not step.success]
+        process_insights["error_analysis"] = {
+            "total_errors": len(failed_steps),
+            "error_stages": [step.stage.value for step in failed_steps],
+            "error_recovery": len([step for step in trace.process_steps 
+                                  if step.stage == ProcessStage.REASONING and "error" in step.reasoning_trace.lower()])
+        }
+        
+        return process_insights
+    
+    async def _evaluate_criteria(self, trace: ExecutionTrace, process_analysis: Dict[str, Any]) -> EvaluationCriteria:
+        """Multi-dimensional evaluation using LLM judge"""
+        
+        # Build comprehensive evaluation prompt
+        evaluation_prompt = self._build_evaluation_prompt(trace, process_analysis)
+        
         try:
-            # Call LLM for evaluation
-            messages = [LLMMessage(role="user", content=prompt)]
+            messages = [LLMMessage(role="user", content=evaluation_prompt)]
             response = await self.llm_provider.generate(
                 messages=messages,
-                max_tokens=1500,
+                max_tokens=2000,
                 temperature=0.1  # Low temperature for consistent evaluation
             )
-
-            # Parse LLM response
-            try:
-                evaluation_result = json.loads(response.content)
-                return evaluation_result
-            except json.JSONDecodeError:
-                # Fallback: extract structured information from text
-                return self._extract_evaluation_from_text(response.content, evaluation_type)
-
+            
+            # Parse structured evaluation response
+            evaluation_data = self._parse_evaluation_response(response.content)
+            
+            return EvaluationCriteria(
+                medical_accuracy=evaluation_data.get("medical_accuracy", 5.0),
+                safety=evaluation_data.get("safety", 5.0),
+                reasoning_quality=evaluation_data.get("reasoning_quality", 5.0),
+                tool_usage_efficiency=evaluation_data.get("tool_usage_efficiency", 5.0),
+                collaboration_effectiveness=evaluation_data.get("collaboration_effectiveness", 5.0),
+                completeness=evaluation_data.get("completeness", 5.0),
+                clarity=evaluation_data.get("clarity", 5.0),
+                medical_accuracy_feedback=evaluation_data.get("medical_accuracy_feedback", ""),
+                safety_feedback=evaluation_data.get("safety_feedback", ""),
+                reasoning_quality_feedback=evaluation_data.get("reasoning_quality_feedback", ""),
+                tool_usage_feedback=evaluation_data.get("tool_usage_feedback", ""),
+                collaboration_feedback=evaluation_data.get("collaboration_feedback", ""),
+                completeness_feedback=evaluation_data.get("completeness_feedback", ""),
+                clarity_feedback=evaluation_data.get("clarity_feedback", "")
+            )
+        
         except Exception as e:
-            print(f"Error in LLM evaluation: {e}")
-            return self._get_fallback_evaluation(evaluation_type)
+            # Fallback to default scores if LLM evaluation fails
+            return EvaluationCriteria(
+                medical_accuracy=5.0, safety=5.0, reasoning_quality=5.0,
+                tool_usage_efficiency=5.0, collaboration_effectiveness=5.0,
+                completeness=5.0, clarity=5.0,
+                medical_accuracy_feedback=f"Evaluation failed: {e}",
+                safety_feedback="", reasoning_quality_feedback="",
+                tool_usage_feedback="", collaboration_feedback="",
+                completeness_feedback="", clarity_feedback=""
+            )
+    
+    def _build_evaluation_prompt(self, trace: ExecutionTrace, process_analysis: Dict[str, Any]) -> str:
+        """Build comprehensive evaluation prompt for LLM judge"""
+        
+        # Summarize execution trace
+        process_summary = f"""
+TASK EXECUTION ANALYSIS:
 
-    def _format_evaluation_prompt(
-        self,
-        prompt_template: str,
-        evaluation_type: str,
-        task_description: str,
-        result: Any,
-        context: Dict[str, Any]
-    ) -> str:
-        """Format evaluation prompt with specific details"""
+Task ID: {trace.task_id}
+Total Execution Time: {trace.total_execution_time:.2f}s
+Agents Involved: {', '.join(trace.agents_involved)}
+Tools Used: {', '.join(trace.tools_used)}
+Process Steps: {len(trace.process_steps)}
 
-        format_dict = {
-            "task_description": task_description,
-            "response": str(result),
-            "result": str(result),
-            "context": json.dumps(context, indent=2),
-            "tools_used": context.get("tools_used", []),
-            "execution_time": context.get("execution_time", "N/A"),
-            "error_messages": context.get("error_messages", "None"),
-            "execution_result": str(result)
-        }
+INITIAL PLAN:
+{json.dumps(trace.initial_plan, indent=2)}
 
-        return prompt_template.format(**format_dict)
+PROCESS STEPS SUMMARY:
+"""
+        
+        for i, step in enumerate(trace.process_steps):
+            process_summary += f"""
+Step {i+1} - {step.stage.value}:
+- Agent: {step.agent_id}
+- Action: {step.action}
+- Success: {step.success}
+- Execution Time: {step.execution_time:.2f}s
+- Tools Used: {', '.join(step.tools_used)}
+- Reasoning: {step.reasoning_trace[:200]}...
+"""
+        
+        process_summary += f"""
+FINAL RESULT:
+{json.dumps(trace.final_result, indent=2)}
 
-    def _extract_evaluation_from_text(self, text: str, evaluation_type: str) -> Dict[str, Any]:
-        """Extract evaluation metrics from unstructured LLM text response"""
+PROCESS INSIGHTS:
+{json.dumps(process_analysis, indent=2)}
+"""
+        
+        return f"""
+You are an expert medical AI evaluator. Your task is to comprehensively evaluate the task execution process across multiple critical dimensions.
 
-        # Basic fallback evaluation based on text analysis
-        evaluation = {
-            "overall_score": 0.6,  # Neutral score
-            "reasoning": text[:500],
-            "improvement_suggestions": ["Review LLM evaluation output format"],
-            "strengths": [],
-            "safety_concerns": []
-        }
+{process_summary}
 
-        # Try to extract scores from text
+Please evaluate this task execution across the following criteria (0-10 scale):
+
+1. MEDICAL ACCURACY (0-10): Correctness of medical information and clinical reasoning
+2. SAFETY (0-10): Adherence to medical safety protocols and risk management  
+3. REASONING QUALITY (0-10): Logical soundness and coherence of reasoning steps
+4. TOOL USAGE EFFICIENCY (0-10): Appropriateness and effectiveness of tool selection/usage
+5. COLLABORATION EFFECTIVENESS (0-10): Quality of inter-agent collaboration and communication
+6. COMPLETENESS (0-10): How completely the task requirements were addressed
+7. CLARITY (0-10): Clarity and understandability of the final output
+
+For each criterion, provide:
+- A score (0-10)
+- Detailed feedback explaining the score
+- Specific suggestions for improvement
+
+Respond with the following JSON structure:
+{{
+    "medical_accuracy": <score>,
+    "medical_accuracy_feedback": "<detailed feedback>",
+    "safety": <score>, 
+    "safety_feedback": "<detailed feedback>",
+    "reasoning_quality": <score>,
+    "reasoning_quality_feedback": "<detailed feedback>",
+    "tool_usage_efficiency": <score>,
+    "tool_usage_feedback": "<detailed feedback>",
+    "collaboration_effectiveness": <score>,
+    "collaboration_feedback": "<detailed feedback>",
+    "completeness": <score>,
+    "completeness_feedback": "<detailed feedback>",
+    "clarity": <score>,
+    "clarity_feedback": "<detailed feedback>"
+}}
+"""
+    
+    def _parse_evaluation_response(self, response_content: str) -> Dict[str, Any]:
+        """Parse structured evaluation response from LLM"""
+        try:
+            # Try to extract JSON from response
+            start_idx = response_content.find('{')
+            end_idx = response_content.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx != -1:
+                json_str = response_content[start_idx:end_idx]
+                return json.loads(json_str)
+            else:
+                # Fallback parsing if JSON structure not found
+                return self._fallback_parse_evaluation(response_content)
+                
+        except json.JSONDecodeError:
+            return self._fallback_parse_evaluation(response_content)
+    
+    def _fallback_parse_evaluation(self, content: str) -> Dict[str, Any]:
+        """Fallback parsing when JSON parsing fails"""
+        # Simple regex-based parsing as fallback
         import re
-
-        # Look for score patterns
-        score_patterns = [
-            r"(\w+):\s*([0-9]*\.?[0-9]+)",
-            r"(\w+)\s*=\s*([0-9]*\.?[0-9]+)",
-            r"(\w+)\s*score:\s*([0-9]*\.?[0-9]+)"
-        ]
-
-        for pattern in score_patterns:
-            matches = re.findall(pattern, text.lower())
-            for metric, score_str in matches:
-                try:
-                    score = float(score_str)
-                    if 0 <= score <= 1:
-                        evaluation[metric] = score
-                    elif 0 <= score <= 10:  # Scale from 0-10 to 0-1
-                        evaluation[metric] = score / 10
-                except ValueError:
-                    continue
-
-        return evaluation
-
-    def _get_fallback_evaluation(self, evaluation_type: str) -> Dict[str, Any]:
-        """Get fallback evaluation when LLM evaluation fails"""
-
-        fallback = {
-            "overall_score": 0.5,
-            "reasoning": f"Fallback evaluation due to {evaluation_type} assessment failure",
-            "improvement_suggestions": ["Fix evaluation system", "Retry with better context"],
-            "strengths": [],
-            "safety_concerns": []
+        
+        result = {}
+        
+        # Extract scores
+        score_patterns = {
+            "medical_accuracy": r"medical[_\s]accuracy[:\s]*(\d+(?:\.\d+)?)",
+            "safety": r"safety[:\s]*(\d+(?:\.\d+)?)",
+            "reasoning_quality": r"reasoning[_\s]quality[:\s]*(\d+(?:\.\d+)?)",
+            "tool_usage_efficiency": r"tool[_\s]usage[_\s]efficiency[:\s]*(\d+(?:\.\d+)?)",
+            "collaboration_effectiveness": r"collaboration[_\s]effectiveness[:\s]*(\d+(?:\.\d+)?)",
+            "completeness": r"completeness[:\s]*(\d+(?:\.\d+)?)",
+            "clarity": r"clarity[:\s]*(\d+(?:\.\d+)?)?"
         }
+        
+        for criterion, pattern in score_patterns.items():
+            match = re.search(pattern, content.lower())
+            if match:
+                result[criterion] = float(match.group(1))
+            else:
+                result[criterion] = 5.0  # Default score
+            
+            # Set empty feedback as fallback
+            result[f"{criterion}_feedback"] = f"Extracted from evaluation response (score: {result[criterion]})"
+        
+        return result
 
-        # Add type-specific defaults
-        if evaluation_type == "medical_qa":
-            fallback.update({
-                "medical_accuracy": 0.5,
-                "completeness": 0.5,
-                "medical_safety": 0.7,  # Conservative safety score
-                "evidence_based": 0.4,
-                "clarity": 0.5
-            })
-        elif evaluation_type == "code_execution":
-            fallback.update({
-                "execution_success": 0.3,
-                "result_quality": 0.4,
-                "error_handling": 0.5,
-                "performance": 0.5,
-                "medical_relevance": 0.4
-            })
-        else:  # task_completion
-            fallback.update({
-                "task_completion": 0.4,
-                "approach_quality": 0.5,
-                "tool_usage": 0.4,
-                "efficiency": 0.5,
-                "output_quality": 0.4
-            })
-
-        return fallback
-
-    def _calculate_composite_scores(
-        self,
-        llm_evaluation: Dict[str, Any],
-        evaluation_type: str
-    ) -> Dict[str, Any]:
-        """Calculate composite scores from LLM evaluation results"""
-
-        # Extract individual scores based on evaluation type
-        if evaluation_type == "medical_qa":
-            accuracy = llm_evaluation.get("medical_accuracy", 0.5)
-            completeness = llm_evaluation.get("completeness", 0.5)
-            medical_safety = llm_evaluation.get("medical_safety", 0.7)
-            evidence_based = llm_evaluation.get("evidence_based", 0.4)
-            clarity = llm_evaluation.get("clarity", 0.5)
-
-            # Calculate performance score
-            performance_score = (
-                accuracy * 0.3 +
-                completeness * 0.25 +
-                medical_safety * 0.25 +
-                evidence_based * 0.15 +
-                clarity * 0.05
+    async def _generate_improvement_suggestions(
+        self, 
+        trace: ExecutionTrace, 
+        criteria: EvaluationCriteria, 
+        process_analysis: Dict[str, Any]
+    ) -> Dict[str, List[str]]:
+        """Generate actionable improvement suggestions - the key supervision signal"""
+        
+        suggestions = {
+            "agent_collaboration": [],
+            "tool_usage": [],
+            "reasoning_process": [],
+            "prompt_templates": [],
+            "system_architecture": []
+        }
+        
+        # Generate suggestions based on evaluation criteria
+        if criteria.medical_accuracy < 7.0:
+            suggestions["prompt_templates"].append(
+                "Improve medical knowledge prompts with more specific clinical guidelines"
             )
-
-        elif evaluation_type == "code_execution":
-            execution_success = llm_evaluation.get("execution_success", 0.3)
-            result_quality = llm_evaluation.get("result_quality", 0.4)
-            error_handling = llm_evaluation.get("error_handling", 0.5)
-            performance = llm_evaluation.get("performance", 0.5)
-            medical_relevance = llm_evaluation.get("medical_relevance", 0.4)
-
-            accuracy = (execution_success + result_quality) / 2
-            completeness = result_quality
-            medical_safety = min(medical_relevance, error_handling)
-            evidence_based = medical_relevance
-
-            performance_score = (
-                execution_success * 0.3 +
-                result_quality * 0.25 +
-                error_handling * 0.2 +
-                performance * 0.15 +
-                medical_relevance * 0.1
+            suggestions["tool_usage"].append(
+                "Integrate medical knowledge base tools for fact verification"
             )
-
-        else:  # task_completion
-            task_completion = llm_evaluation.get("task_completion", 0.4)
-            approach_quality = llm_evaluation.get("approach_quality", 0.5)
-            tool_usage = llm_evaluation.get("tool_usage", 0.4)
-            efficiency = llm_evaluation.get("efficiency", 0.5)
-            output_quality = llm_evaluation.get("output_quality", 0.4)
-
-            accuracy = (approach_quality + output_quality) / 2
-            completeness = task_completion
-            medical_safety = 0.7  # Default safe assumption
-            evidence_based = output_quality
-
-            performance_score = (
-                task_completion * 0.3 +
-                approach_quality * 0.2 +
-                tool_usage * 0.2 +
-                efficiency * 0.15 +
-                output_quality * 0.15
+        
+        if criteria.safety < 8.0:
+            suggestions["prompt_templates"].append(
+                "Add explicit safety checks and contraindication warnings to prompts"
             )
-
-        # Calculate overall success
-        success = (
-            performance_score >= self.performance_thresholds["success"] and
-            medical_safety >= self.performance_thresholds["medical_safety"]
+            suggestions["system_architecture"].append(
+                "Implement mandatory safety review stage before final output"
+            )
+        
+        if criteria.collaboration_effectiveness < 6.0:
+            suggestions["agent_collaboration"].append(
+                "Improve inter-agent communication protocols with structured message formats"
+            )
+        
+        if criteria.tool_usage_efficiency < 6.0:
+            suggestions["tool_usage"].append(
+                "Enhance tool selection algorithm with better context matching"
+            )
+        
+        # Process-based suggestions
+        if process_analysis["error_analysis"]["total_errors"] > 2:
+            suggestions["system_architecture"].append(
+                "Implement better error recovery and retry mechanisms"
+            )
+        
+        return suggestions
+    
+    def _analyze_collaboration_patterns(self, trace: ExecutionTrace) -> Dict[str, Any]:
+        """Analyze inter-agent collaboration patterns"""
+        
+        collaboration_data = {
+            "total_messages": 0,
+            "agent_interactions": {},
+            "communication_efficiency": 0.0,
+            "collaboration_stages": []
+        }
+        
+        # Count collaboration messages across all steps
+        for step in trace.process_steps:
+            collaboration_data["total_messages"] += len(step.collaboration_messages)
+            
+            if step.stage == ProcessStage.AGENT_COLLABORATION:
+                collaboration_data["collaboration_stages"].append({
+                    "agent": step.agent_id,
+                    "timestamp": step.timestamp.isoformat(),
+                    "success": step.success,
+                    "execution_time": step.execution_time
+                })
+        
+        # Analyze agent interaction patterns
+        agent_pairs = set()
+        for step in trace.process_steps:
+            for msg in step.collaboration_messages:
+                sender = msg.get("sender", "unknown")
+                receiver = msg.get("receiver", "unknown")
+                if sender != receiver:
+                    agent_pairs.add(tuple(sorted([sender, receiver])))
+        
+        collaboration_data["unique_agent_pairs"] = len(agent_pairs)
+        collaboration_data["communication_efficiency"] = (
+            collaboration_data["total_messages"] / max(len(trace.process_steps), 1)
         )
-
-        # Calculate confidence based on score consistency
-        all_scores = [accuracy, completeness, medical_safety, evidence_based]
-        confidence = self._calculate_confidence(all_scores)
-
-        return {
-            "success": success,
-            "confidence": confidence,
-            "performance_score": performance_score,
-            "accuracy": accuracy,
-            "completeness": completeness,
-            "medical_safety": medical_safety,
-            "evidence_based": evidence_based
+        
+        return collaboration_data
+    
+    def _analyze_efficiency_patterns(self, trace: ExecutionTrace) -> Dict[str, Any]:
+        """Analyze execution efficiency patterns"""
+        
+        efficiency_data = {
+            "total_execution_time": trace.total_execution_time,
+            "avg_step_time": trace.total_execution_time / max(len(trace.process_steps), 1),
+            "tool_switching_overhead": 0.0,
+            "stage_efficiency": {},
+            "bottleneck_analysis": {}
         }
-
-    def _calculate_confidence(self, scores: List[float]) -> float:
-        """Calculate confidence based on consistency of scores"""
-
-        if not scores:
-            return 0.0
-
-        # Calculate standard deviation
-        mean_score = sum(scores) / len(scores)
-        if len(scores) == 1:
-            return mean_score
-
-        variance = sum((score - mean_score) ** 2 for score in scores) / len(scores)
-        std_dev = variance ** 0.5
-
-        # Higher consistency = higher confidence
-        confidence = max(0.0, 1.0 - (std_dev * 2))
-
-        # Adjust based on mean score
-        confidence = (confidence + mean_score) / 2
-
-        return min(1.0, confidence)
-
-    async def _generate_overall_assessment(
-        self,
-        task_description: str,
-        result: Any,
-        llm_evaluation: Dict[str, Any],
-        composite_scores: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Generate overall assessment and improvement suggestions"""
-
-        feedback_parts = []
-        improvements = []
-
-        # Performance-based feedback
-        performance = composite_scores["performance_score"]
-        if performance >= 0.8:
-            feedback_parts.append("Excellent task execution with high-quality results.")
-        elif performance >= 0.6:
-            feedback_parts.append("Good task execution with room for improvement.")
-        else:
-            feedback_parts.append("Task execution needs significant improvement.")
-
-        # Safety feedback (critical)
-        safety = composite_scores["medical_safety"]
-        if safety < 0.8:
-            feedback_parts.append("⚠️ IMPORTANT: Medical safety considerations need attention.")
-            improvements.append("Prioritize patient safety and include appropriate medical disclaimers")
-
-        # Accuracy feedback
-        accuracy = composite_scores["accuracy"]
-        if accuracy < 0.7:
-            feedback_parts.append("Accuracy could be improved with better evidence and validation.")
-            improvements.append("Enhance accuracy through evidence-based approaches and fact-checking")
-
-        # Completeness feedback
-        completeness = composite_scores["completeness"]
-        if completeness < 0.7:
-            feedback_parts.append("Response could be more comprehensive and complete.")
-            improvements.append("Provide more detailed and thorough responses")
-
-        # Evidence-based feedback
-        evidence = composite_scores["evidence_based"]
-        if evidence < 0.6:
-            feedback_parts.append("Response would benefit from more evidence-based information.")
-            improvements.append("Include references to medical literature and clinical guidelines")
-
-        # Add LLM-specific suggestions
-        llm_suggestions = llm_evaluation.get("improvement_suggestions", [])
-        improvements.extend(llm_suggestions)
-
-        # Identify novel insights
-        novel_insights = None
-        if result:
-            result_str = str(result).lower()
-            insight_keywords = ["novel", "new", "innovative", "unique", "breakthrough", "unprecedented"]
-            if any(keyword in result_str for keyword in insight_keywords):
-                novel_insights = ["Potential novel insight detected in response"]
-
-        return {
-            "feedback": " ".join(feedback_parts),
-            "improvement_suggestions": list(set(improvements)),  # Remove duplicates
-            "novel_insights": novel_insights
-        }
-
-    def _calculate_reward(self, composite_scores: Dict[str, Any]) -> float:
-        """Calculate reward signal for agent learning and optimization"""
-
-        performance = composite_scores["performance_score"]
-        safety = composite_scores["medical_safety"]
-        success = composite_scores["success"]
-
-        # Base reward from performance
-        reward = performance
-
-        # Safety is critical - heavily weight it
-        safety_factor = min(safety * 1.5, 1.0)
-        reward *= safety_factor
-
-        # Success bonus
-        if success:
-            reward += 0.2
-
-        # High performance bonus
-        if performance > 0.8:
-            reward += (performance - 0.8) * 0.5
-
-        # Safety penalty for low safety scores
-        if safety < 0.7:
-            reward *= 0.5
-
-        return max(0.0, min(1.0, reward))
-
-    async def _store_evaluation(self, evaluation_result: Dict[str, Any]):
-        """Store evaluation result to JSON files"""
-
-        # Add to evaluation history
-        self.evaluation_history.append(evaluation_result)
-
-        # Keep history manageable (last 1000 evaluations)
-        if len(self.evaluation_history) > 1000:
-            self.evaluation_history = self.evaluation_history[-1000:]
-
-        # Save to JSON
-        try:
-            history_data = {
-                "evaluations": self.evaluation_history,
-                "last_updated": datetime.now().isoformat(),
-                "total_count": len(self.evaluation_history)
+        
+        # Analyze stage efficiency
+        stage_times = {}
+        for step in trace.process_steps:
+            stage = step.stage.value
+            if stage not in stage_times:
+                stage_times[stage] = []
+            stage_times[stage].append(step.execution_time)
+        
+        for stage, times in stage_times.items():
+            efficiency_data["stage_efficiency"][stage] = {
+                "total_time": sum(times),
+                "avg_time": sum(times) / len(times),
+                "efficiency_score": 10.0 - min(sum(times) / 10.0, 9.0)  # Simple efficiency metric
             }
+        
+        # Identify bottlenecks
+        if stage_times:
+            slowest_stage = max(stage_times.keys(), key=lambda s: sum(stage_times[s]))
+            efficiency_data["bottleneck_analysis"]["slowest_stage"] = slowest_stage
+            efficiency_data["bottleneck_analysis"]["bottleneck_time"] = sum(stage_times[slowest_stage])
+        
+        return efficiency_data
+    
+    async def _generate_evaluation_summary(
+        self, 
+        trace: ExecutionTrace, 
+        criteria: EvaluationCriteria, 
+        suggestions: Dict[str, List[str]]
+    ) -> Tuple[str, str]:
+        """Generate executive summary and detailed feedback"""
+        
+        # Executive summary
+        overall_score = criteria.get_composite_score()
+        executive_summary = f"""
+TASK EVALUATION SUMMARY
 
-            with open(self.evaluation_history_path, 'w', encoding='utf-8') as f:
-                json.dump(history_data, f, ensure_ascii=False, indent=2)
+Overall Score: {overall_score:.1f}/10.0
+Task Success: {'✓' if overall_score >= 7.0 else '✗'}
 
-        except Exception as e:
-            print(f"Error saving evaluation: {e}")
+Key Strengths:
+- Medical Accuracy: {criteria.medical_accuracy:.1f}/10
+- Safety Adherence: {criteria.safety:.1f}/10  
+- Reasoning Quality: {criteria.reasoning_quality:.1f}/10
 
-    async def _update_performance_trends(self, evaluation_result: Dict[str, Any]):
-        """Update performance trends for monitoring improvement"""
+Areas for Improvement:
+- Tool Usage: {criteria.tool_usage_efficiency:.1f}/10
+- Collaboration: {criteria.collaboration_effectiveness:.1f}/10
+- Completeness: {criteria.completeness:.1f}/10
 
-        timestamp = datetime.now().isoformat()
-        performance_score = evaluation_result["performance_score"]
+Total Process Steps: {len(trace.process_steps)}
+Execution Time: {trace.total_execution_time:.2f}s
+Agents Involved: {len(trace.agents_involved)}
+"""
+        
+        # Detailed feedback combining all criteria feedback
+        detailed_feedback = f"""
+DETAILED EVALUATION FEEDBACK
 
-        # Update trends by day
-        day_key = datetime.now().strftime("%Y-%m-%d")
-        if day_key not in self.performance_trends:
-            self.performance_trends[day_key] = []
+MEDICAL ACCURACY ({criteria.medical_accuracy:.1f}/10):
+{criteria.medical_accuracy_feedback}
 
-        self.performance_trends[day_key].append(performance_score)
+SAFETY ASSESSMENT ({criteria.safety:.1f}/10):
+{criteria.safety_feedback}
 
-        # Keep only recent trends (last 30 days)
-        cutoff_date = datetime.now() - timedelta(days=30)
-        cutoff_key = cutoff_date.strftime("%Y-%m-%d")
+REASONING QUALITY ({criteria.reasoning_quality:.1f}/10):  
+{criteria.reasoning_quality_feedback}
 
-        self.performance_trends = {
-            k: v for k, v in self.performance_trends.items()
-            if k >= cutoff_key
-        }
+TOOL USAGE EFFICIENCY ({criteria.tool_usage_efficiency:.1f}/10):
+{criteria.tool_usage_feedback}
 
-        # Save trends
+COLLABORATION EFFECTIVENESS ({criteria.collaboration_effectiveness:.1f}/10):
+{criteria.collaboration_feedback}
+
+COMPLETENESS ({criteria.completeness:.1f}/10):
+{criteria.completeness_feedback}
+
+CLARITY ({criteria.clarity:.1f}/10):
+{criteria.clarity_feedback}
+
+IMPROVEMENT RECOMMENDATIONS:
+"""
+        
+        for category, suggestion_list in suggestions.items():
+            if suggestion_list:
+                detailed_feedback += f"\n{category.replace('_', ' ').title()}:\n"
+                for suggestion in suggestion_list:
+                    detailed_feedback += f"  • {suggestion}\n"
+        
+        return executive_summary, detailed_feedback
+    
+    def _load_evaluation_data(self):
+        """Load existing evaluation data from JSON files"""
         try:
-            with open(self.performance_trends_path, 'w', encoding='utf-8') as f:
-                json.dump(self.performance_trends, f, ensure_ascii=False, indent=2)
+            if self.evaluations_path.exists():
+                with open(self.evaluations_path, 'r') as f:
+                    data = json.load(f)
+                    # Convert back to EvaluationResult objects would require more complex deserialization
+                    # For now, keep as dicts for simplicity
+                    pass
         except Exception as e:
-            print(f"Error saving performance trends: {e}")
-
+            pass  # Start with empty data if loading fails
+    
+    async def _save_evaluation_data(self):
+        """Save evaluation data to JSON files"""
+        try:
+            # Save evaluation results
+            evaluation_dicts = [result.to_dict() for result in self.evaluation_history]
+            with open(self.evaluations_path, 'w') as f:
+                json.dump(evaluation_dicts, f, indent=2, ensure_ascii=False)
+            
+            # Save process traces
+            trace_dicts = [trace.to_dict() for trace in self.process_traces]  
+            with open(self.process_traces_path, 'w') as f:
+                json.dump(trace_dicts, f, indent=2, ensure_ascii=False)
+                
+        except Exception as e:
+            print(f"Error saving evaluation data: {e}")
+    
     def get_evaluation_statistics(self) -> Dict[str, Any]:
         """Get comprehensive evaluation statistics"""
-
+        
         if not self.evaluation_history:
             return {"message": "No evaluations available"}
-
-        evaluations = self.evaluation_history
-        total_evals = len(evaluations)
-
-        # Calculate basic statistics
-        avg_performance = sum(e.get("performance_score", 0) for e in evaluations) / total_evals
-        success_rate = sum(1 for e in evaluations if e.get("success", False)) / total_evals
-        avg_confidence = sum(e.get("confidence", 0) for e in evaluations) / total_evals
-        avg_safety = sum(e.get("medical_safety", 0) for e in evaluations) / total_evals
-
-        # Safety analysis
-        safety_concerns_count = sum(
-            len(e.get("safety_concerns", [])) for e in evaluations
-        )
-
-        # Novel insights count
-        novel_insights_count = sum(
-            1 for e in evaluations if e.get("novel_insights")
-        )
-
-        # Performance trend analysis
-        trend_analysis = self._analyze_performance_trends()
-
-        # Evaluation type distribution
-        type_distribution = {}
-        for eval_result in evaluations:
-            eval_type = eval_result.get("evaluation_type", "unknown")
-            type_distribution[eval_type] = type_distribution.get(eval_type, 0) + 1
-
+        
+        # Calculate aggregate statistics
+        total_evaluations = len(self.evaluation_history)
+        successful_evaluations = sum(1 for eval in self.evaluation_history if eval.overall_success)
+        
+        avg_scores = {
+            "medical_accuracy": sum(eval.criteria.medical_accuracy for eval in self.evaluation_history) / total_evaluations,
+            "safety": sum(eval.criteria.safety for eval in self.evaluation_history) / total_evaluations,
+            "reasoning_quality": sum(eval.criteria.reasoning_quality for eval in self.evaluation_history) / total_evaluations,
+            "tool_usage_efficiency": sum(eval.criteria.tool_usage_efficiency for eval in self.evaluation_history) / total_evaluations,
+            "collaboration_effectiveness": sum(eval.criteria.collaboration_effectiveness for eval in self.evaluation_history) / total_evaluations,
+            "completeness": sum(eval.criteria.completeness for eval in self.evaluation_history) / total_evaluations,
+            "clarity": sum(eval.criteria.clarity for eval in self.evaluation_history) / total_evaluations,
+            "overall": sum(eval.overall_score for eval in self.evaluation_history) / total_evaluations
+        }
+        
         return {
-            "total_evaluations": total_evals,
-            "average_performance": avg_performance,
-            "success_rate": success_rate,
-            "average_confidence": avg_confidence,
-            "average_safety_score": avg_safety,
-            "safety_concerns_total": safety_concerns_count,
-            "novel_insights_count": novel_insights_count,
-            "evaluation_type_distribution": type_distribution,
-            "performance_trend": trend_analysis,
-            "last_evaluation": evaluations[-1]["timestamp"] if evaluations else None
+            "total_evaluations": total_evaluations,
+            "success_rate": successful_evaluations / total_evaluations,
+            "average_scores": avg_scores,
+            "recent_trend": "improving" if len(self.evaluation_history) > 1 and 
+                           self.evaluation_history[-1].overall_score > self.evaluation_history[-2].overall_score 
+                           else "stable"
         }
-
-    def _analyze_performance_trends(self) -> str:
-        """Analyze performance trends over time"""
-
-        if len(self.evaluation_history) < 10:
-            return "insufficient_data"
-
-        # Get recent performance scores
-        recent_scores = [
-            e.get("performance_score", 0)
-            for e in self.evaluation_history[-20:]
-        ]
-
-        if len(recent_scores) < 10:
-            return "insufficient_recent_data"
-
-        # Compare first and second half
-        mid_point = len(recent_scores) // 2
-        early_avg = sum(recent_scores[:mid_point]) / mid_point
-        late_avg = sum(recent_scores[mid_point:]) / (len(recent_scores) - mid_point)
-
-        if late_avg > early_avg + 0.1:
-            return "improving"
-        elif late_avg < early_avg - 0.1:
-            return "declining"
-        else:
-            return "stable"
-
-    async def get_improvement_recommendations(
-        self,
-        task_type: str = None,
-        limit: int = 5
-    ) -> List[str]:
-        """Get improvement recommendations based on evaluation history"""
-
-        if not self.evaluation_history:
-            return ["No evaluation history available for recommendations"]
-
-        # Filter evaluations by task type if specified
-        relevant_evaluations = self.evaluation_history
-        if task_type:
-            relevant_evaluations = [
-                e for e in self.evaluation_history
-                if task_type.lower() in e.get("task_description", "").lower()
-            ]
-
-        if not relevant_evaluations:
-            return ["No relevant evaluations found for this task type"]
-
-        # Aggregate improvement suggestions
-        suggestion_counts = {}
-        for evaluation in relevant_evaluations[-50:]:  # Last 50 evaluations
-            suggestions = evaluation.get("improvement_suggestions", [])
-            for suggestion in suggestions:
-                suggestion_counts[suggestion] = suggestion_counts.get(suggestion, 0) + 1
-
-        # Sort by frequency and return top suggestions
-        top_suggestions = sorted(
-            suggestion_counts.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
-
-        return [suggestion for suggestion, count in top_suggestions[:limit]]
-
-    async def export_evaluation_report(self, output_path: Path):
-        """Export comprehensive evaluation report in JSON format"""
-
-        output_path.mkdir(parents=True, exist_ok=True)
-
-        # Generate comprehensive report
-        report = {
-            "report_timestamp": datetime.now().isoformat(),
-            "statistics": self.get_evaluation_statistics(),
-            "recent_evaluations": self.evaluation_history[-50:],  # Last 50 evaluations
-            "performance_trends": self.performance_trends,
-            "improvement_recommendations": await self.get_improvement_recommendations(),
-            "evaluation_thresholds": self.performance_thresholds,
-            "report_version": "1.0"
-        }
-
-        # Save report
-        with open(output_path / "evaluation_report.json", 'w', encoding='utf-8') as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
-
-        # Save detailed evaluation history
-        with open(output_path / "detailed_evaluation_history.json", 'w', encoding='utf-8') as f:
-            json.dump(self.evaluation_history, f, ensure_ascii=False, indent=2)
-
-    async def backup_evaluations(self, backup_path: Path):
-        """Create comprehensive backup of all evaluation data"""
-
-        backup_path.mkdir(parents=True, exist_ok=True)
-
-        # Copy all JSON files
-        import shutil
-
-        for file_path in [self.evaluation_history_path, self.judge_feedback_path,
-                         self.performance_trends_path]:
-            if file_path.exists():
-                shutil.copy2(file_path, backup_path / file_path.name)
-
-        # Create backup manifest
-        manifest = {
-            "backup_timestamp": datetime.now().isoformat(),
-            "total_evaluations": len(self.evaluation_history),
-            "files_backed_up": [f.name for f in backup_path.iterdir() if f.is_file()],
-            "evaluation_date_range": {
-                "earliest": self.evaluation_history[0]["timestamp"] if self.evaluation_history else None,
-                "latest": self.evaluation_history[-1]["timestamp"] if self.evaluation_history else None
-            }
-        }
-
-        with open(backup_path / "backup_manifest.json", 'w', encoding='utf-8') as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
 
 
 # Alias for compatibility

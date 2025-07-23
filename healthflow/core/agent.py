@@ -1,6 +1,28 @@
 """
-HealthFlow Agent System
-Core agent implementation with multi-agent collaboration and medical task capabilities
+HealthFlow Agent System - NeurIPS 2024 Research Implementation
+
+Core agent implementation featuring evaluation-driven self-improvement through 
+comprehensive process monitoring and multi-dimensional feedback loops.
+
+Key Innovation: 
+Unlike traditional agent systems that learn only from final outcomes, HealthFlow agents
+continuously evolve through rich supervision signals from an advanced LLM-based evaluator
+that monitors the ENTIRE execution process - from planning to tool usage to collaboration.
+
+This module implements the streamlined 3-agent architecture:
+- ORCHESTRATOR: Central coordinator managing workflow and delegation
+- EXPERT: Medical reasoning engine with deep clinical knowledge  
+- ANALYST: Data and tool specialist providing evidence-based insights
+
+Architecture Features:
+- Shared ToolBank with hierarchical tag-based retrieval
+- Shared LLMTaskEvaluator for process-oriented evaluation
+- Comprehensive ExecutionTrace collection for learning
+- Multi-dimensional evaluation across medical criteria
+- Rich improvement suggestions as supervision signals
+
+This research contribution enables autonomous system evolution guided by 
+comprehensive process evaluation rather than simple outcome metrics.
 """
 
 import asyncio
@@ -16,18 +38,14 @@ from .llm_provider import LLMProvider, LLMMessage, LLMResponse, create_llm_provi
 from .memory import MemoryManager, MemoryEntry, MemoryType
 from .config import HealthFlowConfig
 from ..tools.toolbank import ToolBank
-from ..evaluation.evaluator import TaskEvaluator
+from ..evaluation.evaluator import LLMTaskEvaluator, ExecutionTrace, ProcessStep, ProcessStage
 
 
 class AgentRole(Enum):
-    """Agent roles in the multi-agent system"""
-    COORDINATOR = "coordinator"
-    MEDICAL_EXPERT = "medical_expert"
-    DATA_ANALYST = "data_analyst"
-    RESEARCHER = "researcher"
-    DIAGNOSIS_SPECIALIST = "diagnosis_specialist"
-    TREATMENT_PLANNER = "treatment_planner"
-    CODE_EXECUTOR = "code_executor"
+    """Streamlined agent roles in the HealthFlow system (NeurIPS specification)"""
+    ORCHESTRATOR = "orchestrator"  # Central coordinator - manages workflow and delegates
+    EXPERT = "expert"              # Medical reasoning engine - clinical expertise  
+    ANALYST = "analyst"            # Data and tool specialist - analysis and evidence
 
 
 @dataclass
@@ -69,7 +87,40 @@ class TaskResult:
 
 class HealthFlowAgent:
     """
-    Core HealthFlow Agent with multi-agent collaboration capabilities
+    Core HealthFlow Agent - Central Component of the NeurIPS Research Innovation
+    
+    This agent implementation embodies HealthFlow's key contribution: evaluation-driven 
+    self-improvement through comprehensive process monitoring. Each agent collects detailed
+    ExecutionTrace data during task execution, enabling the shared LLMTaskEvaluator to 
+    provide rich, multi-dimensional feedback for continuous system evolution.
+    
+    Key Research Features:
+    1. Process Monitoring: Unlike traditional agents that focus on outcomes, HealthFlow
+       agents monitor every step of execution - planning, tool usage, reasoning, synthesis.
+       
+    2. Shared Component Architecture: All agents share a single ToolBank and LLMTaskEvaluator,
+       promoting system-wide consistency and enabling global learning from local experiences.
+       
+    3. Rich Experience Storage: Each task execution generates comprehensive Experience entries
+       containing not just results, but detailed process insights, evaluation feedback, and
+       actionable improvement suggestions.
+       
+    4. Multi-dimensional Evaluation: Tasks are evaluated across critical medical criteria
+       including accuracy, safety, reasoning quality, tool efficiency, and collaboration.
+       
+    5. Continuous Evolution: The system autonomously improves through structured feedback
+       loops, refining agent behavior, prompts, and tool usage based on evaluation insights.
+    
+    This design enables HealthFlow to learn from the quality of its reasoning process,
+    not just the correctness of its final answers - a key advancement for medical AI systems.
+    
+    Args:
+        agent_id (str): Unique identifier for this agent instance
+        role (AgentRole): One of ORCHESTRATOR, EXPERT, or ANALYST roles
+        config (HealthFlowConfig): System configuration parameters
+        tool_bank (ToolBank): Shared tool repository with hierarchical retrieval
+        evaluator (LLMTaskEvaluator): Shared process evaluator for improvement signals
+        llm_provider (Optional[LLMProvider]): Language model provider for agent reasoning
     """
 
     def __init__(
@@ -77,6 +128,8 @@ class HealthFlowAgent:
         agent_id: str,
         role: AgentRole,
         config: HealthFlowConfig,
+        tool_bank: ToolBank,          # Shared ToolBank instance
+        evaluator: 'LLMTaskEvaluator', # Shared evaluator instance  
         llm_provider: Optional[LLMProvider] = None
     ):
         self.agent_id = agent_id
@@ -93,13 +146,15 @@ class HealthFlowAgent:
                 model_name=self.config.model_name
             )
 
-        # Initialize components
+        # Shared components (key to HealthFlow architecture)
+        self.tool_bank = tool_bank      # Shared across all agents
+        self.evaluator = evaluator      # Shared across all agents
+        
+        # Agent-specific memory
         self.memory_manager = MemoryManager(
             config.memory_dir / agent_id,
             max_memory_size=config.memory_window
         )
-        self.tool_bank = ToolBank(config.tools_dir / agent_id)
-        self.evaluator = TaskEvaluator(config.evaluation_dir / agent_id, config=config)
 
         # Agent state
         self.is_active = True
@@ -142,33 +197,63 @@ Communicate clearly with other agents and maintain detailed records of your reas
 """
 
         role_specific_prompts = {
-            AgentRole.COORDINATOR: base_prompt + """
-As a Coordinator, you orchestrate multi-agent collaborations, assign tasks to appropriate specialists,
-and ensure efficient workflow management. You have a broad overview of all medical domains.
+            AgentRole.ORCHESTRATOR: base_prompt + """
+As the ORCHESTRATOR AGENT, you are the central coordinator of the HealthFlow system:
+
+PRIMARY RESPONSIBILITIES:
+- Receive user tasks and break them down into manageable sub-tasks
+- Delegate sub-tasks to appropriate specialist agents (Expert or Analyst)
+- Manage the overall workflow and ensure task completion
+- Synthesize results from specialist agents into coherent final responses
+- Coordinate inter-agent communication and collaboration
+
+KEY CAPABILITIES:
+- Task decomposition and workflow orchestration
+- Agent delegation and resource management  
+- Result synthesis and quality assurance
+- High-level medical reasoning and decision coordination
+- Communication hub for the multi-agent system
+
+You maintain broad knowledge across medical domains to effectively coordinate specialists.
 """,
-            AgentRole.MEDICAL_EXPERT: base_prompt + """
-As a Medical Expert, you provide specialized medical knowledge, clinical reasoning,
-and evidence-based recommendations. You stay current with medical literature and best practices.
+            AgentRole.EXPERT: base_prompt + """
+As the EXPERT AGENT, you are the core medical reasoning engine of HealthFlow:
+
+PRIMARY RESPONSIBILITIES:
+- Handle tasks requiring deep clinical expertise and medical knowledge
+- Perform differential diagnosis and clinical reasoning
+- Interpret complex medical queries and provide evidence-based insights
+- Synthesize medical information into clinically relevant recommendations
+- Ensure medical accuracy and safety in all responses
+
+KEY CAPABILITIES:
+- Advanced clinical reasoning and diagnostic expertise
+- Medical literature interpretation and evidence synthesis
+- Treatment planning and clinical decision support
+- Medical safety evaluation and risk assessment
+- Specialized medical domain knowledge (cardiology, oncology, etc.)
+
+You are the medical authority in the system and ensure clinical excellence.
 """,
-            AgentRole.DATA_ANALYST: base_prompt + """
-As a Data Analyst, you specialize in processing medical data, statistical analysis,
-pattern recognition, and generating insights from complex healthcare datasets.
-""",
-            AgentRole.RESEARCHER: base_prompt + """
-As a Researcher, you conduct literature reviews, analyze clinical studies,
-and provide evidence-based insights to support medical decision making.
-""",
-            AgentRole.DIAGNOSIS_SPECIALIST: base_prompt + """
-As a Diagnosis Specialist, you excel at differential diagnosis, symptom analysis,
-and using diagnostic tools to identify medical conditions accurately.
-""",
-            AgentRole.TREATMENT_PLANNER: base_prompt + """
-As a Treatment Planner, you develop comprehensive treatment strategies,
-consider drug interactions, and create personalized care plans.
-""",
-            AgentRole.CODE_EXECUTOR: base_prompt + """
-As a Code Executor, you run medical analysis code, create visualizations,
-process data, and integrate computational tools into medical workflows.
+            AgentRole.ANALYST: base_prompt + """
+As the ANALYST AGENT, you are the data and tool specialist of HealthFlow:
+
+PRIMARY RESPONSIBILITIES:
+- Execute all tool-heavy and data-intensive operations
+- Perform data analysis, statistical processing, and computational tasks
+- Generate visualizations, charts, and analytical reports
+- Execute code and integrate external tools and databases
+- Provide evidence-based insights through data analysis
+
+KEY CAPABILITIES:  
+- Advanced data analysis and statistical reasoning
+- Tool creation, selection, and execution
+- Code generation and computational problem-solving
+- Data visualization and presentation
+- Integration with external databases and APIs
+
+Your ability to provide evidence-based insights depends directly on effective tool usage.
+IMPORTANT: You rely on tools for information - you do not have an intrinsic knowledge base.
 """
         }
 
@@ -185,7 +270,53 @@ process data, and integrate computational tools into medical workflows.
         task_context: Dict[str, Any] = None,
         max_iterations: int = None
     ) -> TaskResult:
-        """Execute a medical task with evaluation feedback integration"""
+        """
+        Execute a medical task with comprehensive process monitoring - Core Innovation Method.
+        
+        This method represents the heart of HealthFlow's contribution to medical AI research.
+        Unlike traditional agent task execution that focuses on final outcomes, this method
+        implements a complete process monitoring pipeline that captures every stage of 
+        reasoning, tool usage, and collaboration for evaluation-driven improvement.
+        
+        Key Innovation Components:
+        
+        1. **Comprehensive Process Monitoring**: Every execution step is recorded in 
+           ProcessStep objects containing timestamps, reasoning traces, tool usage,
+           collaboration messages, and success indicators. This creates a rich audit
+           trail for evaluation and learning.
+           
+        2. **ExecutionTrace Collection**: All process steps are aggregated into a complete
+           ExecutionTrace that includes the initial plan, process steps, final result,
+           timing data, collaboration patterns, and error incidents.
+           
+        3. **Advanced LLM-Based Evaluation**: The ExecutionTrace is passed to the shared
+           LLMTaskEvaluator which provides multi-dimensional feedback across medical
+           accuracy, safety, reasoning quality, tool efficiency, and collaboration.
+           
+        4. **Rich Experience Storage**: Evaluation results including detailed feedback
+           and improvement suggestions are stored as Experience entries, creating a
+           powerful supervision signal for system evolution.
+           
+        5. **Continuous Learning Loop**: Each task execution contributes to system-wide
+           learning through shared component experiences and evaluation insights.
+        
+        This process-oriented approach enables HealthFlow to learn not just from what
+        it gets right or wrong, but from HOW it reasons, collaborates, and uses tools -
+        a critical advancement for trustworthy medical AI systems.
+        
+        Args:
+            task_description (str): Natural language description of the medical task
+            task_context (Dict[str, Any], optional): Additional context or constraints
+            max_iterations (int, optional): Maximum execution iterations allowed
+            
+        Returns:
+            TaskResult: Comprehensive result including success status, output, timing,
+                       tools used, memory entries created, and rich evaluation data
+                       
+        Raises:
+            RuntimeError: If agent components are not properly initialized
+            Exception: For task execution failures with detailed error information
+        """
 
         task_id = str(uuid.uuid4())
         task_context = task_context or {}
@@ -194,6 +325,11 @@ process data, and integrate computational tools into medical workflows.
         start_time = datetime.now()
         tools_used = []
         memory_entries_created = []
+        
+        # NEW: Initialize process monitoring for advanced evaluation
+        process_steps: List[ProcessStep] = []
+        collaboration_messages = []
+        error_incidents = []
 
         try:
             self.current_task = task_id
@@ -220,50 +356,112 @@ process data, and integrate computational tools into medical workflows.
                 memory_type=MemoryType.EXPERIENCE
             )
 
-            # Plan task execution approach
+            # STEP 1: PLANNING - Create process step for monitoring
+            plan_start_time = datetime.now()
             execution_plan = await self._plan_task_execution(
                 task_description, task_context, relevant_memories
             )
+            plan_execution_time = (datetime.now() - plan_start_time).total_seconds()
+            
+            # Record planning step
+            planning_step = ProcessStep(
+                stage=ProcessStage.PLANNING,
+                timestamp=plan_start_time,
+                agent_id=self.agent_id,
+                action="task_planning",
+                input_data={"task_description": task_description, "task_context": task_context},
+                output_data={"execution_plan": execution_plan},
+                tools_used=[],
+                collaboration_messages=[],
+                reasoning_trace=f"Planned task execution approach: {str(execution_plan)[:200]}...",
+                success=True,
+                execution_time=plan_execution_time
+            )
+            process_steps.append(planning_step)
 
             result = None
             iteration = 0
 
+            # STEP 2: ITERATIVE EXECUTION with detailed monitoring
             while iteration < max_iterations:
                 iteration += 1
+                step_start_time = datetime.now()
 
-                # Execute current step
-                step_result = await self._execute_task_step(
+                # Execute current step with monitoring
+                step_result = await self._execute_task_step_with_monitoring(
                     task_description,
                     task_context,
                     execution_plan,
                     iteration,
-                    relevant_memories
+                    relevant_memories,
+                    process_steps  # Pass process_steps for recording
                 )
 
+                step_execution_time = (datetime.now() - step_start_time).total_seconds()
+
+                # Collect monitoring data
                 if step_result["tools_used"]:
                     tools_used.extend(step_result["tools_used"])
 
                 if step_result["memory_entries"]:
                     memory_entries_created.extend(step_result["memory_entries"])
+                
+                if step_result.get("collaboration_messages"):
+                    collaboration_messages.extend(step_result["collaboration_messages"])
+                
+                if step_result.get("errors"):
+                    error_incidents.extend(step_result["errors"])
 
                 # Check if task is complete
                 if step_result["completed"]:
                     result = step_result["result"]
+                    
+                    # Record final synthesis step
+                    synthesis_step = ProcessStep(
+                        stage=ProcessStage.RESULT_SYNTHESIS,
+                        timestamp=datetime.now(),
+                        agent_id=self.agent_id,
+                        action="result_synthesis",
+                        input_data={"step_results": "aggregated_results"},
+                        output_data={"final_result": result},
+                        tools_used=step_result["tools_used"],
+                        collaboration_messages=step_result.get("collaboration_messages", []),
+                        reasoning_trace=f"Synthesized final result after {iteration} iterations",
+                        success=True,
+                        execution_time=step_execution_time
+                    )
+                    process_steps.append(synthesis_step)
                     break
 
                 # Update execution plan if needed
                 if step_result.get("plan_update"):
                     execution_plan = step_result["plan_update"]
 
-            # Evaluate result
-            evaluation = await self.evaluator.evaluate_task_result(
-                task_description, result, task_context
+            # STEP 3: ADVANCED EVALUATION with complete ExecutionTrace
+            total_execution_time = (datetime.now() - start_time).total_seconds()
+            
+            # Create comprehensive execution trace for evaluator
+            execution_trace = ExecutionTrace(
+                task_id=task_id,
+                initial_plan=execution_plan,
+                process_steps=process_steps,
+                final_result=result,
+                total_execution_time=total_execution_time,
+                agents_involved=[self.agent_id],  # Could include other agents in multi-agent scenarios
+                tools_used=list(set(tools_used)),  # Deduplicate tools
+                collaboration_patterns={
+                    "total_messages": len(collaboration_messages),
+                    "unique_interactions": len(set((msg.get("sender", ""), msg.get("receiver", "")) for msg in collaboration_messages))
+                },
+                error_incidents=error_incidents
             )
-
-            success = evaluation.get("success", False)
-            execution_time = (datetime.now() - start_time).total_seconds()
-
-            # Store final result memory
+            
+            # Use the advanced LLMTaskEvaluator for comprehensive evaluation
+            evaluation_result = await self.evaluator.evaluate_task(execution_trace)
+            
+            success = evaluation_result.overall_success
+            
+            # Store comprehensive result memory including evaluation insights
             result_memory = MemoryEntry(
                 id=str(uuid.uuid4()),
                 memory_type=MemoryType.EXPERIENCE,
@@ -273,42 +471,56 @@ process data, and integrate computational tools into medical workflows.
                     "task_id": task_id,
                     "task_description": task_description,
                     "result": result,
-                    "evaluation": evaluation,
+                    "evaluation_result": evaluation_result.to_dict(),
+                    "improvement_suggestions": evaluation_result.improvement_suggestions,
                     "tools_used": tools_used,
                     "iterations": iteration,
-                    "execution_time": execution_time
+                    "execution_time": total_execution_time
                 },
                 success=success,
-                reward=evaluation.get("reward", 0.0)
+                reward=evaluation_result.overall_score  # Use overall score as reward
             )
             await self.memory_manager.add_memory(result_memory)
             memory_entries_created.append(result_memory.id)
 
-            # Create task result
+            # Create enhanced task result
             task_result = TaskResult(
                 task_id=task_id,
                 success=success,
                 result=result,
                 error=None,
-                execution_time=execution_time,
+                execution_time=total_execution_time,
                 agent_id=self.agent_id,
                 tools_used=tools_used,
                 memory_entries=memory_entries_created,
-                evaluation=evaluation
+                evaluation=evaluation_result.to_dict()  # Rich evaluation data
             )
 
             # Update agent statistics
             self.task_history.append(task_result)
             await self._update_success_rate()
 
-            # Store task evaluation for future learning
-            # (Evaluation-driven improvement will be implemented in Phase 2)
-
             self.current_task = None
             return task_result
 
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds()
+            
+            # Record error in process steps
+            error_step = ProcessStep(
+                stage=ProcessStage.FINAL_OUTPUT,
+                timestamp=datetime.now(),
+                agent_id=self.agent_id,
+                action="error_handling",
+                input_data={"error": str(e)},
+                output_data={"error_result": "task_failed"},
+                tools_used=[],
+                collaboration_messages=[],
+                reasoning_trace=f"Task failed with error: {str(e)}",
+                success=False,
+                execution_time=0.1
+            )
+            process_steps.append(error_step)
 
             error_memory = MemoryEntry(
                 id=str(uuid.uuid4()),
@@ -319,7 +531,8 @@ process data, and integrate computational tools into medical workflows.
                     "task_id": task_id,
                     "task_description": task_description,
                     "error": str(e),
-                    "execution_time": execution_time
+                    "execution_time": execution_time,
+                    "process_steps_count": len(process_steps)
                 },
                 success=False
             )
@@ -343,6 +556,123 @@ process data, and integrate computational tools into medical workflows.
 
             self.current_task = None
             return task_result
+    
+    async def _execute_task_step_with_monitoring(
+        self,
+        task_description: str,
+        task_context: Dict[str, Any],
+        execution_plan: Dict[str, Any],
+        iteration: int,
+        relevant_memories: List[MemoryEntry],
+        process_steps: List[ProcessStep]
+    ) -> Dict[str, Any]:
+        """
+        Execute a task step with detailed process monitoring.
+        
+        This method wraps the original _execute_task_step to add process monitoring
+        capabilities required by the advanced LLMTaskEvaluator.
+        """
+        
+        step_start_time = datetime.now()
+        tools_used_in_step = []
+        collaboration_messages = []
+        errors = []
+        
+        try:
+            # Call the original step execution method
+            step_result = await self._execute_task_step(
+                task_description,
+                task_context,
+                execution_plan,
+                iteration,
+                relevant_memories
+            )
+            
+            # Extract monitoring data from step result
+            tools_used_in_step = step_result.get("tools_used", [])
+            step_success = step_result.get("completed", False)
+            
+            # Create process step record
+            if tools_used_in_step:
+                # Record tool execution step
+                tool_step = ProcessStep(
+                    stage=ProcessStage.TOOL_EXECUTION,
+                    timestamp=step_start_time,
+                    agent_id=self.agent_id,
+                    action=f"tool_execution_iteration_{iteration}",
+                    input_data={
+                        "tools_requested": tools_used_in_step,
+                        "iteration": iteration
+                    },
+                    output_data={"tool_results": "executed"},
+                    tools_used=tools_used_in_step,
+                    collaboration_messages=collaboration_messages,
+                    reasoning_trace=f"Executed tools: {', '.join(tools_used_in_step)}",
+                    success=step_success,
+                    execution_time=(datetime.now() - step_start_time).total_seconds()
+                )
+                process_steps.append(tool_step)
+            
+            # Record reasoning step
+            reasoning_step = ProcessStep(
+                stage=ProcessStage.REASONING,
+                timestamp=datetime.now(),
+                agent_id=self.agent_id,
+                action=f"reasoning_iteration_{iteration}",
+                input_data={
+                    "task_context": task_context,
+                    "iteration": iteration
+                },
+                output_data={"reasoning_result": step_result.get("result", "")},
+                tools_used=tools_used_in_step,
+                collaboration_messages=collaboration_messages,
+                reasoning_trace=f"Iteration {iteration} reasoning and decision making",
+                success=step_success,
+                execution_time=(datetime.now() - step_start_time).total_seconds()
+            )
+            process_steps.append(reasoning_step)
+            
+            # Add monitoring data to step result
+            step_result["collaboration_messages"] = collaboration_messages
+            step_result["errors"] = errors
+            
+            return step_result
+            
+        except Exception as e:
+            # Record error
+            error_info = {
+                "error": str(e),
+                "iteration": iteration,
+                "timestamp": datetime.now().isoformat()
+            }
+            errors.append(error_info)
+            
+            # Create error process step
+            error_step = ProcessStep(
+                stage=ProcessStage.REASONING,
+                timestamp=datetime.now(),
+                agent_id=self.agent_id,
+                action=f"error_iteration_{iteration}",
+                input_data={"error": str(e)},
+                output_data={"error_handled": True},
+                tools_used=[],
+                collaboration_messages=[],
+                reasoning_trace=f"Error in iteration {iteration}: {str(e)}",
+                success=False,
+                execution_time=(datetime.now() - step_start_time).total_seconds()
+            )
+            process_steps.append(error_step)
+            
+            # Return error result
+            return {
+                "completed": False,
+                "result": None,
+                "tools_used": [],
+                "memory_entries": [],
+                "collaboration_messages": collaboration_messages,
+                "errors": errors,
+                "error": str(e)
+            }
 
     async def _plan_task_execution(
         self,

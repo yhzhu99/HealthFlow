@@ -1,8 +1,15 @@
 
-# HealthFlow Configuration Example
+# HealthFlow Configuration - NeurIPS 2024 Research Implementation
+#
+# Configuration for the evaluation-driven self-improving agent system.
+# This file defines settings for the shared component architecture and
+# streamlined 3-agent system (Orchestrator, Expert, Analyst).
 
-# Select the active LLM provider
+# Select the active LLM provider for agent reasoning and evaluation
 active_llm = "openai"
+
+# LLM Provider Configurations
+# All agents and the shared LLMTaskEvaluator use the same provider for consistency
 
 [llm.openai]
 base_url = "https://api.openai.com/v1"
@@ -14,24 +21,50 @@ base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-chat"
 
-[llm.another_provider]
-base_url = "https://api.another-provider.com/v1"
-api_key = "YOUR_OTHER_API_KEY"
-model_name = "model-name"
+[llm.deepseek_reasoner]
+base_url = "https://api.deepseek.com/v1"
+api_key = "YOUR_DEEPSEEK_API_KEY"
+model_name = "deepseek-reasoner"
 
+# Data Storage Configuration
+# These directories store the key research components:
+# - Shared ToolBank with hierarchical tagging
+# - Agent memory with experience-based learning
+# - LLMTaskEvaluator process traces and evaluation history
 [data]
-data_dir = "./data"
-memory_dir = "./data/memory"
-tools_dir = "./data/tools"
-cache_dir = "./data/cache"
-evaluation_dir = "./data/evaluation"
+data_dir = "./data"                    # Root data directory
+memory_dir = "./data/memory"           # Agent experiences and memories
+tools_dir = "./data/tools"             # Shared ToolBank repository
+cache_dir = "./data/cache"             # System caching
+evaluation_dir = "./data/evaluation"   # LLMTaskEvaluator traces and feedback
 
+# Agent System Configuration
+# Settings optimized for the streamlined 3-agent architecture
 [agent]
-max_iterations = 10
-max_agents = 5
-memory_window = 1000
-tool_timeout = 30
+max_iterations = 10      # Maximum iterations per task execution
+max_agents = 3          # Streamlined to: Orchestrator, Expert, Analyst
+memory_window = 1000    # Number of recent memories to consider
+tool_timeout = 30       # Tool execution timeout in seconds
 
+# Evaluation Configuration
+# Settings for the advanced LLMTaskEvaluator - core innovation
+[evaluation]
+success_threshold = 7.0              # Overall score threshold for task success
+evaluation_timeout = 60              # LLM evaluation timeout in seconds
+store_process_traces = true          # Store detailed ExecutionTrace data
+multi_dimensional_scoring = true     # Enable full medical criteria evaluation
+
+# Logging Configuration
+# Enhanced logging for research analysis and debugging
 [logging]
-log_level = "INFO"
-# log_file = "/path/to/healthflow.log"
+log_level = "INFO"                   # INFO, DEBUG, WARNING, ERROR
+log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+# log_file = "/path/to/healthflow.log"  # Uncomment to enable file logging
+
+# Research Configuration
+# Settings specific to NeurIPS research objectives  
+[research]
+collect_detailed_traces = true       # Collect comprehensive ExecutionTrace data
+enable_improvement_tracking = true   # Track system improvement over time
+evaluation_mode = "comprehensive"    # comprehensive, basic, or minimal
+store_collaboration_patterns = true  # Analyze inter-agent collaboration
