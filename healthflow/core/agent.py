@@ -902,6 +902,35 @@ Return your plan as a JSON object.
     ) -> Dict[str, Any]:
         """Execute a single step of task execution with enhanced result generation"""
 
+        # Role-specific guidance
+        if self.role == AgentRole.ORCHESTRATOR:
+            role_guidance = """
+As the ORCHESTRATOR agent, you coordinate the overall workflow:
+- Break down complex tasks into manageable sub-tasks
+- Delegate tasks to appropriate specialist agents when needed
+- Use available tools for computations when appropriate
+- Synthesize results from multiple sources
+- Ensure comprehensive task completion
+"""
+        elif self.role == AgentRole.ANALYST:
+            role_guidance = """
+As the ANALYST agent, you handle data and computational tasks:
+- Use appropriate tools for analysis and computations
+- Provide evidence-based insights through data processing
+- Execute code and analyze results when needed
+- Support other agents with computational requirements
+"""
+        elif self.role == AgentRole.EXPERT:
+            role_guidance = """
+As the EXPERT agent, you provide specialized knowledge:
+- Focus on domain expertise and reasoning
+- Provide evidence-based analysis and recommendations
+- Collaborate with other agents for comprehensive solutions
+- Ensure accuracy and quality in specialized areas
+"""
+        else:
+            role_guidance = ""
+
         step_prompt = f"""
 {self.system_prompts["base"]}
 
@@ -909,25 +938,29 @@ Current task: {task_description}
 Execution plan: {json.dumps(execution_plan, indent=2)}
 Iteration: {iteration}
 
+{role_guidance}
+
 Based on the plan and your role as {self.role.value}, execute the next step.
 
 IMPORTANT INSTRUCTIONS:
 1. Always provide a detailed "result" field with your findings, analysis, or output
-2. If you are the ANALYST agent, consider using code execution for data analysis
-3. If completing the task, ensure your result fully answers the original task
+2. Use appropriate tools when needed - specify them in "tools_needed"
+3. If you specify tools_needed, the tools will be executed automatically
 4. Mark "completed": true only when you have a comprehensive final answer
+5. Consider collaboration with other agents for complex tasks
 
 Available capabilities:
-- Advanced Code Interpreter (for ANALYST agents)
-- Medical knowledge reasoning (for EXPERT agents)  
-- Task coordination and synthesis (for ORCHESTRATOR agents)
+- Code execution tools (for computational tasks)
+- Medical knowledge reasoning (for clinical tasks)
+- Task coordination and synthesis
+- Inter-agent collaboration
 
 Provide your response in this format:
 {{
     "action": "description of action taken",
     "result": "DETAILED result, analysis, or findings - THIS MUST NOT BE EMPTY",
     "completed": true/false,
-    "tools_needed": ["tool1", "tool2"],
+    "tools_needed": ["tool_name_if_needed"],
     "collaboration_request": {{
         "agent_role": "role_needed", 
         "request": "what help is needed"
@@ -990,6 +1023,7 @@ Provide your response in this format:
                 if collaboration_result:
                     step_result["result"] += f"\n\nCollaboration result:\n{collaboration_result}"
 
+
             # Store enhanced step memory
             step_memory = MemoryEntry(
                 id=str(uuid.uuid4()),
@@ -1042,37 +1076,7 @@ Provide your response in this format:
     ) -> Optional[Dict[str, Any]]:
         """Execute a tool by name with intelligent parameter mapping"""
         
-        # Special handling for code interpreter
-        if "code" in tool_name.lower() or "interpreter" in tool_name.lower():
-            # Look for code in step result or generate code based on task
-            code_to_execute = step_result.get("code")
-            if not code_to_execute and "result" in step_result:
-                # Try to extract code from result
-                result_text = step_result["result"]
-                if "```python" in result_text:
-                    code_start = result_text.find("```python") + 9
-                    code_end = result_text.find("```", code_start)
-                    if code_end > code_start:
-                        code_to_execute = result_text[code_start:code_end].strip()
-            
-            if code_to_execute:
-                # Find code interpreter tool
-                tools = await self.tool_bank.find_tools_for_task(
-                    "python code execution",
-                    functionality=["processing", "analysis"],
-                    limit=1
-                )
-                
-                if tools:
-                    tool = tools[0]
-                    result = await self.tool_bank.execute_tool(
-                        tool.metadata.tool_id,
-                        {"code": code_to_execute, "context": task_context},
-                        execution_context={"agent_id": self.agent_id, "step": "tool_execution"}
-                    )
-                    return {"output": result.output, "success": result.success, "error": result.error}
-        
-        # General tool search and execution
+        # Search for appropriate tools
         tools = await self.tool_bank.find_tools_for_task(tool_name, limit=1)
         if tools:
             tool = tools[0]
@@ -1145,6 +1149,7 @@ Based on your role and available knowledge, provide a helpful response.
             
         except Exception:
             return None
+
 
     async def _handle_tool_requirement(
         self,

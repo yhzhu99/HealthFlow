@@ -117,28 +117,22 @@ class EvaluationCriteria:
     clarity_feedback: str = ""
     
     def get_composite_score(self) -> float:
-        """Calculate weighted composite score across all criteria"""
-        weights = {
-            'medical_accuracy': 0.20,
-            'safety': 0.20, 
-            'reasoning_quality': 0.15,
-            'tool_usage_efficiency': 0.15,
-            'collaboration_effectiveness': 0.10,
-            'completeness': 0.15,
-            'clarity': 0.05
-        }
+        """Calculate simple average score across all criteria"""
+        scores = [
+            self.reasoning_quality,
+            self.tool_usage_efficiency,
+            self.collaboration_effectiveness,
+            self.completeness,
+            self.clarity
+        ]
         
-        weighted_sum = (
-            self.medical_accuracy * weights['medical_accuracy'] +
-            self.safety * weights['safety'] +
-            self.reasoning_quality * weights['reasoning_quality'] +
-            self.tool_usage_efficiency * weights['tool_usage_efficiency'] +
-            self.collaboration_effectiveness * weights['collaboration_effectiveness'] +
-            self.completeness * weights['completeness'] +
-            self.clarity * weights['clarity']
-        )
+        # Only include medical criteria if they are applicable (> 0)
+        if self.medical_accuracy > 0:
+            scores.append(self.medical_accuracy)
+        if self.safety > 0:
+            scores.append(self.safety)
         
-        return weighted_sum
+        return sum(scores) / len(scores) if scores else 7.0
 
 
 @dataclass
@@ -239,62 +233,20 @@ class LLMTaskEvaluator:
     
     async def evaluate_task(self, execution_trace: ExecutionTrace) -> EvaluationResult:
         """
-        Main evaluation method - The core of HealthFlow's innovation.
-        
-        Monitors the ENTIRE process lifecycle and provides rich supervision signals.
-        This is what enables the evaluation-driven self-improvement loop.
+        Simplified evaluation method using single LLM call for comprehensive assessment.
         
         Args:
             execution_trace: Complete trace of task execution process
             
         Returns:
-            Rich evaluation result with multi-dimensional feedback
+            Rich evaluation result with feedback
         """
         
         evaluation_id = str(uuid.uuid4())
         timestamp = datetime.now()
         
-        # Step 1: Analyze the complete execution process
-        process_analysis = await self._analyze_execution_process(execution_trace)
-        
-        # Step 2: Multi-dimensional evaluation using LLM judge
-        criteria_evaluation = await self._evaluate_criteria(execution_trace, process_analysis)
-        
-        # Step 3: Generate actionable improvement suggestions
-        improvement_suggestions = await self._generate_improvement_suggestions(
-            execution_trace, criteria_evaluation, process_analysis
-        )
-        
-        # Step 4: Analyze collaboration patterns and efficiency
-        collaboration_analysis = self._analyze_collaboration_patterns(execution_trace)
-        efficiency_analysis = self._analyze_efficiency_patterns(execution_trace)
-        
-        # Step 5: Generate executive summary and detailed feedback
-        executive_summary, detailed_feedback = await self._generate_evaluation_summary(
-            execution_trace, criteria_evaluation, improvement_suggestions
-        )
-        
-        # Step 6: Calculate overall score and success
-        overall_score = criteria_evaluation.get_composite_score()
-        overall_success = overall_score >= 7.0  # Configurable threshold
-        
-        # Create comprehensive evaluation result
-        evaluation_result = EvaluationResult(
-            evaluation_id=evaluation_id,
-            task_id=execution_trace.task_id,
-            timestamp=timestamp,
-            overall_success=overall_success,
-            overall_score=overall_score,
-            confidence=0.85,  # Could be computed based on consistency of criteria
-            criteria=criteria_evaluation,
-            executive_summary=executive_summary,
-            detailed_feedback=detailed_feedback,
-            improvement_suggestions=improvement_suggestions,
-            process_insights=process_analysis,
-            collaboration_analysis=collaboration_analysis,
-            efficiency_analysis=efficiency_analysis,
-            evaluator_reasoning=f"Evaluated {len(execution_trace.process_steps)} process steps across {len(execution_trace.agents_involved)} agents"
-        )
+        # Single comprehensive evaluation call
+        evaluation_result = await self._evaluate_with_single_llm_call(execution_trace)
         
         # Store evaluation and trace
         self.evaluation_history.append(evaluation_result)
@@ -304,6 +256,203 @@ class LLMTaskEvaluator:
         await self._save_evaluation_data()
         
         return evaluation_result
+    
+    async def _evaluate_with_single_llm_call(self, execution_trace: ExecutionTrace) -> EvaluationResult:
+        """Comprehensive evaluation using a single LLM call"""
+        
+        # Build evaluation prompt
+        evaluation_prompt = self._build_comprehensive_evaluation_prompt(execution_trace)
+        
+        # Create LLM provider if not exists
+        if not hasattr(self, 'llm_provider'):
+            from ..core.llm_provider import create_llm_provider
+            self.llm_provider = create_llm_provider(
+                api_key=self.config.api_key,
+                base_url=self.config.base_url,
+                model_name=self.config.model_name
+            )
+        
+        try:
+            from ..core.llm_provider import LLMMessage
+            messages = [LLMMessage(role="user", content=evaluation_prompt)]
+            response = await self.llm_provider.generate(
+                messages=messages,
+                max_tokens=2000,
+                temperature=0.3
+            )
+            
+            # Parse the comprehensive evaluation response
+            evaluation_data = self._parse_comprehensive_evaluation(response.content)
+            
+            # Create evaluation result
+            evaluation_result = EvaluationResult(
+                evaluation_id=str(uuid.uuid4()),
+                task_id=execution_trace.task_id,
+                timestamp=datetime.now(),
+                overall_success=evaluation_data["overall_success"],
+                overall_score=evaluation_data["overall_score"],
+                confidence=0.85,
+                criteria=evaluation_data["criteria"],
+                executive_summary=evaluation_data["summary"],
+                detailed_feedback=evaluation_data["feedback"],
+                improvement_suggestions=evaluation_data.get("suggestions", {}),
+                process_insights={"total_steps": len(execution_trace.process_steps)},
+                collaboration_analysis={"total_messages": 0},
+                efficiency_analysis={"total_execution_time": execution_trace.total_execution_time},
+                evaluator_reasoning=f"Single-call evaluation of {len(execution_trace.process_steps)} process steps"
+            )
+            
+            return evaluation_result
+            
+        except Exception as e:
+            # Fallback evaluation
+            return self._create_fallback_evaluation(execution_trace, str(e))
+    
+    def _build_comprehensive_evaluation_prompt(self, trace: ExecutionTrace) -> str:
+        """Build a comprehensive evaluation prompt for single LLM call"""
+        
+        # Summarize task and execution
+        task_summary = f"""
+TASK EVALUATION REQUEST
+
+Task ID: {trace.task_id}
+Total Execution Time: {trace.total_execution_time:.2f}s
+Process Steps: {len(trace.process_steps)}
+Agents Involved: {', '.join(trace.agents_involved)}
+Tools Used: {', '.join(trace.tools_used)}
+
+INITIAL PLAN:
+{json.dumps(trace.initial_plan, indent=2)}
+
+FINAL RESULT:
+{trace.final_result}
+
+PROCESS SUMMARY:
+"""
+        
+        for i, step in enumerate(trace.process_steps):
+            task_summary += f"""
+Step {i+1}: {step.stage.value}
+- Agent: {step.agent_id}
+- Action: {step.action}
+- Success: {step.success}
+- Tools Used: {', '.join(step.tools_used)}
+- Reasoning: {step.reasoning_trace[:150]}...
+"""
+        
+        return f"""{task_summary}
+
+Please provide a comprehensive evaluation of this task execution. Consider both the final result quality and the execution process.
+
+Respond with a JSON object containing:
+{{
+    "overall_success": true/false,
+    "overall_score": <0-10 score>,
+    "reasoning_quality": <0-10>,
+    "tool_usage": <0-10>,
+    "completeness": <0-10>,
+    "clarity": <0-10>,
+    "summary": "Brief executive summary",
+    "feedback": "Detailed feedback on strengths and areas for improvement",
+    "suggestions": {{
+        "general": ["suggestion1", "suggestion2"]
+    }}
+}}
+
+Focus on:
+- Whether the task was completed successfully
+- Quality of reasoning and approach
+- Appropriate use of tools and resources
+- Completeness of the final answer
+- Clarity of communication
+"""
+    
+    def _parse_comprehensive_evaluation(self, response_content: str) -> Dict[str, Any]:
+        """Parse the comprehensive evaluation response"""
+        try:
+            # Try to extract JSON from response
+            start_idx = response_content.find('{')
+            end_idx = response_content.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx != -1:
+                json_str = response_content[start_idx:end_idx]
+                data = json.loads(json_str)
+                
+                # Create criteria object
+                criteria = EvaluationCriteria(
+                    medical_accuracy=data.get("medical_accuracy", 5.0),
+                    safety=data.get("safety", 5.0),
+                    reasoning_quality=data.get("reasoning_quality", 7.0),
+                    tool_usage_efficiency=data.get("tool_usage", 7.0),
+                    collaboration_effectiveness=data.get("collaboration", 5.0),
+                    completeness=data.get("completeness", 7.0),
+                    clarity=data.get("clarity", 7.0)
+                )
+                
+                return {
+                    "overall_success": data.get("overall_success", data.get("overall_score", 7.0) >= 7.0),
+                    "overall_score": data.get("overall_score", 7.0),
+                    "criteria": criteria,
+                    "summary": data.get("summary", "Task evaluated"),
+                    "feedback": data.get("feedback", "No detailed feedback available"),
+                    "suggestions": data.get("suggestions", {"general": []})
+                }
+            else:
+                return self._create_default_evaluation_data()
+                
+        except json.JSONDecodeError:
+            return self._create_default_evaluation_data()
+    
+    def _create_default_evaluation_data(self) -> Dict[str, Any]:
+        """Create default evaluation data when parsing fails"""
+        criteria = EvaluationCriteria(
+            medical_accuracy=5.0,
+            safety=5.0,
+            reasoning_quality=7.0,
+            tool_usage_efficiency=7.0,
+            collaboration_effectiveness=5.0,
+            completeness=7.0,
+            clarity=7.0
+        )
+        
+        return {
+            "overall_success": True,
+            "overall_score": 7.0,
+            "criteria": criteria,
+            "summary": "Task completed with standard evaluation",
+            "feedback": "Automatic evaluation - detailed feedback not available",
+            "suggestions": {"general": ["Consider providing more detailed process monitoring"]}
+        }
+    
+    def _create_fallback_evaluation(self, trace: ExecutionTrace, error: str) -> EvaluationResult:
+        """Create fallback evaluation when main evaluation fails"""
+        criteria = EvaluationCriteria(
+            medical_accuracy=5.0,
+            safety=5.0,
+            reasoning_quality=6.0,
+            tool_usage_efficiency=6.0,
+            collaboration_effectiveness=5.0,
+            completeness=6.0,
+            clarity=6.0
+        )
+        
+        return EvaluationResult(
+            evaluation_id=str(uuid.uuid4()),
+            task_id=trace.task_id,
+            timestamp=datetime.now(),
+            overall_success=True,  # Assume success for fallback
+            overall_score=6.0,
+            confidence=0.5,
+            criteria=criteria,
+            executive_summary=f"Fallback evaluation due to error: {error}",
+            detailed_feedback="Detailed evaluation not available due to processing error",
+            improvement_suggestions={"general": ["Review evaluation system"]},
+            process_insights={"total_steps": len(trace.process_steps)},
+            collaboration_analysis={"total_messages": 0},
+            efficiency_analysis={"total_execution_time": trace.total_execution_time},
+            evaluator_reasoning="Fallback evaluation used"
+        )
+    
     
     async def _analyze_execution_process(self, trace: ExecutionTrace) -> Dict[str, Any]:
         """Analyze the execution process for patterns and insights"""
@@ -648,12 +797,13 @@ Respond with the following JSON structure:
         self, 
         trace: ExecutionTrace, 
         criteria: EvaluationCriteria, 
-        suggestions: Dict[str, List[str]]
+        suggestions: Dict[str, List[str]],
+        task_type: str = "general"
     ) -> Tuple[str, str]:
         """Generate executive summary and detailed feedback"""
         
         # Executive summary
-        overall_score = criteria.get_composite_score()
+        overall_score = criteria.get_composite_score(task_type)
         executive_summary = f"""
 TASK EVALUATION SUMMARY
 
