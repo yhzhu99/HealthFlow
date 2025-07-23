@@ -1,12 +1,7 @@
-
-# HealthFlow Configuration - NeurIPS 2024 Research Implementation
-#
-# Configuration for the evaluation-driven self-improving agent system.
-# This file defines settings for the shared component architecture and
-# streamlined 3-agent system (Orchestrator, Expert, Analyst).
+# HealthFlow Configuration
 
 # Select the active LLM provider for agent reasoning and evaluation
-active_llm = "openai"
+active_llm = "deepseek-v3"
 
 # LLM Provider Configurations
 # All agents and the shared LLMTaskEvaluator use the same provider for consistency
@@ -16,12 +11,12 @@ base_url = "https://api.openai.com/v1"
 api_key = "YOUR_OPENAI_API_KEY"
 model_name = "gpt-4-turbo-preview"
 
-[llm.deepseek]
+[llm.deepseek-v3]
 base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-chat"
 
-[llm.deepseek_reasoner]
+[llm.deepseek-r1]
 base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-reasoner"
@@ -62,7 +57,7 @@ log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 # log_file = "/path/to/healthflow.log"  # Uncomment to enable file logging
 
 # Research Configuration
-# Settings specific to NeurIPS research objectives  
+# Settings specific to NeurIPS research objectives
 [research]
 collect_detailed_traces = true       # Collect comprehensive ExecutionTrace data
 enable_improvement_tracking = true   # Track system improvement over time
