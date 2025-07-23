@@ -1,13 +1,12 @@
 import asyncio
 import logging
-import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, Any
 
 from camel.interpreters import InternalPythonInterpreter
+from camel.toolkits import FunctionTool
 from fastmcp import FastMCP
-from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,6 @@ class MCPToolServer:
         self.tools_dir.mkdir(parents=True, exist_ok=True)
 
         self.mcp = FastMCP("HealthFlow ToolBank")
-        self.process = None
         self._setup_initial_tools()
 
     def _setup_initial_tools(self):
@@ -76,79 +74,53 @@ class MCPToolServer:
 
         self.mcp.tool()(add_new_tool)
 
+    def _load_dynamic_tools(self):
+        """Load dynamically created tools from the tools directory."""
+        for tool_file in self.tools_dir.glob('*.py'):
+            if tool_file.name.startswith('_'):
+                continue
+            try:
+                module_name = tool_file.stem
+                spec = __import__("importlib.util").util.spec_from_file_location(module_name, tool_file)
+                module = __import__("importlib.util").util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                func = getattr(module, module_name)
+                self.mcp.tool(func)
+                logger.info(f"Loaded dynamic tool: {module_name}")
+            except Exception as e:
+                logger.warning(f"Failed to load tool from {tool_file}: {e}")
+
     async def start(self):
-        """Starts the MCP server in a separate process."""
-        # Save the server script to a temporary file to run it
-        server_script_path = self.tools_dir / "_mcp_server_runner.py"
-        with server_script_path.open("w") as f:
-            f.write(f"""
-from fastmcp import FastMCP
-from pathlib import Path
-import sys
-# Add tools dir to path to import dynamic tools
-sys.path.append(str(Path('{self.tools_dir}')))
-
-from healthflow.tools.mcp_server import MCPToolServer
-
-server_instance = MCPToolServer(host='{self.host}', port={self.port}, tools_dir=Path('{self.tools_dir}'))
-
-# Load dynamically created tools
-for tool_file in Path('{self.tools_dir}').glob('*.py'):
-    if tool_file.name.startswith('_'):
-        continue
-    try:
-        module_name = tool_file.stem
-        spec = __import__("importlib.util").util.spec_from_file_location(module_name, tool_file)
-        module = __import__("importlib.util").util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        func = getattr(module, module_name)
-        server_instance.mcp.tool(func)
-    except Exception as e:
-        print(f"Failed to load tool from {{tool_file}}: {{e}}")
-
-server_instance.mcp.run(transport='streamable-http', host='{self.host}', port={self.port})
-""")
-
-        # Using subprocess.Popen to run in the background
-        self.process = subprocess.Popen(
-            [sys.executable, str(server_script_path)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        await asyncio.sleep(2)  # Give it a moment to start
-        if self.process.poll() is not None:
-             stdout, stderr = self.process.communicate()
-             logger.error("MCP server failed to start.")
-             logger.error(f"STDOUT: {stdout.decode()}")
-             logger.error(f"STDERR: {stderr.decode()}")
-        else:
-            logger.info(f"MCP Tool Server started on http://{self.host}:{self.port}")
+        """Starts the MCP server (simplified approach without subprocess)."""
+        # Load any dynamically created tools
+        self._load_dynamic_tools()
+        logger.info("MCP Tool Server initialized (using direct integration)")
 
     async def stop(self):
-        """Stops the MCP server process."""
-        if self.process:
-            self.process.terminate()
-            await asyncio.sleep(1)
-            if self.process.poll() is None: # still running
-                self.process.kill()
-            self.process.wait()
-            logger.info("MCP Tool Server stopped.")
+        """Stops the MCP server (cleanup if needed)."""
+        logger.info("MCP Tool Server stopped.")
 
-    def as_langchain_tool(self, include_management: bool = False) -> BaseTool:
+    def as_camel_tool(self, include_management: bool = False) -> FunctionTool:
         """
-        Creates a LangChain-compatible tool that acts as a client to this MCP server.
+        Creates a Camel AI FunctionTool that acts as a client to this MCP server.
         """
-        from langchain_community.tools.mcp import MCPSearch
-
-        client_url = f"http://{self.host}:{self.port}"
-
-        exclude_tools = []
-        if not include_management:
-            exclude_tools.append("add_new_tool")
-
-        return MCPSearch(
-            name="mcp_tool_server",
-            description=f"Client for the HealthFlow ToolBank. Use this to execute code or other specialized tools. Excluded tools: {exclude_tools}",
-            url=client_url,
-            exclude_tools=exclude_tools,
-        )
+        
+        def execute_python_code(code: str) -> str:
+            """
+            Executes a given string of Python code and returns the output.
+            This tool is powerful for data analysis, calculations, and dynamic tasks.
+            
+            Args:
+                code: The Python code to execute as a string.
+            
+            Returns:
+                The result of the code execution or error message.
+            """
+            try:
+                interpreter = InternalPythonInterpreter()
+                result = interpreter.run(code, "python")
+                return f"Execution successful.\nOutput:\n{result}"
+            except Exception as e:
+                return f"Execution failed.\nError: {e}"
+        
+        return FunctionTool(execute_python_code)
