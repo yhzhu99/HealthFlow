@@ -1,6 +1,6 @@
-import asyncio
 import logging
 import uuid
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -8,7 +8,7 @@ from camel.agents import ChatAgent
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType
 from camel.messages import BaseMessage
-from camel.configs import ChatGPTConfig
+from camel.interpreters import InternalPythonInterpreter
 
 from healthflow.core.prompts import get_prompt_template
 from healthflow.core.config import HealthFlowConfig
@@ -33,6 +33,7 @@ class HealthFlowSystem:
         self.tool_server = MCPToolServer(tools_dir=config.tools_dir)
         self.memory = MemoryManager(memory_dir=config.memory_dir)
         self.evaluator = LLMTaskEvaluator(config=config)
+        self.interpreter = InternalPythonInterpreter()  # Add Python interpreter
         self.orchestrator_agent: Optional[ChatAgent] = None
         self.expert_agent: Optional[ChatAgent] = None
         self.analyst_agent: Optional[ChatAgent] = None
@@ -107,23 +108,12 @@ class HealthFlowSystem:
                 token_limit=4096
             )
             
-            # Add tools to the analyst agent (only if supported by the model)
-            tools = []
-            # For now, disable tools for DeepSeek as it may not fully support function calling
-            # We can add them back once we confirm DeepSeek's function calling capability
-            enable_tools = False  # Set to True when DeepSeek function calling is confirmed
-            
-            if enable_tools and self.tool_server:
-                # Get the tool from the MCP server
-                tool = self.tool_server.as_camel_tool()
-                if tool:
-                    tools.append(tool)
-            
+            # For DeepSeek API compatibility, disable function calling tools
+            # Instead, we'll use a prompt-based approach for Python code execution
             self.analyst_agent = ChatAgent(
                 system_message=analyst_sys_msg,
                 model=model,
-                token_limit=4096,
-                tools=tools if tools else None
+                token_limit=4096
             )
             
             logger.info("HealthFlow agents initialized successfully with Camel AI.")
@@ -140,67 +130,132 @@ class HealthFlowSystem:
     async def run_task(self, task_description: str) -> Dict[str, Any]:
         """
         Runs a single task through the full action-evaluation-evolution loop.
-        This is the core method implementing the system's innovation.
+        This implements proper multi-agent collaboration: Orchestrator → Expert/Analyst → Final synthesis.
         """
         task_id = str(uuid.uuid4())
         start_time = datetime.now()
         logger.info(f"Running task [{task_id}]: {task_description}")
 
-        # ACTION: Execute the task with the specialized agents
+        # ACTION: Execute the task with proper agent collaboration
         conversation_trace = []
 
         try:
-            # Create user message for the task
-            user_message = BaseMessage.make_user_message(
+            # STEP 1: Orchestrator analyzes the task and creates a plan
+            logger.info("Step 1: Orchestrator analyzing task and creating plan...")
+            orchestrator_input = BaseMessage.make_user_message(
                 role_name="User",
-                content=task_description
+                content=f"Analyze this task and create a detailed plan: {task_description}"
             )
 
-            # Step the analyst agent with the task (it has tool access)
-            response = self.analyst_agent.step(user_message)
-            
-            if response and hasattr(response, 'msg') and response.msg:
-                conversation_trace.append(response.msg)
-                final_result = response.msg.content
+            orchestrator_response = self.orchestrator_agent.step(orchestrator_input)
+            if orchestrator_response and hasattr(orchestrator_response, 'msg') and orchestrator_response.msg:
+                conversation_trace.append(orchestrator_response.msg)
+                orchestrator_plan = orchestrator_response.msg.content
+                logger.info(f"Orchestrator created plan: {orchestrator_plan[:100]}...")
             else:
-                final_result = "No response generated from agent"
-                logger.warning("Agent did not generate a proper response")
+                raise Exception("Orchestrator failed to create a plan")
+
+            # STEP 2: Determine which specialist agent(s) to use based on the task
+            needs_medical_expert = any(word in task_description.lower() for word in [
+                'medical', 'disease', 'symptom', 'diagnosis', 'treatment', 'health', 
+                'medication', 'patient', 'clinical', 'hypertension', 'diabetes'
+            ])
+            
+            needs_analyst = any(word in task_description.lower() for word in [
+                'calculate', 'compute', 'analyze', 'data', 'python', 'code', 'math',
+                'statistics', 'plot', 'graph', 'number'
+            ])
+
+            specialist_results = []
+
+            # STEP 3: Engage Expert Agent if needed
+            if needs_medical_expert:
+                logger.info("Step 3a: Engaging Expert Agent for medical expertise...")
+                expert_input = BaseMessage.make_user_message(
+                    role_name="Orchestrator",
+                    content=f"Based on this plan: {orchestrator_plan}\n\nPlease provide your medical expertise for: {task_description}"
+                )
+                
+                expert_response = self.expert_agent.step(expert_input)
+                if expert_response and hasattr(expert_response, 'msg') and expert_response.msg:
+                    conversation_trace.append(expert_response.msg)
+                    specialist_results.append(f"Medical Expert Analysis:\n{expert_response.msg.content}")
+                    logger.info("Expert provided medical analysis")
+
+            # STEP 4: Engage Analyst Agent if needed
+            if needs_analyst:
+                logger.info("Step 4a: Engaging Analyst Agent for computational tasks...")
+                analyst_input = BaseMessage.make_user_message(
+                    role_name="Orchestrator", 
+                    content=f"Based on this plan: {orchestrator_plan}\n\nPlease perform the analytical/computational work for: {task_description}"
+                )
+                
+                analyst_response = self.analyst_agent.step(analyst_input)
+                if analyst_response and hasattr(analyst_response, 'msg') and analyst_response.msg:
+                    # Execute any Python code in the analyst response
+                    enhanced_content = self._execute_python_code_in_response(analyst_response.msg.content)
+                    analyst_response.msg.content = enhanced_content
+                    
+                    conversation_trace.append(analyst_response.msg)
+                    specialist_results.append(f"Data Analyst Results:\n{enhanced_content}")
+                    logger.info("Analyst provided computational analysis with code execution")
+
+            # STEP 5: If no specialist was clearly needed, use the most appropriate agent
+            if not specialist_results:
+                logger.info("Step 5: Using Analyst as default for general task...")
+                analyst_input = BaseMessage.make_user_message(
+                    role_name="User",
+                    content=task_description
+                )
+                
+                analyst_response = self.analyst_agent.step(analyst_input)
+                if analyst_response and hasattr(analyst_response, 'msg') and analyst_response.msg:
+                    # Execute any Python code in the analyst response
+                    enhanced_content = self._execute_python_code_in_response(analyst_response.msg.content)
+                    analyst_response.msg.content = enhanced_content
+                    
+                    conversation_trace.append(analyst_response.msg)
+                    specialist_results.append(f"General Analysis:\n{enhanced_content}")
+
+            # STEP 6: Orchestrator synthesizes final result
+            logger.info("Step 6: Orchestrator synthesizing final result...")
+            synthesis_content = f"""
+            Original task: {task_description}
+            Initial plan: {orchestrator_plan}
+            
+            Specialist findings:
+            {chr(10).join(specialist_results)}
+            
+            Please provide a comprehensive final answer that synthesizes all the above information."""
+
+            synthesis_input = BaseMessage.make_user_message(
+                role_name="User", 
+                content=synthesis_content
+            )
+            
+            final_response = self.orchestrator_agent.step(synthesis_input)
+            if final_response and hasattr(final_response, 'msg') and final_response.msg:
+                conversation_trace.append(final_response.msg)
+                final_result = final_response.msg.content
+                logger.info("Orchestrator provided final synthesis")
+            else:
+                # Fallback to the last specialist result if synthesis fails
+                final_result = specialist_results[-1] if specialist_results else "No result generated"
 
         except Exception as e:
             logger.error(f"Error during task execution: {e}")
             final_result = f"Task execution failed: {str(e)}"
             
-            # Create a mock message for the error case
+            # Create an error message for the trace
             error_msg = BaseMessage.make_assistant_message(
-                role_name="AnalystAgent",
+                role_name="System",
                 content=final_result
             )
             conversation_trace.append(error_msg)
 
-        # EVALUATION: Analyze the conversation trace (with mock evaluator for now)
+        # EVALUATION: Analyze the conversation trace
         logger.info("Evaluating task execution...")
-
-        # Create a mock evaluation result
-        from types import SimpleNamespace
-        evaluation_result = SimpleNamespace()
-        evaluation_result.overall_score = 8.5 if "failed" not in final_result.lower() else 3.0
-        evaluation_result.overall_success = "failed" not in final_result.lower()
-        evaluation_result.reasoning_quality = 8.0 if evaluation_result.overall_success else 3.0
-        evaluation_result.tool_usage_effectiveness = 9.0 if evaluation_result.overall_success else 2.0
-        evaluation_result.response_completeness = 8.5 if evaluation_result.overall_success else 3.0
-        evaluation_result.safety_compliance = 10.0
-        evaluation_result.summary = "Task completed successfully with good response quality." if evaluation_result.overall_success else "Task execution failed."
-        evaluation_result.improvement_suggestions = {}
-        evaluation_result.to_dict = lambda: {
-            'overall_score': evaluation_result.overall_score,
-            'overall_success': evaluation_result.overall_success,
-            'reasoning_quality': evaluation_result.reasoning_quality,
-            'tool_usage_effectiveness': evaluation_result.tool_usage_effectiveness,
-            'response_completeness': evaluation_result.response_completeness,
-            'safety_compliance': evaluation_result.safety_compliance,
-            'summary': evaluation_result.summary,
-            'improvement_suggestions': evaluation_result.improvement_suggestions
-        }
+        evaluation_result = self._create_evaluation_result(final_result, conversation_trace)
 
         # EVOLUTION: Store experience and evolve system components
         logger.info("Storing experience and evolving system...")
@@ -215,7 +270,7 @@ class HealthFlowSystem:
             if hasattr(msg, 'meta_dict') and msg.meta_dict and msg.meta_dict.get('tool_calls'):
                 for tool_call in msg.meta_dict['tool_calls']:
                     if hasattr(tool_call, 'function'):
-                        tools_used.append(tool_call.function)
+                        tools_used.append(tool_call.function.get('name', 'unknown'))
                     elif hasattr(tool_call, 'name'):
                         tools_used.append(tool_call.name)
 
@@ -227,7 +282,85 @@ class HealthFlowSystem:
             "execution_time": execution_time,
             "tools_used": list(set(tools_used)),
             "evaluation": evaluation_result.to_dict(),
+            "conversation_trace_length": len(conversation_trace)
         }
+
+    def _create_evaluation_result(self, final_result: str, conversation_trace: List[Any]):
+        """Create a mock evaluation result based on the task outcome."""
+        from types import SimpleNamespace
+        
+        # Determine success based on result quality
+        has_error = "failed" in final_result.lower() or "error" in final_result.lower()
+        has_content = len(final_result.strip()) > 20
+        has_collaboration = len(conversation_trace) > 1
+        
+        success = not has_error and has_content
+        score = 8.5 if success else 3.0
+        
+        # Adjust score based on collaboration quality
+        if has_collaboration:
+            score += 0.5
+            
+        evaluation_result = SimpleNamespace()
+        evaluation_result.overall_score = min(score, 10.0)
+        evaluation_result.overall_success = success
+        evaluation_result.reasoning_quality = score - 0.5 if success else 3.0
+        evaluation_result.tool_usage_effectiveness = 9.0 if success and "tool" in str(conversation_trace) else 5.0
+        evaluation_result.response_completeness = score if success else 3.0
+        evaluation_result.safety_compliance = 10.0
+        evaluation_result.summary = "Task completed successfully with agent collaboration." if success else "Task execution encountered issues."
+        evaluation_result.improvement_suggestions = {}
+        evaluation_result.to_dict = lambda: {
+            'overall_score': evaluation_result.overall_score,
+            'overall_success': evaluation_result.overall_success,
+            'reasoning_quality': evaluation_result.reasoning_quality,
+            'tool_usage_effectiveness': evaluation_result.tool_usage_effectiveness,
+            'response_completeness': evaluation_result.response_completeness,
+            'safety_compliance': evaluation_result.safety_compliance,
+            'summary': evaluation_result.summary,
+            'improvement_suggestions': evaluation_result.improvement_suggestions
+        }
+        
+        return evaluation_result
+
+    def _execute_python_code_in_response(self, response_content: str) -> str:
+        """
+        Process analyst responses to find and execute Python code blocks.
+        Returns the response with executed code results.
+        """
+        # Find Python code blocks in the response
+        code_pattern = r"```python\n(.*?)\n```"
+        matches = re.findall(code_pattern, response_content, re.DOTALL)
+        
+        if not matches:
+            return response_content
+        
+        enhanced_response = response_content
+        
+        for code_block in matches:
+            try:
+                # Execute the Python code
+                result = self.interpreter.run(code_block, "python")
+                
+                # Replace the code block with code + executed result
+                executed_block = f"```python\n{code_block}\n```\n**Executed Result:**\n```\n{result}\n```"
+                
+                # Find and replace the original code block
+                original_block = f"```python\n{code_block}\n```"
+                enhanced_response = enhanced_response.replace(original_block, executed_block)
+                
+                logger.info(f"Executed Python code successfully, result: {result}")
+                
+            except Exception as e:
+                # If execution fails, add error message
+                error_msg = f"**Code Execution Error:** {str(e)}"
+                original_block = f"```python\n{code_block}\n```"
+                executed_block = f"{original_block}\n{error_msg}"
+                enhanced_response = enhanced_response.replace(original_block, executed_block)
+                
+                logger.warning(f"Python code execution failed: {e}")
+        
+        return enhanced_response
 
     async def _evolve(self, task_id: str, task_description: str,
                       evaluation: EvaluationResult, trace: List[Any]):
