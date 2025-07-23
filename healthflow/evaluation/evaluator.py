@@ -115,6 +115,30 @@ class EvaluationCriteria:
     collaboration_feedback: str = ""
     completeness_feedback: str = ""
     clarity_feedback: str = ""
+    
+    def get_composite_score(self) -> float:
+        """Calculate weighted composite score across all criteria"""
+        weights = {
+            'medical_accuracy': 0.20,
+            'safety': 0.20, 
+            'reasoning_quality': 0.15,
+            'tool_usage_efficiency': 0.15,
+            'collaboration_effectiveness': 0.10,
+            'completeness': 0.15,
+            'clarity': 0.05
+        }
+        
+        weighted_sum = (
+            self.medical_accuracy * weights['medical_accuracy'] +
+            self.safety * weights['safety'] +
+            self.reasoning_quality * weights['reasoning_quality'] +
+            self.tool_usage_efficiency * weights['tool_usage_efficiency'] +
+            self.collaboration_effectiveness * weights['collaboration_effectiveness'] +
+            self.completeness * weights['completeness'] +
+            self.clarity * weights['clarity']
+        )
+        
+        return weighted_sum
 
 
 @dataclass
@@ -153,29 +177,6 @@ class EvaluationResult:
         result['timestamp'] = self.timestamp.isoformat()
         return result
         
-    def get_composite_score(self) -> float:
-        """Calculate weighted composite score across all criteria"""
-        weights = {
-            'medical_accuracy': 0.20,
-            'safety': 0.20, 
-            'reasoning_quality': 0.15,
-            'tool_usage_efficiency': 0.15,
-            'collaboration_effectiveness': 0.10,
-            'completeness': 0.15,
-            'clarity': 0.05
-        }
-        
-        weighted_sum = (
-            self.criteria.medical_accuracy * weights['medical_accuracy'] +
-            self.criteria.safety * weights['safety'] +
-            self.criteria.reasoning_quality * weights['reasoning_quality'] +
-            self.criteria.tool_usage_efficiency * weights['tool_usage_efficiency'] +
-            self.criteria.collaboration_effectiveness * weights['collaboration_effectiveness'] +
-            self.criteria.completeness * weights['completeness'] +
-            self.criteria.clarity * weights['clarity']
-        )
-        
-        return weighted_sum
 
 
 class LLMTaskEvaluator:
