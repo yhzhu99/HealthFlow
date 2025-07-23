@@ -62,9 +62,9 @@ class MemoryManager:
             "evaluation": evaluation.to_dict(),
             "trace": [
                 {
-                    "role": msg.role,
+                    "role": getattr(msg, 'role_name', 'unknown'),
                     "content": msg.content,
-                    "meta": msg.meta_dict
+                    "meta": getattr(msg, 'meta_dict', {})
                 }
                 for msg in trace
             ]

@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 from camel.agents import ChatAgent
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType
+from camel.messages import BaseMessage
+from camel.configs import ChatGPTConfig
 
 from healthflow.core.prompts import get_prompt_template
 from healthflow.core.config import HealthFlowConfig
@@ -54,82 +56,86 @@ class HealthFlowSystem:
             logger.info("HealthFlow system stopped.")
 
     def _initialize_workforce(self):
-        """Initializes the specialized agents with fallback mock functionality."""
-        logger.info("Initializing HealthFlow agents...")
+        """Initializes the specialized agents using Camel AI ChatAgent with proper LLM integration."""
+        logger.info("Initializing HealthFlow agents with Camel AI...")
 
-        # Create a mock agent class to bypass LLM configuration issues
-        class MockAgent:
-            def __init__(self, system_message, tool_server=None):
-                self.system_message = system_message
-                self.tool_server = tool_server
+        try:
+            # Create the LLM model using Camel AI ModelFactory
+            model = ModelFactory.create(
+                model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,
+                model_type=self.config.model_name,
+                api_key=self.config.api_key,
+                url=self.config.base_url,
+                model_config_dict={
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "timeout": 120,
+                }
+            )
+            
+            # Get the best prompts from memory
+            orchestrator_sys_prompt, _ = self.memory.get_best_prompt("orchestrator")
+            expert_sys_prompt, _ = self.memory.get_best_prompt("expert")
+            analyst_sys_prompt, _ = self.memory.get_best_prompt("analyst")
 
-            def step(self, user_input):
-                """Mock agent that provides intelligent responses and can use tools."""
-                from types import SimpleNamespace
+            # Create system messages for each agent
+            orchestrator_sys_msg = BaseMessage.make_assistant_message(
+                role_name="OrchestratorAgent",
+                content=orchestrator_sys_prompt
+            )
+            
+            expert_sys_msg = BaseMessage.make_assistant_message(
+                role_name="ExpertAgent", 
+                content=expert_sys_prompt
+            )
+            
+            analyst_sys_msg = BaseMessage.make_assistant_message(
+                role_name="AnalystAgent",
+                content=analyst_sys_prompt
+            )
 
-                # If the input seems to be asking for help or is a simple query
-                if any(word in user_input.lower() for word in ['help', 'what', 'how', 'calculate', 'compute']):
-                    if 'calculate' in user_input.lower() or 'compute' in user_input.lower() or any(op in user_input for op in ['+', '-', '*', '/', '=']):
-                        # Extract numbers and operations for calculation
-                        if self.tool_server:
-                            # Try to extract a calculation
-                            code_to_execute = None
-                            if 'calculate' in user_input.lower() and 'python' in user_input.lower():
-                                # Look for mathematical expressions
-                                import re
-                                math_pattern = r'(\d+\s*[\+\-\*\/]\s*\d+)'
-                                match = re.search(math_pattern, user_input)
-                                if match:
-                                    code_to_execute = match.group(1)
-                                else:
-                                    code_to_execute = "2 + 2"  # Default calculation
-
-                            if code_to_execute:
-                                tool = self.tool_server.as_camel_tool()
-                                result = tool(code_to_execute)
-                                response_content = f"I'll help you with that calculation. Let me execute the Python code:\n\n{result}"
-                            else:
-                                response_content = "I can help you with calculations using Python. For example, I can calculate 2+2, perform mathematical operations, and more. What would you like me to calculate?"
-                        else:
-                            response_content = "I can help you with various tasks including calculations, data analysis, and more."
-                    else:
-                        response_content = """I'm the HealthFlow AI assistant. I can help you with:
-
-• Mathematical calculations and data analysis using Python
-• Medical and healthcare-related queries
-• Research and information gathering
-• Code execution and tool usage
-
-Try asking me to:
-- Calculate 2+2 using Python
-- Perform mathematical operations
-- Analyze data
-- Execute Python code
-
-What would you like me to help you with?"""
-                else:
-                    # For other queries, provide a helpful response
-                    response_content = f"I understand you're asking about: {user_input}\n\nI'm a healthcare AI assistant powered by HealthFlow. While I can process your request, I currently have some limitations with the full LLM integration. However, I can still help you with calculations, data analysis, and tool execution.\n\nWould you like me to demonstrate by calculating something for you?"
-
-                # Create a mock response object
-                mock_message = SimpleNamespace()
-                mock_message.content = response_content
-                mock_message.meta_dict = {}
-                mock_message.role = "assistant"
-
-                mock_response = SimpleNamespace()
-                mock_response.msgs = [mock_message]
-
-                return mock_response
-
-        # Initialize mock agents
-        orchestrator_sys_prompt, _ = self.memory.get_best_prompt("orchestrator")
-        expert_sys_prompt, _ = self.memory.get_best_prompt("expert")
-        analyst_sys_prompt, _ = self.memory.get_best_prompt("analyst")
-
-        self.orchestrator_agent = MockAgent(orchestrator_sys_prompt)
-        self.expert_agent = MockAgent(expert_sys_prompt)
-        self.analyst_agent = MockAgent(analyst_sys_prompt, self.tool_server)
+            # Initialize the agents with the model and system messages
+            self.orchestrator_agent = ChatAgent(
+                system_message=orchestrator_sys_msg,
+                model=model,
+                token_limit=4096
+            )
+            
+            self.expert_agent = ChatAgent(
+                system_message=expert_sys_msg,
+                model=model,
+                token_limit=4096
+            )
+            
+            # Add tools to the analyst agent (only if supported by the model)
+            tools = []
+            # For now, disable tools for DeepSeek as it may not fully support function calling
+            # We can add them back once we confirm DeepSeek's function calling capability
+            enable_tools = False  # Set to True when DeepSeek function calling is confirmed
+            
+            if enable_tools and self.tool_server:
+                # Get the tool from the MCP server
+                tool = self.tool_server.as_camel_tool()
+                if tool:
+                    tools.append(tool)
+            
+            self.analyst_agent = ChatAgent(
+                system_message=analyst_sys_msg,
+                model=model,
+                token_limit=4096,
+                tools=tools if tools else None
+            )
+            
+            logger.info("HealthFlow agents initialized successfully with Camel AI.")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize agents with Camel AI: {e}")
+            logger.error("This could be due to:")
+            logger.error("1. Invalid API credentials in config.toml")
+            logger.error("2. Network connectivity issues")
+            logger.error("3. Incorrect model name or base URL")
+            logger.error("4. Missing environment variables")
+            raise RuntimeError(f"Agent initialization failed: {e}") from e
 
     async def run_task(self, task_description: str) -> Dict[str, Any]:
         """
@@ -141,30 +147,49 @@ What would you like me to help you with?"""
         logger.info(f"Running task [{task_id}]: {task_description}")
 
         # ACTION: Execute the task with the specialized agents
-        # For now, we'll use a simple approach where the analyst agent handles the task directly
         conversation_trace = []
 
-        # Step the analyst agent with the task
-        response = self.analyst_agent.step(task_description)
-        if response and response.msgs:
-            conversation_trace.extend(response.msgs)
-            final_result = response.msgs[-1].content
-        else:
-            final_result = "No response generated"
+        try:
+            # Create user message for the task
+            user_message = BaseMessage.make_user_message(
+                role_name="User",
+                content=task_description
+            )
 
-        # EVALUATION: Analyze the conversation trace (with mock evaluator)
+            # Step the analyst agent with the task (it has tool access)
+            response = self.analyst_agent.step(user_message)
+            
+            if response and hasattr(response, 'msg') and response.msg:
+                conversation_trace.append(response.msg)
+                final_result = response.msg.content
+            else:
+                final_result = "No response generated from agent"
+                logger.warning("Agent did not generate a proper response")
+
+        except Exception as e:
+            logger.error(f"Error during task execution: {e}")
+            final_result = f"Task execution failed: {str(e)}"
+            
+            # Create a mock message for the error case
+            error_msg = BaseMessage.make_assistant_message(
+                role_name="AnalystAgent",
+                content=final_result
+            )
+            conversation_trace.append(error_msg)
+
+        # EVALUATION: Analyze the conversation trace (with mock evaluator for now)
         logger.info("Evaluating task execution...")
 
         # Create a mock evaluation result
         from types import SimpleNamespace
         evaluation_result = SimpleNamespace()
-        evaluation_result.overall_score = 8.5
-        evaluation_result.overall_success = True
-        evaluation_result.reasoning_quality = 8.0
-        evaluation_result.tool_usage_effectiveness = 9.0
-        evaluation_result.response_completeness = 8.5
+        evaluation_result.overall_score = 8.5 if "failed" not in final_result.lower() else 3.0
+        evaluation_result.overall_success = "failed" not in final_result.lower()
+        evaluation_result.reasoning_quality = 8.0 if evaluation_result.overall_success else 3.0
+        evaluation_result.tool_usage_effectiveness = 9.0 if evaluation_result.overall_success else 2.0
+        evaluation_result.response_completeness = 8.5 if evaluation_result.overall_success else 3.0
         evaluation_result.safety_compliance = 10.0
-        evaluation_result.summary = "Task completed successfully with good response quality."
+        evaluation_result.summary = "Task completed successfully with good response quality." if evaluation_result.overall_success else "Task execution failed."
         evaluation_result.improvement_suggestions = {}
         evaluation_result.to_dict = lambda: {
             'overall_score': evaluation_result.overall_score,
@@ -184,6 +209,7 @@ What would you like me to help you with?"""
         end_time = datetime.now()
         execution_time = (end_time - start_time).total_seconds()
 
+        # Extract tools used from conversation trace
         tools_used = []
         for msg in conversation_trace:
             if hasattr(msg, 'meta_dict') and msg.meta_dict and msg.meta_dict.get('tool_calls'):
@@ -192,7 +218,6 @@ What would you like me to help you with?"""
                         tools_used.append(tool_call.function)
                     elif hasattr(tool_call, 'name'):
                         tools_used.append(tool_call.name)
-
 
         return {
             "task_id": task_id,
@@ -251,17 +276,32 @@ What would you like me to help you with?"""
             "tool_creator"
         ).format(tool_suggestion=tool_suggestion)
 
-        # Use mock agent for tool creation as well
-        creator_agent = self.analyst_agent  # Reuse the analyst agent
-
         logger.info("Tasking Analyst to create a new tool...")
-        response = creator_agent.step(tool_creation_prompt)
+        
+        try:
+            # Create user message for tool creation
+            user_message = BaseMessage.make_user_message(
+                role_name="User",
+                content=tool_creation_prompt
+            )
+            
+            response = self.analyst_agent.step(user_message)
 
-        # The creator agent is expected to call the 'add_new_tool' function
-        # on the MCP server. We can log the outcome here.
-        if response and response.msgs:
-            tool_calls = response.msgs[0].meta_dict.get('tool_calls')
-            if tool_calls and any(tc.function == 'add_new_tool' for tc in tool_calls):
-                 logger.info("Tool creation task completed successfully. New tool should be available.")
+            # The creator agent is expected to call the 'add_new_tool' function
+            # on the MCP server. We can log the outcome here.
+            if response and hasattr(response, 'msg') and response.msg:
+                # Check if tools were called based on response metadata
+                if hasattr(response.msg, 'meta_dict') and response.msg.meta_dict:
+                    tool_calls = response.msg.meta_dict.get('tool_calls')
+                    if tool_calls and any(getattr(tc, 'function', None) == 'add_new_tool' for tc in tool_calls):
+                        logger.info("Tool creation task completed successfully. New tool should be available.")
+                    else:
+                        logger.warning("Tool creation task finished, but 'add_new_tool' was not called.")
+                else:
+                    logger.info("Tool creation response received, checking for tool integration.")
             else:
-                 logger.warning("Tool creation task finished, but 'add_new_tool' was not called.")
+                logger.warning("No response received from tool creation task.")
+                
+        except Exception as e:
+            logger.error(f"Error during tool creation: {e}")
+            logger.warning("Tool creation failed, continuing without new tool.")
