@@ -12,6 +12,7 @@ TASK.md
 config.toml
 tmp/
 prompt.md
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
