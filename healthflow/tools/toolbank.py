@@ -1,7 +1,6 @@
 """
 Hierarchical ToolBank System for HealthFlow
 Dynamic tool creation, management, and execution system with tag-based retrieval
-Supports MCP (Model Context Protocol) driven tool development  
 Uses JSON format for all persistence
 """
 
@@ -21,8 +20,6 @@ import tempfile
 import hashlib
 from collections import defaultdict
 
-# Import MCP interface components
-from .mcp_interface import MCPToolManager, MCPToolSpec, MCPExecutionResult, MCPToolType, MCPExecutionMode
 
 
 class ToolType(Enum):
@@ -33,7 +30,6 @@ class ToolType(Enum):
     DATA_PROCESSOR = "data_processor"
     MEDICAL_ANALYZER = "medical_analyzer"
     CODE_GENERATOR = "code_generator"
-    MCP_TOOL = "mcp_tool"
 
 
 class TagHierarchy(Enum):
@@ -181,7 +177,6 @@ class HierarchicalToolBank:
     - Context-aware tool retrieval
     - Performance-based tool ranking
     - JSON-only persistence (no parquet/pickle)
-    - MCP compatibility
     - Tool versioning and evolution
     """
     
@@ -196,12 +191,10 @@ class HierarchicalToolBank:
         self.performance_metrics_path = self.tools_dir / "performance_metrics.json"
         self.tools_code_dir = self.tools_dir / "code"
         self.tools_tests_dir = self.tools_dir / "tests"
-        self.mcps_dir = self.tools_dir / "mcps"
         
         # Create subdirectories
         self.tools_code_dir.mkdir(exist_ok=True)
         self.tools_tests_dir.mkdir(exist_ok=True)
-        self.mcps_dir.mkdir(exist_ok=True)
         
         # In-memory registry
         self.tools_registry: Dict[str, Tool] = {}
@@ -209,8 +202,6 @@ class HierarchicalToolBank:
         self.tag_hierarchy: Dict[str, Dict[str, Set[str]]] = {}
         self.performance_cache: Dict[str, Dict[str, float]] = {}
         
-        # MCP Tool Manager integration
-        self.mcp_manager = MCPToolManager(self.mcps_dir)
         
         # Initialize tag hierarchy
         self._initialize_tag_hierarchy()
@@ -255,8 +246,6 @@ class HierarchicalToolBank:
         await self._load_tag_hierarchy()
         await self._load_performance_metrics()
         
-        # Initialize MCP tool manager
-        await self.mcp_manager.initialize()
     
     async def _load_tools(self):
         """Load tools from JSON registry"""
@@ -776,8 +765,6 @@ class HierarchicalToolBank:
                 result = await self._execute_python_tool(tool, inputs, timeout)
             elif tool.metadata.tool_type == ToolType.SHELL_COMMAND:
                 result = await self._execute_shell_tool(tool, inputs, timeout)
-            elif tool.metadata.tool_type == ToolType.MCP_TOOL:
-                result = await self._execute_mcp_tool(tool, inputs, timeout)
             else:
                 raise NotImplementedError(f"Tool type {tool.metadata.tool_type} not implemented")
             
@@ -931,57 +918,6 @@ class HierarchicalToolBank:
                 execution_time=execution_time
             )
     
-    async def _execute_mcp_tool(self, tool: Tool, inputs: Dict[str, Any], timeout: int) -> ToolExecutionResult:
-        """Execute MCP-compatible tool"""
-        start_time = datetime.now()
-        
-        try:
-            # Load MCP tool implementation
-            mcp_file = self.mcps_dir / f"{tool.metadata.tool_id}.json"
-            
-            if not mcp_file.exists():
-                raise FileNotFoundError(f"MCP tool file not found: {mcp_file}")
-            
-            with open(mcp_file, 'r', encoding='utf-8') as f:
-                mcp_spec = json.load(f)
-            
-            # Execute based on MCP specification
-            # This is a simplified implementation - real MCP would have more complex protocol
-            if mcp_spec.get('type') == 'python_script':
-                script_path = self.mcps_dir / mcp_spec.get('script_file', f"{tool.metadata.tool_id}.py")
-                
-                # Execute Python script with inputs
-                spec = importlib.util.spec_from_file_location("mcp_module", script_path)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                
-                if hasattr(module, 'execute'):
-                    output = await module.execute(inputs)
-                else:
-                    raise ValueError("MCP tool must have an 'execute' function")
-                
-                execution_time = (datetime.now() - start_time).total_seconds()
-                
-                return ToolExecutionResult(
-                    tool_id=tool.metadata.tool_id,
-                    success=True,
-                    output=output,
-                    error=None,
-                    execution_time=execution_time
-                )
-            
-            else:
-                raise NotImplementedError(f"MCP tool type {mcp_spec.get('type')} not supported")
-                
-        except Exception as e:
-            execution_time = (datetime.now() - start_time).total_seconds()
-            return ToolExecutionResult(
-                tool_id=tool.metadata.tool_id,
-                success=False,
-                output=None,
-                error=str(e),
-                execution_time=execution_time
-            )
     
     async def _update_performance_metrics(
         self, 
@@ -1248,8 +1184,6 @@ def test_{tool.metadata.name.lower().replace(" ", "_")}_performance():
             shutil.copytree(self.tools_code_dir, backup_path / "code", dirs_exist_ok=True)
         if self.tools_tests_dir.exists():
             shutil.copytree(self.tools_tests_dir, backup_path / "tests", dirs_exist_ok=True)
-        if self.mcps_dir.exists():
-            shutil.copytree(self.mcps_dir, backup_path / "mcps", dirs_exist_ok=True)
         
         # Create backup manifest
         manifest = {
@@ -1265,245 +1199,6 @@ def test_{tool.metadata.name.lower().replace(" ", "_")}_performance():
         with open(backup_path / "backup_manifest.json", 'w', encoding='utf-8') as f:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
     
-    # ============ MCP Tool Integration Methods ============
-    
-    async def register_mcp_tool(self, mcp_tool_spec: MCPToolSpec) -> str:
-        """
-        Register an MCP tool and integrate it with the ToolBank
-        
-        Args:
-            mcp_tool_spec: MCP tool specification
-            
-        Returns:
-            Tool ID in the ToolBank
-        """
-        
-        # Register with MCP manager first
-        mcp_tool_id = await self.mcp_manager.register_tool(mcp_tool_spec)
-        
-        # Convert MCP spec to ToolBank format
-        hierarchical_tags = {
-            TagHierarchy.DOMAIN: mcp_tool_spec.tags[:3] if mcp_tool_spec.tags else ["general"],
-            TagHierarchy.FUNCTIONALITY: [tag for tag in mcp_tool_spec.capabilities if tag in ["analysis", "processing", "visualization", "communication"]] or ["processing"],
-            TagHierarchy.COMPLEXITY: ["intermediate"],  # Default for MCP tools
-            TagHierarchy.DATA_TYPE: [tag for tag in mcp_tool_spec.tags if tag in ["clinical", "imaging", "genomic", "text"]] or ["clinical"],
-            TagHierarchy.TASK_TYPE: [tag for tag in mcp_tool_spec.capabilities if tag in ["diagnosis", "treatment", "prediction", "documentation"]] or ["documentation"]
-        }
-        
-        # Create Tool metadata
-        metadata = ToolMetadata(
-            tool_id=mcp_tool_id,
-            name=mcp_tool_spec.name,
-            description=mcp_tool_spec.description,
-            tool_type=ToolType.MCP_TOOL,
-            version="1.0",
-            author=mcp_tool_spec.metadata.get("author", "MCP Tool"),
-            created_at=mcp_tool_spec.created_at,
-            last_used=datetime.now(),
-            usage_count=0,
-            success_rate=1.0,
-            parameters=mcp_tool_spec.schema.get("input", {}),
-            return_type=str(mcp_tool_spec.schema.get("output", {})),
-            hierarchical_tags=hierarchical_tags,
-            dependencies=[],
-            performance_metrics={}
-        )
-        
-        # Create Tool wrapper for MCP tool
-        tool = Tool(
-            metadata=metadata,
-            implementation=self._create_mcp_tool_wrapper(mcp_tool_id),
-            source_code=f"# MCP Tool Wrapper for {mcp_tool_spec.name}\n# Tool ID: {mcp_tool_id}",
-            test_cases=[],
-            historical_performance=[]
-        )
-        
-        # Register in ToolBank
-        self.tools_registry[mcp_tool_id] = tool
-        await self._save_tools_registry()
-        
-        return mcp_tool_id
-    
-    def _create_mcp_tool_wrapper(self, mcp_tool_id: str) -> Callable:
-        """Create a wrapper function for MCP tool execution"""
-        
-        async def mcp_tool_wrapper(*args, **kwargs):
-            # Prepare input data for MCP tool
-            if args and isinstance(args[0], dict):
-                input_data = args[0]
-            else:
-                input_data = kwargs
-            
-            # Execute MCP tool
-            result = await self.mcp_manager.execute_tool(
-                tool_id=mcp_tool_id,
-                input_data=input_data,
-                context=kwargs.get("context", {})
-            )
-            
-            if result.success:
-                return result.result
-            else:
-                raise RuntimeError(f"MCP tool execution failed: {result.error}")
-        
-        return mcp_tool_wrapper
-    
-    async def execute_mcp_tool(
-        self,
-        tool_id: str,
-        input_data: Dict[str, Any],
-        context: Optional[Dict[str, Any]] = None
-    ) -> MCPExecutionResult:
-        """
-        Execute an MCP tool directly
-        
-        Args:
-            tool_id: MCP tool ID
-            input_data: Input data for the tool
-            context: Execution context
-            
-        Returns:
-            MCP execution result
-        """
-        
-        result = await self.mcp_manager.execute_tool(tool_id, input_data, context)
-        
-        # Update ToolBank metrics if tool is registered
-        if tool_id in self.tools_registry:
-            tool = self.tools_registry[tool_id]
-            tool.metadata.usage_count += 1
-            tool.metadata.last_used = datetime.now()
-            
-            if result.success:
-                # Update success rate
-                current_rate = tool.metadata.success_rate
-                new_rate = (current_rate * (tool.metadata.usage_count - 1) + 1) / tool.metadata.usage_count
-                tool.metadata.success_rate = new_rate
-            else:
-                # Update failure rate
-                current_rate = tool.metadata.success_rate
-                new_rate = (current_rate * (tool.metadata.usage_count - 1)) / tool.metadata.usage_count
-                tool.metadata.success_rate = new_rate
-            
-            # Store execution result
-            execution_result = ToolExecutionResult(
-                tool_id=tool_id,
-                success=result.success,
-                execution_time=result.execution_time,
-                result=result.result if result.success else None,
-                error=result.error,
-                timestamp=datetime.now(),
-                performance_metrics={
-                    "execution_time": result.execution_time,
-                    "security_warnings": len(result.security_warnings)
-                }
-            )
-            
-            self.execution_history.append(execution_result)
-            await self._save_execution_history()
-            await self._save_tools_registry()
-        
-        return result
-    
-    async def list_mcp_tools(self) -> List[Dict[str, Any]]:
-        """List all registered MCP tools"""
-        return await self.mcp_manager.list_tools()
-    
-    async def get_mcp_tool_info(self, tool_id: str) -> Optional[Dict[str, Any]]:
-        """Get detailed information about an MCP tool"""
-        return await self.mcp_manager.get_tool_info(tool_id)
-    
-    async def discover_mcp_tools(self) -> List[str]:
-        """Discover and auto-register MCP tools from the mcps directory"""
-        discovered_tools = []
-        
-        # Look for .mcp.json files in the mcps directory
-        for mcp_file in self.mcps_dir.glob("*.mcp.json"):
-            try:
-                with open(mcp_file, 'r', encoding='utf-8') as f:
-                    tool_definition = json.load(f)
-                
-                # Create MCP tool spec
-                mcp_tool_spec = MCPToolSpec(
-                    tool_id=tool_definition.get("id", str(uuid.uuid4())),
-                    name=tool_definition["name"],
-                    description=tool_definition["description"],
-                    tool_type=MCPToolType(tool_definition.get("type", "function")),
-                    execution_mode=MCPExecutionMode(tool_definition.get("execution_mode", "inline")),
-                    schema=tool_definition.get("schema", {}),
-                    implementation=tool_definition.get("implementation"),
-                    capabilities=tool_definition.get("capabilities", []),
-                    security_level=tool_definition.get("security_level", "medium"),
-                    tags=tool_definition.get("tags", []),
-                    metadata={
-                        **tool_definition.get("metadata", {}),
-                        "discovered_from": str(mcp_file),
-                        "auto_discovered": True
-                    }
-                )
-                
-                # Register the tool
-                tool_id = await self.register_mcp_tool(mcp_tool_spec)
-                discovered_tools.append(tool_id)
-                
-                print(f"Auto-discovered and registered MCP tool: {mcp_tool_spec.name} ({tool_id})")
-                
-            except Exception as e:
-                print(f"Error discovering MCP tool from {mcp_file}: {e}")
-        
-        return discovered_tools
-    
-    async def search_tools_with_mcp(
-        self,
-        query: str = None,
-        tags: List[str] = None,
-        include_mcp: bool = True,
-        **filters
-    ) -> List[Tool]:
-        """
-        Enhanced search that includes both regular tools and MCP tools
-        
-        Args:
-            query: Search query
-            tags: Tag filters
-            include_mcp: Whether to include MCP tools in results
-            **filters: Additional filters
-            
-        Returns:
-            List of matching tools
-        """
-        
-        # Get regular tools
-        regular_tools = self.search_tools(query=query, tags=tags, **filters)
-        
-        if not include_mcp:
-            return regular_tools
-        
-        # Get MCP tools
-        mcp_tools = []
-        if include_mcp:
-            for tool_id in self.tools_registry:
-                tool = self.tools_registry[tool_id]
-                if tool.metadata.tool_type == ToolType.MCP_TOOL:
-                    # Apply filters to MCP tools
-                    if query and query.lower() not in tool.metadata.name.lower() and query.lower() not in tool.metadata.description.lower():
-                        continue
-                    if tags and not any(tag in tool.metadata.hierarchical_tags.get(TagHierarchy.DOMAIN, []) for tag in tags):
-                        continue
-                    
-                    mcp_tools.append(tool)
-        
-        # Combine and sort results
-        all_tools = regular_tools + mcp_tools
-        
-        # Sort by relevance (success rate and usage count)
-        all_tools.sort(key=lambda t: (t.metadata.success_rate, t.metadata.usage_count), reverse=True)
-        
-        return all_tools
-    
-    async def get_mcp_statistics(self) -> Dict[str, Any]:
-        """Get statistics about MCP tool usage"""
-        return await self.mcp_manager.get_execution_statistics()
 
 
 # Alias for compatibility with existing code

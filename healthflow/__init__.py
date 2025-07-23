@@ -18,7 +18,6 @@ from .core.config import HealthFlowConfig
 from .core.agent import HealthFlowAgent, AgentRole
 from .core.llm_provider import LLMProvider, create_llm_provider
 from .core.memory import MemoryManager, MemoryEntry, MemoryType
-from .core.rewards import calculate_mi_reward, calculate_final_reward
 
 # Tool system
 from .tools.toolbank import ToolBank, Tool, ToolType
@@ -39,8 +38,6 @@ __all__ = [
     "MemoryManager",
     "MemoryEntry", 
     "MemoryType",
-    "calculate_mi_reward",
-    "calculate_final_reward",
     
     # Tools
     "ToolBank",

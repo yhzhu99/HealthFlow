@@ -1,6 +1,6 @@
 """
 HealthFlow Agent System
-Core agent implementation with self-evolution, multi-agent collaboration, and medical task capabilities
+Core agent implementation with multi-agent collaboration and medical task capabilities
 """
 
 import asyncio
@@ -15,7 +15,6 @@ from enum import Enum
 from .llm_provider import LLMProvider, LLMMessage, LLMResponse, create_llm_provider
 from .memory import MemoryManager, MemoryEntry, MemoryType
 from .config import HealthFlowConfig
-from .rewards import calculate_mi_reward, calculate_final_reward
 from ..tools.toolbank import ToolBank
 from ..evaluation.evaluator import TaskEvaluator
 
@@ -70,7 +69,7 @@ class TaskResult:
 
 class HealthFlowAgent:
     """
-    Core HealthFlow Agent with self-evolution and multi-agent capabilities
+    Core HealthFlow Agent with multi-agent collaboration capabilities
     """
 
     def __init__(
@@ -113,9 +112,6 @@ class HealthFlowAgent:
         self.success_rate = 1.0
         self.specialization_areas: List[str] = []
 
-        # Self-evolution parameters
-        self.experience_threshold = 10  # Tasks before evolution
-        self.evolution_generation = 1
 
         # Initialize system prompts based on role
         self.system_prompts = self._initialize_system_prompts()
@@ -189,7 +185,7 @@ process data, and integrate computational tools into medical workflows.
         task_context: Dict[str, Any] = None,
         max_iterations: int = None
     ) -> TaskResult:
-        """Execute a medical task with self-evolution capabilities"""
+        """Execute a medical task with evaluation feedback integration"""
 
         task_id = str(uuid.uuid4())
         task_context = task_context or {}
@@ -305,9 +301,8 @@ process data, and integrate computational tools into medical workflows.
             self.task_history.append(task_result)
             await self._update_success_rate()
 
-            # Trigger self-evolution if needed
-            if len(self.task_history) >= self.experience_threshold:
-                await self._trigger_self_evolution()
+            # Store task evaluation for future learning
+            # (Evaluation-driven improvement will be implemented in Phase 2)
 
             self.current_task = None
             return task_result
@@ -357,7 +352,7 @@ process data, and integrate computational tools into medical workflows.
     ) -> Dict[str, Any]:
         """Plan the execution approach for a task"""
 
-        # Get the best prompt from memory evolution
+        # Get the best prompt from memory
         best_prompt = await self.memory_manager.get_best_prompt("task_planning")
         if not best_prompt:
             best_prompt = self.system_prompts["task_execution"]
@@ -720,124 +715,6 @@ Be specific and actionable in your response.
         except Exception as e:
             print(f"Error processing collaboration request: {e}")
 
-    async def _trigger_self_evolution(self):
-        """Trigger self-evolution based on accumulated experience"""
-
-        # Analyze recent performance
-        recent_tasks = self.task_history[-self.experience_threshold:]
-        success_count = sum(1 for task in recent_tasks if task.success)
-        success_rate = success_count / len(recent_tasks)
-
-        # Get successful and failed experiences
-        successful_experiences = await self.memory_manager.get_successful_experiences(limit=20)
-        failed_experiences = await self.memory_manager.get_failed_experiences(limit=10)
-
-        # Extract patterns
-        if successful_experiences:
-            success_pattern = await self.memory_manager.extract_experience_pattern(successful_experiences)
-
-        if failed_experiences:
-            failure_pattern = await self.memory_manager.extract_experience_pattern(failed_experiences)
-
-        # Evolve prompts based on experience
-        if success_rate < 0.7:  # If performance is below threshold
-            await self._evolve_prompts(successful_experiences, failed_experiences)
-
-        # Update specialization areas
-        await self._update_specializations()
-
-        self.evolution_generation += 1
-
-        # Store evolution memory
-        evolution_memory = MemoryEntry(
-            id=str(uuid.uuid4()),
-            memory_type=MemoryType.PROMPT_EVOLUTION,
-            timestamp=datetime.now(),
-            agent_id=self.agent_id,
-            content={
-                "generation": self.evolution_generation,
-                "success_rate": success_rate,
-                "improvements": "Evolved prompts and specializations based on experience"
-            },
-            success=True
-        )
-        await self.memory_manager.add_memory(evolution_memory)
-
-    async def _evolve_prompts(
-        self,
-        successful_experiences: List[MemoryEntry],
-        failed_experiences: List[MemoryEntry]
-    ):
-        """Evolve agent prompts based on experience"""
-
-        # Analyze what works and what doesn't
-        success_patterns = [exp.content for exp in successful_experiences[:5]]
-        failure_patterns = [exp.content for exp in failed_experiences[:3]]
-
-        evolution_prompt = f"""
-Analyze the following successful and failed task experiences to improve agent performance.
-
-Successful experiences:
-{json.dumps(success_patterns, indent=2)}
-
-Failed experiences:
-{json.dumps(failure_patterns, indent=2)}
-
-Based on this analysis, suggest improvements to the agent's approach:
-1. What patterns lead to success?
-2. What should be avoided?
-3. How can the agent's reasoning be improved?
-4. What additional capabilities might be needed?
-
-Provide specific improvements as a structured response.
-"""
-
-        try:
-            messages = [LLMMessage(role="user", content=evolution_prompt)]
-            response = await self.llm_provider.generate(
-                messages=messages,
-                max_tokens=1500,
-                temperature=0.3
-            )
-
-            # Store evolved prompt
-            performance_metrics = {"success_rate": self.success_rate}
-            improvements = [response.content]
-
-            await self.memory_manager.evolve_prompt(
-                current_prompt=self.system_prompts["base"],
-                performance_metrics=performance_metrics,
-                improvements=improvements
-            )
-
-        except Exception as e:
-            print(f"Error evolving prompts: {e}")
-
-    async def _update_specializations(self):
-        """Update agent specialization areas based on successful tasks"""
-
-        # Analyze successful tasks to identify specialization patterns
-        successful_tasks = [task for task in self.task_history if task.success]
-
-        if len(successful_tasks) >= 5:
-            # Extract common patterns from successful tasks
-            task_descriptions = [task.result for task in successful_tasks[-10:]]
-            # Simple keyword extraction for specialization areas
-            # In a real implementation, this would use more sophisticated NLP
-
-            specialization_areas = []
-            medical_keywords = [
-                'diagnosis', 'treatment', 'analysis', 'research', 'planning',
-                'cardiology', 'oncology', 'neurology', 'radiology'
-            ]
-
-            for keyword in medical_keywords:
-                count = sum(1 for desc in task_descriptions
-                           if keyword.lower() in str(desc).lower())
-                if count >= 3:  # If keyword appears in multiple successful tasks
-                    specialization_areas.append(keyword)
-
-            self.specialization_areas = specialization_areas[:5]  # Keep top 5
 
     async def _load_specializations(self):
         """Load agent specializations from memory"""
@@ -884,6 +761,5 @@ Provide specific improvements as a structured response.
             "total_tasks": len(self.task_history),
             "successful_tasks": sum(1 for task in self.task_history if task.success),
             "specialization_areas": self.specialization_areas,
-            "evolution_generation": self.evolution_generation,
             "collaboration_network_size": len(self.collaboration_network)
         }
