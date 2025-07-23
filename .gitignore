@@ -2,7 +2,6 @@
 *.pdf
 *.png
 assets/
-CLAUDE.md
 GEMINI.md
 debug.*
 TASK.md
