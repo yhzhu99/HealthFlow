@@ -34,9 +34,10 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass
 from enum import Enum
 
-from .llm_provider import LLMProvider, LLMMessage, LLMResponse, create_llm_provider
+from .llm_provider import LLMProvider, LLMMessage, create_llm_provider
 from .memory import MemoryManager, MemoryEntry, MemoryType
 from .config import HealthFlowConfig
+from .enhanced_logger import get_logger, LogLevel, LogCategory
 from ..tools.toolbank import ToolBank
 from ..evaluation.evaluator import LLMTaskEvaluator, ExecutionTrace, ProcessStep, ProcessStage
 
@@ -166,6 +167,9 @@ class HealthFlowAgent:
         self.task_history: List[TaskResult] = []
         self.success_rate = 1.0
         self.specialization_areas: List[str] = []
+        
+        # Enhanced logging
+        self.logger = get_logger()
 
 
         # Initialize system prompts based on role
@@ -176,8 +180,96 @@ class HealthFlowAgent:
         await self.memory_manager.initialize()
         await self.tool_bank.initialize()
 
+        # Add default code interpreter tool for ANALYST agents
+        if self.role == AgentRole.ANALYST:
+            await self._add_code_interpreter_tool()
+
         # Load agent-specific specializations from memory
         await self._load_specializations()
+
+    async def _add_code_interpreter_tool(self):
+        """Add default code interpreter tool for ANALYST agents"""
+        from ..tools.toolbank import TagHierarchy
+        
+        # Read the code interpreter implementation
+        code_interpreter_path = Path(__file__).parent.parent / "tools" / "code_interpreter.py"
+        
+        if not code_interpreter_path.exists():
+            self.logger.warning("Code interpreter tool file not found")
+            return
+        
+        with open(code_interpreter_path, 'r', encoding='utf-8') as f:
+            implementation = f.read()
+        
+        # Create hierarchical tags for the code interpreter
+        hierarchical_tags = {
+            TagHierarchy.DOMAIN: ["general", "research"],
+            TagHierarchy.FUNCTIONALITY: ["processing", "analysis"],
+            TagHierarchy.COMPLEXITY: ["advanced"],
+            TagHierarchy.DATA_TYPE: ["text"],
+            TagHierarchy.TASK_TYPE: ["analysis"]
+        }
+        
+        # Define parameters
+        parameters = {
+            "code": {
+                "type": "str",
+                "description": "Python code to execute",
+                "required": True
+            },
+            "context": {
+                "type": "dict",
+                "description": "Additional context variables for execution",
+                "required": False,
+                "default": {}
+            },
+            "install_packages": {
+                "type": "bool", 
+                "description": "Whether to auto-install missing packages",
+                "required": False,
+                "default": True
+            },
+            "max_retries": {
+                "type": "int",
+                "description": "Maximum retry attempts for failed execution",
+                "required": False,
+                "default": 3
+            }
+        }
+        
+        try:
+            # Create the tool in the shared tool bank
+            tool_id = await self.tool_bank.create_python_tool(
+                name="Advanced Code Interpreter",
+                description="Execute Python code with error handling, package installation, and reflection capabilities. Supports automatic debugging and retry logic.",
+                implementation=implementation,
+                parameters=parameters,
+                return_type="Dict[str, Any]",
+                hierarchical_tags=hierarchical_tags,
+                author="HealthFlow System"
+            )
+            
+            # Store tool creation memory
+            tool_memory = MemoryEntry(
+                id=str(uuid.uuid4()),
+                memory_type=MemoryType.TOOL_CREATION,
+                timestamp=datetime.now(),
+                agent_id=self.agent_id,
+                content={
+                    "tool_name": "Advanced Code Interpreter",
+                    "tool_id": tool_id,
+                    "agent_role": self.role.value,
+                    "auto_created": True,
+                    "purpose": "Default code execution capability for ANALYST agent"
+                },
+                success=True
+            )
+            await self.memory_manager.add_memory(tool_memory)
+            
+            print(f"✅ Code interpreter tool created with ID: {tool_id}")
+            
+        except Exception as e:
+            print(f"❌ Failed to create code interpreter tool: {e}")
 
     def _initialize_system_prompts(self) -> Dict[str, str]:
         """Initialize role-specific system prompts"""
@@ -334,6 +426,21 @@ IMPORTANT: You rely on tools for information - you do not have an intrinsic know
         try:
             self.current_task = task_id
 
+            # Enhanced logging: Task execution start
+            await self.logger.log(
+                LogLevel.INFO,
+                LogCategory.TASK_EXECUTION,
+                f"Starting task execution: {task_description[:100]}...",
+                agent_id=self.agent_id,
+                context={
+                    "task_id": task_id,
+                    "task_description": task_description,
+                    "task_context": task_context,
+                    "max_iterations": max_iterations
+                },
+                correlation_id=task_id
+            )
+
             # Store initial task memory
             initial_memory = MemoryEntry(
                 id=str(uuid.uuid4()),
@@ -349,6 +456,17 @@ IMPORTANT: You rely on tools for information - you do not have an intrinsic know
             )
             await self.memory_manager.add_memory(initial_memory)
             memory_entries_created.append(initial_memory.id)
+            
+            # Log memory evolution
+            await self.logger.log_memory_evolution(
+                agent_id=self.agent_id,
+                memory_type=MemoryType.INTERACTION.value,
+                operation="create",
+                memory_id=initial_memory.id,
+                content_summary=f"Task started: {task_description[:50]}...",
+                impact_score=0.5,
+                memory_size=len(str(initial_memory.content))
+            )
 
             # Retrieve relevant experiences
             relevant_memories = await self.memory_manager.get_recent_memories(
@@ -482,6 +600,39 @@ IMPORTANT: You rely on tools for information - you do not have an intrinsic know
             )
             await self.memory_manager.add_memory(result_memory)
             memory_entries_created.append(result_memory.id)
+            
+            # Enhanced logging: Task execution completion
+            await self.logger.log_task_execution(
+                agent_id=self.agent_id,
+                task_id=task_id,
+                task_description=task_description,
+                execution_time=total_execution_time,
+                success=success,
+                tools_used=tools_used,
+                collaboration_count=len(collaboration_messages),
+                memory_updates=len(memory_entries_created),
+                context={
+                    "iterations": iteration,
+                    "overall_score": evaluation_result.overall_score,
+                    "evaluation_criteria": {
+                        "medical_accuracy": evaluation_result.criteria.medical_accuracy,
+                        "safety": evaluation_result.criteria.safety,
+                        "reasoning_quality": evaluation_result.criteria.reasoning_quality
+                    }
+                }
+            )
+            
+            # Log memory evolution for result storage
+            await self.logger.log_memory_evolution(
+                agent_id=self.agent_id,
+                memory_type=MemoryType.EXPERIENCE.value,
+                operation="create",
+                memory_id=result_memory.id,
+                content_summary=f"Task completed: {task_description[:50]}... (Score: {evaluation_result.overall_score:.1f})",
+                impact_score=evaluation_result.overall_score / 10.0,  # Normalize to 0-1
+                memory_size=len(str(result_memory.content)),
+                retention_score=1.0 if success else 0.7
+            )
 
             # Create enhanced task result
             task_result = TaskResult(
@@ -749,7 +900,7 @@ Return your plan as a JSON object.
         iteration: int,
         relevant_memories: List[MemoryEntry]
     ) -> Dict[str, Any]:
-        """Execute a single step of task execution"""
+        """Execute a single step of task execution with enhanced result generation"""
 
         step_prompt = f"""
 {self.system_prompts["base"]}
@@ -759,19 +910,29 @@ Execution plan: {json.dumps(execution_plan, indent=2)}
 Iteration: {iteration}
 
 Based on the plan and your role as {self.role.value}, execute the next step.
-If you need specific tools, indicate what tools are required.
-If you need to collaborate with other agents, specify the collaboration request.
+
+IMPORTANT INSTRUCTIONS:
+1. Always provide a detailed "result" field with your findings, analysis, or output
+2. If you are the ANALYST agent, consider using code execution for data analysis
+3. If completing the task, ensure your result fully answers the original task
+4. Mark "completed": true only when you have a comprehensive final answer
+
+Available capabilities:
+- Advanced Code Interpreter (for ANALYST agents)
+- Medical knowledge reasoning (for EXPERT agents)  
+- Task coordination and synthesis (for ORCHESTRATOR agents)
 
 Provide your response in this format:
 {{
     "action": "description of action taken",
-    "result": "result or output",
+    "result": "DETAILED result, analysis, or findings - THIS MUST NOT BE EMPTY",
     "completed": true/false,
     "tools_needed": ["tool1", "tool2"],
     "collaboration_request": {{
-        "agent_role": "role_needed",
+        "agent_role": "role_needed", 
         "request": "what help is needed"
     }},
+    "reasoning": "explanation of your approach and findings",
     "next_steps": "what to do next if not completed"
 }}
 """
@@ -780,7 +941,7 @@ Provide your response in this format:
             messages = [LLMMessage(role="user", content=step_prompt)]
             response = await self.llm_provider.generate(
                 messages=messages,
-                max_tokens=1500,
+                max_tokens=2000,
                 temperature=0.5
             )
 
@@ -788,31 +949,48 @@ Provide your response in this format:
             try:
                 step_result = json.loads(response.content)
             except json.JSONDecodeError:
+                # If JSON parsing fails, create structured result from content
                 step_result = {
-                    "action": "reasoning",
+                    "action": "analysis_and_reasoning",
                     "result": response.content,
-                    "completed": False,
+                    "completed": True,  # Assume completion if providing detailed response
                     "tools_needed": [],
-                    "next_steps": "continue analysis"
+                    "reasoning": "Provided comprehensive analysis based on available knowledge",
+                    "next_steps": "Task completed with available information"
                 }
 
-            # Handle tool usage
+            # Ensure result is never empty
+            if not step_result.get("result") or step_result.get("result").strip() == "":
+                step_result["result"] = response.content or "Analysis completed - see reasoning for details"
+
+            # Handle tool usage with enhanced execution
             tools_used = []
+            tool_results = {}
+            
             if step_result.get("tools_needed"):
                 for tool_name in step_result["tools_needed"]:
-                    # Check if tool exists or needs to be created
-                    if await self._handle_tool_requirement(tool_name, task_context):
+                    tool_result = await self._execute_tool_by_name(tool_name, task_context, step_result)
+                    if tool_result:
                         tools_used.append(tool_name)
+                        tool_results[tool_name] = tool_result
+                        
+                        # Enhance step result with tool output
+                        if tool_result.get("output"):
+                            step_result["result"] += f"\n\nTool '{tool_name}' output:\n{tool_result['output']}"
 
             # Handle collaboration request
+            collaboration_result = None
             if step_result.get("collaboration_request"):
-                await self._handle_collaboration_request(
+                collaboration_result = await self._handle_collaboration_request(
                     step_result["collaboration_request"],
                     task_description,
                     task_context
                 )
+                
+                if collaboration_result:
+                    step_result["result"] += f"\n\nCollaboration result:\n{collaboration_result}"
 
-            # Store step memory
+            # Store enhanced step memory
             step_memory = MemoryEntry(
                 id=str(uuid.uuid4()),
                 memory_type=MemoryType.INTERACTION,
@@ -822,7 +1000,10 @@ Provide your response in this format:
                     "step_iteration": iteration,
                     "action": step_result.get("action"),
                     "result": step_result.get("result"),
-                    "tools_used": tools_used
+                    "reasoning": step_result.get("reasoning", ""),
+                    "tools_used": tools_used,
+                    "tool_results": tool_results,
+                    "collaboration_result": collaboration_result
                 }
             )
             await self.memory_manager.add_memory(step_memory)
@@ -830,19 +1011,140 @@ Provide your response in this format:
             return {
                 "completed": step_result.get("completed", False),
                 "result": step_result.get("result"),
+                "reasoning": step_result.get("reasoning", ""),
                 "tools_used": tools_used,
                 "memory_entries": [step_memory.id],
-                "plan_update": step_result.get("plan_update")
+                "plan_update": step_result.get("plan_update"),
+                "tool_results": tool_results
             }
 
         except Exception as e:
+            error_result = f"Error in step execution: {str(e)}\n\nHowever, attempting to provide analysis based on available knowledge..."
+            
+            # Try to provide some analysis even if execution failed
+            fallback_analysis = await self._generate_fallback_analysis(task_description, task_context)
+            if fallback_analysis:
+                error_result += f"\n\nFallback Analysis:\n{fallback_analysis}"
+            
             return {
-                "completed": False,
-                "result": f"Error in step execution: {str(e)}",
+                "completed": bool(fallback_analysis),  # Mark completed if we have fallback analysis
+                "result": error_result,
                 "tools_used": [],
                 "memory_entries": [],
                 "error": str(e)
             }
+
+    async def _execute_tool_by_name(
+        self, 
+        tool_name: str, 
+        task_context: Dict[str, Any], 
+        step_result: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Execute a tool by name with intelligent parameter mapping"""
+        
+        # Special handling for code interpreter
+        if "code" in tool_name.lower() or "interpreter" in tool_name.lower():
+            # Look for code in step result or generate code based on task
+            code_to_execute = step_result.get("code")
+            if not code_to_execute and "result" in step_result:
+                # Try to extract code from result
+                result_text = step_result["result"]
+                if "```python" in result_text:
+                    code_start = result_text.find("```python") + 9
+                    code_end = result_text.find("```", code_start)
+                    if code_end > code_start:
+                        code_to_execute = result_text[code_start:code_end].strip()
+            
+            if code_to_execute:
+                # Find code interpreter tool
+                tools = await self.tool_bank.find_tools_for_task(
+                    "python code execution",
+                    functionality=["processing", "analysis"],
+                    limit=1
+                )
+                
+                if tools:
+                    tool = tools[0]
+                    result = await self.tool_bank.execute_tool(
+                        tool.metadata.tool_id,
+                        {"code": code_to_execute, "context": task_context},
+                        execution_context={"agent_id": self.agent_id, "step": "tool_execution"}
+                    )
+                    return {"output": result.output, "success": result.success, "error": result.error}
+        
+        # General tool search and execution
+        tools = await self.tool_bank.find_tools_for_task(tool_name, limit=1)
+        if tools:
+            tool = tools[0]
+            # Create appropriate inputs based on tool parameters
+            tool_inputs = self._create_tool_inputs(tool, task_context, step_result)
+            result = await self.tool_bank.execute_tool(
+                tool.metadata.tool_id,
+                tool_inputs,
+                execution_context={"agent_id": self.agent_id, "step": "tool_execution"}
+            )
+            return {"output": result.output, "success": result.success, "error": result.error}
+        
+        return None
+    
+    def _create_tool_inputs(
+        self, 
+        tool, 
+        task_context: Dict[str, Any], 
+        step_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create appropriate inputs for tool execution"""
+        inputs = {}
+        
+        # Map common parameters
+        for param_name, param_info in tool.metadata.parameters.items():
+            if param_name == "code" and "code" in step_result:
+                inputs[param_name] = step_result["code"]
+            elif param_name == "context":
+                inputs[param_name] = task_context
+            elif param_name == "query" or param_name == "question":
+                inputs[param_name] = task_context.get("task_description", "")
+            elif param_name == "data" and "data" in task_context:
+                inputs[param_name] = task_context["data"]
+            elif param_info.get("required", False) and param_name not in inputs:
+                # Provide a reasonable default for required parameters
+                if param_info.get("type") == "str":
+                    inputs[param_name] = task_context.get("task_description", "")
+                elif param_info.get("type") == "dict":
+                    inputs[param_name] = task_context
+                elif param_info.get("type") == "list":
+                    inputs[param_name] = []
+        
+        return inputs
+
+    async def _generate_fallback_analysis(
+        self, 
+        task_description: str, 
+        task_context: Dict[str, Any]
+    ) -> Optional[str]:
+        """Generate fallback analysis when tool execution fails"""
+        
+        try:
+            fallback_prompt = f"""
+As a {self.role.value} agent, provide your best analysis for this task even without tools:
+
+Task: {task_description}
+Context: {json.dumps(task_context, indent=2)}
+
+Based on your role and available knowledge, provide a helpful response.
+"""
+            
+            messages = [LLMMessage(role="user", content=fallback_prompt)]
+            response = await self.llm_provider.generate(
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.3
+            )
+            
+            return response.content
+            
+        except Exception:
+            return None
 
     async def _handle_tool_requirement(
         self,

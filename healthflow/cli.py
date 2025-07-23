@@ -41,6 +41,7 @@ import sys
 from .core.config import HealthFlowConfig
 from .core.agent import HealthFlowAgent, AgentRole
 from .core.llm_provider import create_llm_provider
+from .core.enhanced_logger import EnhancedHealthFlowLogger, set_logger
 from .evaluation.evaluator import LLMTaskEvaluator
 from .tools.toolbank import ToolBank
 
@@ -70,6 +71,7 @@ class HealthFlowCLI:
         # Shared components (core innovation of HealthFlow architecture)
         self.tool_bank: Optional[ToolBank] = None
         self.evaluator: Optional[LLMTaskEvaluator] = None
+        self.enhanced_logger: Optional[EnhancedHealthFlowLogger] = None
         
         self.setup_logging()
 
@@ -107,6 +109,10 @@ class HealthFlowCLI:
         await self._create_agent_network()
 
         self.logger.info("HealthFlow system initialized successfully!")
+        
+        # Export initial system status
+        if self.enhanced_logger:
+            await self._log_system_initialization()
 
     async def _initialize_shared_components(self):
         """
@@ -132,6 +138,15 @@ class HealthFlowCLI:
         evaluation feedback rather than simple success/failure metrics.
         """
         self.logger.info("Initializing shared components...")
+        
+        # Initialize enhanced logger first
+        self.enhanced_logger = EnhancedHealthFlowLogger(
+            log_dir=self.config.memory_dir / "logs",
+            max_log_entries=20000,
+            analytics_window_hours=48
+        )
+        set_logger(self.enhanced_logger)
+        self.logger.info("Enhanced logging system initialized")
         
         # Initialize shared ToolBank
         self.tool_bank = ToolBank(tools_dir=self.config.tools_dir)
@@ -183,6 +198,30 @@ class HealthFlowCLI:
                     agent.add_collaborator(other_agent)
 
         self.logger.info(f"Created {len(self.agents)} agents in collaboration network")
+
+    async def _log_system_initialization(self):
+        """Log comprehensive system initialization details"""
+        from .core.enhanced_logger import LogLevel, LogCategory
+        
+        await self.enhanced_logger.log(
+            LogLevel.INFO,
+            LogCategory.SYSTEM_PERFORMANCE,
+            "HealthFlow system initialization completed",
+            context={
+                "agents_created": len(self.agents),
+                "agent_roles": [agent.role.value for agent in self.agents.values()],
+                "shared_components": {
+                    "tool_bank": bool(self.tool_bank),
+                    "evaluator": bool(self.evaluator),
+                    "enhanced_logger": bool(self.enhanced_logger)
+                },
+                "config_summary": {
+                    "model_name": self.config.model_name,
+                    "max_iterations": self.config.max_iterations,
+                    "memory_window": self.config.memory_window
+                }
+            }
+        )
 
     async def execute_task(
         self,
