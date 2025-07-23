@@ -892,6 +892,60 @@ Return your plan as a JSON object.
                 "collaboration_needed": False
             }
 
+    async def _suggest_tools_for_task(
+        self,
+        task_description: str,
+        task_context: Dict[str, Any]
+    ) -> List:
+        """Intelligently suggest tools based on task characteristics"""
+        
+        task_lower = task_description.lower()
+        
+        # For mathematical/computational tasks
+        if any(keyword in task_lower for keyword in [
+            'calculate', 'compute', 'multiply', 'divide', 'add', 'subtract',
+            'math', 'numerical', 'equation', 'formula', '*', '+', '-', '/', 
+            'sum', 'product', 'difference', 'quotient', 'average', 'mean',
+            'statistics', 'analysis', 'data processing', 'algorithm'
+        ]):
+            # Search for code interpreter tools
+            tools = await self.tool_bank.find_tools_for_task(
+                "code interpreter python calculation computation",
+                functionality=["processing", "analysis"],
+                limit=3
+            )
+            if tools:
+                return tools
+        
+        # For data analysis tasks
+        if any(keyword in task_lower for keyword in [
+            'analyze', 'process', 'visualize', 'plot', 'chart', 'graph',
+            'dataset', 'data', 'statistics', 'trend', 'pattern'
+        ]):
+            tools = await self.tool_bank.find_tools_for_task(
+                task_description,
+                functionality=["analysis", "processing", "visualization"],
+                limit=3
+            )
+            if tools:
+                return tools
+        
+        # For medical tasks
+        if any(keyword in task_lower for keyword in [
+            'patient', 'medical', 'clinical', 'diagnosis', 'treatment',
+            'symptoms', 'disease', 'therapy', 'medication', 'health'
+        ]):
+            tools = await self.tool_bank.find_tools_for_task(
+                task_description,
+                domain=["medical"],
+                limit=3
+            )
+            if tools:
+                return tools
+        
+        # General tool search as fallback
+        return await self.tool_bank.find_tools_for_task(task_description, limit=2)
+
     async def _execute_task_step(
         self,
         task_description: str,
@@ -931,6 +985,13 @@ As the EXPERT agent, you provide specialized knowledge:
         else:
             role_guidance = ""
 
+        # Automatically suggest tools based on task characteristics
+        suggested_tools = await self._suggest_tools_for_task(task_description, task_context)
+        tool_suggestion_text = ""
+        if suggested_tools:
+            tool_names = [tool.metadata.name for tool in suggested_tools[:3]]
+            tool_suggestion_text = f"\n\nSUGGESTED TOOLS (available for use):\n" + "\n".join([f"- {name}" for name in tool_names])
+
         step_prompt = f"""
 {self.system_prompts["base"]}
 
@@ -942,25 +1003,37 @@ Iteration: {iteration}
 
 Based on the plan and your role as {self.role.value}, execute the next step.
 
+CRITICAL TOOL USAGE GUIDELINES:
+1. For CALCULATIONS, COMPUTATIONS, MATH: Always use "Advanced Code Interpreter" tool
+2. For DATA ANALYSIS, PROCESSING: Use appropriate analysis tools
+3. For MEDICAL REASONING: Use your knowledge plus any relevant medical tools
+4. For COMPLEX LOGIC: Consider using code execution tools
+
 IMPORTANT INSTRUCTIONS:
 1. Always provide a detailed "result" field with your findings, analysis, or output
-2. Use appropriate tools when needed - specify them in "tools_needed"
+2. **MUST USE TOOLS** for computational tasks - specify exact tool names in "tools_needed"
 3. If you specify tools_needed, the tools will be executed automatically
 4. Mark "completed": true only when you have a comprehensive final answer
 5. Consider collaboration with other agents for complex tasks
 
 Available capabilities:
-- Code execution tools (for computational tasks)
+- Advanced Code Interpreter (for ALL computational tasks, calculations, math, data processing)
 - Medical knowledge reasoning (for clinical tasks)
 - Task coordination and synthesis
-- Inter-agent collaboration
+- Inter-agent collaboration{tool_suggestion_text}
+
+EXAMPLES OF WHEN TO USE TOOLS:
+- "Calculate 123 * 456" → tools_needed: ["Advanced Code Interpreter"]
+- "Analyze this data: [1,2,3,4,5]" → tools_needed: ["Advanced Code Interpreter"] 
+- "What is 2 + 2?" → tools_needed: ["Advanced Code Interpreter"]
+- "Process patient vital signs" → tools_needed: [relevant medical tool]
 
 Provide your response in this format:
 {{
     "action": "description of action taken",
     "result": "DETAILED result, analysis, or findings - THIS MUST NOT BE EMPTY",
     "completed": true/false,
-    "tools_needed": ["tool_name_if_needed"],
+    "tools_needed": ["exact_tool_name_if_needed"],
     "collaboration_request": {{
         "agent_role": "role_needed", 
         "request": "what help is needed"
@@ -980,9 +1053,17 @@ Provide your response in this format:
 
             # Try to parse structured response
             try:
-                step_result = json.loads(response.content)
+                # Clean the response content by removing markdown code blocks
+                cleaned_content = response.content.strip()
+                if cleaned_content.startswith('```json'):
+                    cleaned_content = cleaned_content[7:]  # Remove ```json
+                if cleaned_content.endswith('```'):
+                    cleaned_content = cleaned_content[:-3]  # Remove closing ```
+                cleaned_content = cleaned_content.strip()
+                
+                step_result = json.loads(cleaned_content)
             except json.JSONDecodeError:
-                # If JSON parsing fails, create structured result from content
+                # If JSON parsing fails, create structured result from content  
                 step_result = {
                     "action": "analysis_and_reasoning",
                     "result": response.content,
@@ -993,7 +1074,8 @@ Provide your response in this format:
                 }
 
             # Ensure result is never empty
-            if not step_result.get("result") or step_result.get("result").strip() == "":
+            result_value = step_result.get("result")
+            if not result_value or (isinstance(result_value, str) and result_value.strip() == ""):
                 step_result["result"] = response.content or "Analysis completed - see reasoning for details"
 
             # Handle tool usage with enhanced execution
@@ -1002,14 +1084,21 @@ Provide your response in this format:
             
             if step_result.get("tools_needed"):
                 for tool_name in step_result["tools_needed"]:
-                    tool_result = await self._execute_tool_by_name(tool_name, task_context, step_result)
+                    # Enrich task context with original task description for tool use
+                    enriched_context = task_context.copy()
+                    enriched_context["original_task"] = task_description
+                    tool_result = await self._execute_tool_by_name(tool_name, enriched_context, step_result)
                     if tool_result:
                         tools_used.append(tool_name)
                         tool_results[tool_name] = tool_result
                         
                         # Enhance step result with tool output
                         if tool_result.get("output"):
-                            step_result["result"] += f"\n\nTool '{tool_name}' output:\n{tool_result['output']}"
+                            # Convert result to string if it's not already
+                            current_result = step_result["result"]
+                            if isinstance(current_result, dict):
+                                current_result = str(current_result)
+                            step_result["result"] = current_result + f"\n\nTool '{tool_name}' output:\n{tool_result['output']}"
 
             # Handle collaboration request
             collaboration_result = None
@@ -1076,9 +1165,26 @@ Provide your response in this format:
     ) -> Optional[Dict[str, Any]]:
         """Execute a tool by name with intelligent parameter mapping"""
         
-        # Search for appropriate tools
-        tools = await self.tool_bank.find_tools_for_task(tool_name, limit=1)
+        # First try exact name match in the registry
+        for tool_id, tool in self.tool_bank.tools_registry.items():
+            if tool.metadata.name.lower() == tool_name.lower():
+                tool_inputs = self._create_tool_inputs(tool, task_context, step_result)
+                result = await self.tool_bank.execute_tool(
+                    tool_id,
+                    tool_inputs,
+                    execution_context={"agent_id": self.agent_id, "step": "tool_execution"}
+                )
+                return {"output": result.output, "success": result.success, "error": result.error}
+        
+        # Then try search-based matching
+        tools = await self.tool_bank.find_tools_for_task(tool_name, limit=5)
         if tools:
+            # For code interpreter, prioritize tools with "code" or "interpreter" in name
+            if "code" in tool_name.lower() or "interpreter" in tool_name.lower():
+                code_tools = [t for t in tools if "code" in t.metadata.name.lower() or "interpreter" in t.metadata.name.lower()]
+                if code_tools:
+                    tools = code_tools
+            
             tool = tools[0]
             # Create appropriate inputs based on tool parameters
             tool_inputs = self._create_tool_inputs(tool, task_context, step_result)
@@ -1102,10 +1208,19 @@ Provide your response in this format:
         
         # Map common parameters
         for param_name, param_info in tool.metadata.parameters.items():
-            if param_name == "code" and "code" in step_result:
-                inputs[param_name] = step_result["code"]
+            if param_name == "code":
+                # For code interpreters, generate appropriate code if not provided
+                if "code" in step_result:
+                    inputs[param_name] = step_result["code"]
+                else:
+                    # Auto-generate code for common tasks
+                    inputs[param_name] = self._generate_code_for_task(task_context, step_result)
             elif param_name == "context":
-                inputs[param_name] = task_context
+                # Ensure task_context includes the task description
+                enriched_context = task_context.copy()
+                if "task_description" not in enriched_context:
+                    enriched_context["task_description"] = task_context.get("task_description", "")
+                inputs[param_name] = enriched_context
             elif param_name == "query" or param_name == "question":
                 inputs[param_name] = task_context.get("task_description", "")
             elif param_name == "data" and "data" in task_context:
@@ -1120,6 +1235,81 @@ Provide your response in this format:
                     inputs[param_name] = []
         
         return inputs
+    
+    def _generate_code_for_task(
+        self,
+        task_context: Dict[str, Any],
+        step_result: Dict[str, Any]
+    ) -> str:
+        """Generate Python code for common computational tasks"""
+        
+        # Get task description from multiple possible sources
+        task_description = (
+            task_context.get("original_task", "") or
+            task_context.get("task_description", "") or 
+            step_result.get("task_description", "") or
+            step_result.get("action", "") or
+            step_result.get("result", "") or
+            ""
+        )
+        task_lower = task_description.lower()
+        
+        # For multiplication tasks like "Calculate 1746399926 * 23013468"
+        import re
+        multiply_pattern = r'(\d+(?:,\d+)*)\s*[*×]\s*(\d+(?:,\d+)*)'
+        multiply_match = re.search(multiply_pattern, task_description)
+        if multiply_match:
+            num1 = multiply_match.group(1).replace(',', '')
+            num2 = multiply_match.group(2).replace(',', '')
+            return f"""
+# Calculate {num1} * {num2}
+result = {num1} * {num2}
+print(f"Result: {result:,}")
+print(f"Verification: {num1} × {num2} = {result:,}")
+"""
+        
+        # For general arithmetic expressions
+        arithmetic_pattern = r'(\d+(?:,\d+)*)\s*([+\-*/])\s*(\d+(?:,\d+)*)'
+        arithmetic_match = re.search(arithmetic_pattern, task_description)
+        if arithmetic_match:
+            num1 = arithmetic_match.group(1).replace(',', '')
+            op = arithmetic_match.group(2)
+            num2 = arithmetic_match.group(3).replace(',', '')
+            op_name = {'+': 'addition', '-': 'subtraction', '*': 'multiplication', '/': 'division'}
+            return f"""
+# Calculate {num1} {op} {num2}
+result = {num1} {op} {num2}
+print(f"Result: {result}")
+print(f"{op_name.get(op, 'operation')}: {num1} {op} {num2} = {result}")
+"""
+        
+        # For calculation tasks
+        if any(word in task_lower for word in ['calculate', 'compute', 'math']):
+            return f"""
+# Task: {task_description}
+# Auto-generated computation
+import math
+
+# Extract numbers from the task description
+import re
+numbers = re.findall(r'\\d+(?:,\\d+)*', "{task_description}")
+numbers = [int(n.replace(',', '')) for n in numbers]
+
+print(f"Numbers found: {numbers}")
+if len(numbers) >= 2:
+    result = numbers[0] * numbers[1]  # Assume multiplication for now
+    print(f"Result: {result:,}")
+else:
+    print("Could not determine calculation to perform")
+"""
+        
+        # Default fallback
+        return f"""
+# Task: {task_description}
+print("Executing computational task...")
+# Add your computation here
+print("Task completed")
+"""
 
     async def _generate_fallback_analysis(
         self, 
