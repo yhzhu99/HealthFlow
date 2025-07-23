@@ -11,62 +11,52 @@
 
 ## Overview
 
-HealthFlow is a streamlined, multi-agent AI system designed for complex medical reasoning. Its core innovation lies in a tight loop of **action, evaluation, and reflection**, enabling agents to continuously improve their performance through experience. The system is architected to be simple yet effective, focusing on research-oriented contributions in agent-based healthcare AI, making it an ideal framework for academic exploration and publication.
+HealthFlow is a self-evolving, multi-agent AI system designed for complex medical reasoning. Its core innovation lies in a tight feedback loop of **action, evaluation, and evolution**, enabling the system to continuously improve its collaborative strategies, prompt templates, and even its own toolset through experience.
 
-## 🌟 Core Innovation: Evaluation-Driven Self-Improvement
+Built on the robust and minimalist **Camel AI framework**, HealthFlow prioritizes simplicity, readability, and extensibility. It serves as an ideal platform for research into autonomous agent improvement in the critical domain of healthcare.
 
-HealthFlow's primary contribution is its **self-improvement mechanism guided by a comprehensive, LLM-based evaluator**. Unlike traditional agent systems that learn only from task success or failure, HealthFlow learns from a deep, qualitative critique of its entire process.
+## 🌟 Core Innovation: Evaluation-Driven Self-Evolution
+
+HealthFlow's main contribution is its **self-evolving mechanism**, which treats every component of the agent system—prompts, tools, and collaboration patterns—as a dynamic, improvable asset. This is achieved through a powerful, LLM-driven evaluation and reflection cycle.
 
 The core operational loop is:
 
-1.  **Plan & Act**: An agent formulates a plan and executes a task. During execution, it builds a detailed `ExecutionTrace`, logging every significant action—from reasoning steps to tool calls and inter-agent communication.
-2.  **Evaluate**: A dedicated **LLM-based Evaluator** receives the complete `ExecutionTrace`. It assesses not just the final result, but also the efficiency of the collaboration, the quality of the reasoning steps, and the appropriateness of tool usage across multiple medical and operational criteria.
-3.  **Reflect & Learn**: The rich, structured feedback from the evaluator is stored as an **Experience** in the agent's memory. This experience, containing a multi-faceted critique and actionable suggestions, becomes a powerful supervision signal to evolve all aspects of the system, including agent behavior, prompt templates, and even the tools themselves.
+1.  **Plan & Act**: A user task is processed by a society of agents (a Camel AI `Workforce`). The agents collaborate to solve the task, generating a detailed conversation trace that logs every reasoning step, tool call, and message.
+2.  **Evaluate**: A dedicated **LLM-based Evaluator** analyzes the complete conversation trace. It provides a multi-dimensional critique, assessing not just the final outcome's accuracy but also the quality of reasoning, efficiency of tool usage, and effectiveness of agent collaboration.
+3.  **Reflect & Evolve**: The rich, structured feedback from the evaluator is stored as an **Experience** in a shared `MemoryManager`. This experience becomes a powerful supervision signal that drives the autonomous evolution of the system's core components:
+    *   **Prompt Evolution**: Low-performing prompt templates are automatically refined based on evaluator suggestions, and the system learns to select the best-performing prompt for a given task type.
+    *   **Tool Evolution**: If the evaluation identifies a missing capability, the system can task an agent to write, test, and integrate a new tool into its `ToolBank`.
+    *   **Strategy Evolution**: Collaboration patterns are improved by refining the prompts that guide the agents' planning and delegation logic.
 
-This cycle allows HealthFlow to autonomously refine its strategies, enhance its problem-solving capabilities, and build a robust, experience-grounded knowledge base.
+This cycle ensures that HealthFlow's task success rate improves over time, as it learns from every interaction.
 
-## 🏗️ Simplified Architecture
+## 🏗️ Simplified and Effective Architecture
 
-HealthFlow's architecture is designed for clarity, modularity, and research focus. All agents share a single instance of the `ToolBank` and `Evaluator`, promoting resource efficiency and system-wide consistency.
+HealthFlow leverages modern AI frameworks to maintain a clean, modular, and research-focused architecture.
 
-1.  **Core Agent System (`healthflow/core/`)**: A compact multi-agent framework featuring a minimal set of powerful agent roles and an experience-based memory system. Agents are responsible for collecting detailed process traces (`ExecutionTrace`) for evaluation.
-2.  **Shared ToolBank (`healthflow/tools/`)**: A centralized, dynamic tool management system with a hierarchical tagging structure for efficient, non-sequential retrieval.
-3.  **LLM-Based Evaluator (`healthflow/evaluation/`)**: The heart of the self-improvement loop, providing deep, process-oriented feedback by analyzing `ExecutionTrace` objects.
-4.  **CLI Interface (`healthflow/cli.py`)**: A user-friendly command-line interface for interaction, batch processing, and system monitoring.
+1.  **Core Agent System (`healthflow/agents/`)**: Built on **Camel AI**. We use a `Workforce` society to manage the three agent roles. This provides a clear, high-level abstraction for multi-agent collaboration, keeping the codebase simple and easy to follow.
+2.  **MCP-Powered ToolBank (`healthflow/tools/`)**: A dynamic and extensible tool management system implemented as a **Model Context Protocol (MCP) server** using the `fastmcp` library. This decouples tools from the agent logic, allowing them to be added, removed, or updated independently and on-the-fly. The `AnalystAgent` acts as a client to this server.
+3.  **LLM-Based Evaluator (`healthflow/evaluation/`)**: The engine of self-improvement. It analyzes conversation traces and provides structured, actionable feedback.
+4.  **Self-Evolving Memory (`healthflow/core/memory.py`)**: The persistent knowledge layer. It stores not only experiences but also evolving prompt templates and metadata about tool performance, guiding the system's evolution.
+5.  **CLI Interface (`run_healthflow.py`)**: A user-friendly command-line interface for interaction and system monitoring.
 
-## 🤖 Streamlined Agent Roles
+## 🤖 Streamlined Agent Roles within a Camel AI Workforce
 
-To maximize impact and reduce complexity, HealthFlow is distilled to three essential agent roles:
+HealthFlow uses a `Workforce` society from Camel AI, which provides a natural project-manager-and-workers collaboration model. This simplifies the orchestration logic significantly.
 
-*   **OrchestratorAgent**: The central coordinator. It receives user tasks, breaks them down into sub-tasks, and delegates them to the appropriate specialist agent. It manages the overall workflow and synthesizes the final response.
-*   **ExpertAgent**: The core medical reasoning engine. It handles tasks requiring deep clinical expertise, such as differential diagnosis, interpreting complex medical queries, and synthesizing information into clinically relevant insights.
-*   **AnalystAgent**: The data and tool specialist. It is responsible for all tool-heavy and data-intensive operations, such as performing data analysis, executing code, and generating visualizations. Its ability to provide evidence-based insights is directly tied to the capabilities of the tools it can access.
+*   **OrchestratorAgent (Coordinator)**: Acts as the "project manager" of the `Workforce`. It receives user tasks, creates a high-level plan, and delegates sub-tasks to the appropriate specialist agents.
+*   **ExpertAgent (Worker)**: The medical reasoning engine. It handles tasks requiring deep clinical expertise, such as differential diagnosis and evidence synthesis.
+*   **AnalystAgent (Worker)**: The data and tool specialist. It executes all tool-heavy operations by communicating with the MCP ToolBank server. It is also responsible for creating new tools when the system identifies a need.
 
-This streamlined structure fosters clear responsibilities and efficient collaboration.
+This structure, managed by Camel AI, fosters clear responsibilities and efficient, transparent collaboration.
 
-## 🛠️ Hierarchical ToolBank for Efficient Retrieval
+## 🛠️ MCP-Powered ToolBank for Simplicity and Extensibility
 
-HealthFlow features a single, globally accessible `HierarchicalToolBank`. As the number of dynamic tools grows, finding the right one becomes a critical challenge. To solve this, HealthFlow implements a **hierarchical tagging system**.
+Instead of a complex internal tool management system, HealthFlow exposes its tools via a lightweight **MCP server** built with `fastmcp`.
 
-*   **Hierarchical Tags**: Each tool is tagged with metadata across several categories defined in the `TagHierarchy` enum, such as:
-    *   **Domain**: `medical`, `genomic`, `administrative`
-    *   **Functionality**: `analysis`, `visualization`, `data_retrieval`
-    *   **DataType**: `clinical_notes`, `lab_results`, `imaging_reports`
-*   **Efficient Retrieval**: When an agent needs a tool, the `search_tools` method first filters the `ToolBank` by the most relevant tags (e.g., `Domain: medical`, `Functionality: analysis`), dramatically narrowing the search space. It then performs secondary scoring on this small subset, allowing for fast and accurate tool selection even as the system scales.
-*   **Dynamic Creation**: Agents can programmatically generate new Python tools when needed. These new tools are automatically tagged and integrated into the hierarchical structure.
+*   **Simplicity**: Defining a new tool is as easy as writing a Python function and adding a `@mcp.tool` decorator.
+*   **Decoupling**: The ToolBank runs as a separate process, cleanly separating tool logic from agent reasoning.
+*   **Dynamic Evolution**: The core of self-improvement. The `AnalystAgent` can programmatically generate Python code for a new tool and register it with the running MCP server *without a restart*. This allows the agent's capabilities to expand dynamically based on experience.
+*   **Code Interpreter**: The ToolBank includes a powerful code interpreter tool, which leverages Camel AI's safe execution `Interpreter` for running arbitrary Python code.
 
-## 📊 The LLM-Based Evaluator: Engine of Evolution
-
-The `LLMTaskEvaluator` is the cornerstone of HealthFlow's ability to learn and improve. It goes beyond simple outcome scoring by analyzing the entire task lifecycle via an `ExecutionTrace`.
-
-*   **Process and Outcome Monitoring**: The evaluator assesses both the final result and the steps taken to achieve it. It reviews the agent's plan, the sequence of collaboration, tool selection, and reasoning traces.
-*   **Multi-Dimensional Evaluation**: It provides feedback across critical criteria defined in `EvaluationCriteria`:
-    *   `Medical Accuracy` & `Safety`: Correctness and adherence to safety protocols.
-    *   `Reasoning Quality`: The logical soundness of the agent's plan and actions.
-    *   `Tool Usage Efficiency`: The appropriateness and effectiveness of the tools used.
-    *   `Collaboration Effectiveness`: The clarity and efficiency of inter-agent communication.
-    *   `Completeness` & `Clarity`: How well the final output addresses the user's request.
-*   **Rich Supervision Signal**: The evaluator provides a structured JSON output containing scores, detailed textual feedback, and concrete `improvement_suggestions`. This rich signal is the primary driver for evolution, providing actionable insights to:
-    *   **Refine Agent Collaboration Patterns**: "The Orchestrator should have provided more context to the AnalystAgent."
-    *   **Improve Prompt Templates**: "The planning prompt should explicitly ask for potential contraindications."
-    *   **Evolve Tools**: "The data analysis tool should be modified to handle missing values."
+This architecture is simple, robust, and perfectly suited for a self-evolving system.

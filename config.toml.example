@@ -21,45 +21,26 @@ base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-reasoner"
 
-# Data Storage Configuration
-# These directories store the key research components:
-# - Shared ToolBank with hierarchical tagging
-# - Agent memory with experience-based learning
-# - LLMTaskEvaluator process traces and evaluation history
+# Data Storage Configuration for Self-Evolution
 [data]
 data_dir = "./data"                    # Root data directory
-memory_dir = "./data/memory"           # Agent experiences and memories
-tools_dir = "./data/tools"             # Shared ToolBank repository
-cache_dir = "./data/cache"             # System caching
-evaluation_dir = "./data/evaluation"   # LLMTaskEvaluator traces and feedback
+memory_dir = "./data/memory"           # Stores experiences and evolving prompts
+tools_dir = "./data/tools"             # Stores dynamically created tool code
+evaluation_dir = "./data/evaluation"   # Stores evaluation traces and feedback
 
 # Agent System Configuration
-# Settings optimized for the streamlined 3-agent architecture
 [agent]
 max_iterations = 10      # Maximum iterations per task execution
-max_agents = 3          # Streamlined to: Orchestrator, Expert, Analyst
-memory_window = 1000    # Number of recent memories to consider
-tool_timeout = 30       # Tool execution timeout in seconds
+tool_timeout = 120       # Tool execution timeout in seconds
 
-# Evaluation Configuration
-# Settings for the advanced LLMTaskEvaluator - core innovation
+# Evaluation Configuration for Self-Evolution Loop
 [evaluation]
-success_threshold = 7.0              # Overall score threshold for task success
-evaluation_timeout = 60              # LLM evaluation timeout in seconds
-store_process_traces = true          # Store detailed ExecutionTrace data
-multi_dimensional_scoring = true     # Enable full medical criteria evaluation
+success_threshold = 7.5              # Overall score threshold for task success
+evaluation_timeout = 180             # LLM evaluation timeout in seconds
+store_evaluation_traces = true       # Store detailed traces for research and evolution
 
 # Logging Configuration
-# Enhanced logging for research analysis and debugging
 [logging]
 log_level = "INFO"                   # INFO, DEBUG, WARNING, ERROR
 log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-# log_file = "/path/to/healthflow.log"  # Uncomment to enable file logging
-
-# Research Configuration
-# Settings specific to NeurIPS research objectives
-[research]
-collect_detailed_traces = true       # Collect comprehensive ExecutionTrace data
-enable_improvement_tracking = true   # Track system improvement over time
-evaluation_mode = "comprehensive"    # comprehensive, basic, or minimal
-store_collaboration_patterns = true  # Analyze inter-agent collaboration
+log_file = "./healthflow.log"

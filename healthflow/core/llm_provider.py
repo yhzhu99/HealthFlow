@@ -1,122 +1,74 @@
 """
-LLM Provider Abstraction and Implementations
-Support for OpenAI compatible LLM providers.
+LLM Provider Abstraction to support various OpenAI-compatible APIs.
+This is a simplified version for HealthFlow's needs.
 """
-
-import asyncio
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, AsyncIterator
-from dataclasses import dataclass
+from typing import Dict, List, Optional
 
+import httpx
 from openai import AsyncOpenAI
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class LLMMessage:
-    """Represents a message in LLM conversation"""
-    role: str  # "system", "user", "assistant"
+class LLMMessage(BaseModel):
+    role: str
     content: str
-    
-    def to_dict(self) -> Dict[str, str]:
-        return {"role": self.role, "content": self.content}
 
-
-@dataclass
-class LLMResponse:
-    """Response from LLM provider"""
+class LLMResponse(BaseModel):
     content: str
     usage: Optional[Dict[str, int]] = None
     model: Optional[str] = None
-    
-    
+
 class LLMProvider(ABC):
-    """Abstract base class for LLM providers"""
-    
+    @abstractmethod
+    async def generate(
+        self,
+        messages: List[LLMMessage],
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        timeout: int = 120,
+    ) -> LLMResponse:
+        pass
+
+class OpenAICompatibleProvider(LLMProvider):
+    """A provider for any OpenAI-compatible API."""
+
     def __init__(self, api_key: str, base_url: str, model_name: str):
-        self.api_key = api_key
-        self.base_url = base_url
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            http_client=httpx.AsyncClient(
+                proxies=None,
+                transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"),
+            ),
+        )
         self.model_name = model_name
-    
-    @abstractmethod
+
     async def generate(
         self,
         messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        **kwargs
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        timeout: int = 120,
     ) -> LLMResponse:
-        """Generate response from messages"""
-        pass
-    
-    @abstractmethod
-    async def generate_stream(
-        self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        **kwargs
-    ) -> AsyncIterator[str]:
-        """Generate streaming response from messages"""
-        pass
-
-
-class OpenAIProvider(LLMProvider):
-    """OpenAI API provider"""
-    
-    def __init__(self, api_key: str, base_url: str, model_name: str):
-        super().__init__(api_key, base_url, model_name)
-        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-    
-    async def generate(
-        self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        **kwargs
-    ) -> LLMResponse:
-        """Generate response using OpenAI API"""
+        """Generates a response from the LLM."""
         try:
             response = await self.client.chat.completions.create(
                 model=self.model_name,
-                messages=[msg.to_dict() for msg in messages],
+                messages=[msg.model_dump() for msg in messages],
                 max_tokens=max_tokens,
                 temperature=temperature,
-                **kwargs
+                timeout=timeout,
             )
-            
             return LLMResponse(
-                content=response.choices[0].message.content,
-                usage=response.usage.dict() if response.usage else None,
-                model=response.model
+                content=response.choices[0].message.content or "",
+                usage=response.usage.model_dump() if response.usage else None,
+                model=response.model,
             )
         except Exception as e:
-            raise RuntimeError(f"OpenAI API error: {str(e)}")
-    
-    async def generate_stream(
-        self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        **kwargs
-    ) -> AsyncIterator[str]:
-        """Generate streaming response from OpenAI API"""
-        try:
-            stream = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[msg.to_dict() for msg in messages],
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stream=True,
-                **kwargs
-            )
-            
-            async for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
-        except Exception as e:
-            raise RuntimeError(f"OpenAI streaming API error: {str(e)}")
-
+            # logger.error(f"LLM generation failed: {e}", exc_info=True)
+            raise RuntimeError(f"LLM API error: {e}") from e
 
 def create_llm_provider(api_key: str, base_url: str, model_name: str) -> LLMProvider:
-    """Factory function to create LLM provider"""
-    return OpenAIProvider(api_key, base_url, model_name)
+    """Factory function to create the appropriate LLM provider."""
+    return OpenAICompatibleProvider(api_key, base_url, model_name)
