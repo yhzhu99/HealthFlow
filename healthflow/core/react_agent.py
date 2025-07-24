@@ -30,18 +30,20 @@ class ReactAgent:
             logger.info(f"ReAct Round {round_num}/{self.max_rounds}")
 
             try:
-                response = await self.llm_provider.generate(messages=messages, temperature=0.1, max_tokens=2048)
+                # Set temperature to 0.0 for more deterministic and structured output
+                response = await self.llm_provider.generate(messages=messages, temperature=0.0, max_tokens=2048)
                 content = response.content.strip()
                 messages.append(LLMMessage(role="assistant", content=content))
 
-                # Case-insensitive check for final answer
-                if "final_answer:" in content.lower():
-                    final_answer = re.split(r"final_answer:", content, flags=re.IGNORECASE)[1].strip()
-                    logger.info("ReAct agent finished by providing a final answer.")
+                # 1. Check for explicit FINAL_ANSWER keyword.
+                final_answer_match = re.search(r"FINAL_ANSWER:\s*(.*)", content, re.IGNORECASE | re.DOTALL)
+                if final_answer_match:
+                    final_answer = final_answer_match.group(1).strip()
+                    logger.info("ReAct agent finished by providing an explicit FINAL_ANSWER.")
                     return final_answer, messages
 
-                # Case-insensitive and robust action parsing
-                action_match = re.search(r"Action:\s*(.*)", content, re.IGNORECASE)
+                # 2. Check for an action to execute.
+                action_match = re.search(r"Action:\s*([^\n]+)", content, re.IGNORECASE)
                 input_match = re.search(r"Action Input:\s*(.*)", content, re.IGNORECASE | re.DOTALL)
 
                 if action_match and input_match:
@@ -49,31 +51,43 @@ class ReactAgent:
                     action_input = input_match.group(1).strip()
 
                     if not action_name:
-                        logger.warning("Action name is empty. Continuing to next round for clarification.")
+                        observation = "Observation: Error - Action name was empty. Please specify a tool in the 'Action:' line and try again."
+                        messages.append(LLMMessage(role="user", content=observation))
                         continue
 
                     logger.info(f"Executing action: {action_name}")
                     action_result = await self._execute_action(action_name, action_input)
 
                     observation = f"Observation: {action_result}"
-                    # Use 'user' role for observation as per original simple design, to avoid model API errors
                     messages.append(LLMMessage(role="user", content=observation))
                     continue
 
-                # If no action and no final answer, but it's the last round, treat the last response as the answer.
-                if round_num == self.max_rounds:
-                    logger.warning("Max rounds reached. No FINAL_ANSWER found. Returning last content.")
-                    return content, messages
+                # 3. If no FINAL_ANSWER and no valid Action, the format is wrong. Prompt for correction.
+                logger.warning("ReAct response did not contain FINAL_ANSWER or a valid Action. Prompting for correction.")
+                correction_prompt = (
+                    "Observation: Your response was not formatted correctly. "
+                    "You must either use the 'Action:' and 'Action Input:' format to call a tool, "
+                    "or provide a final answer using 'FINAL_ANSWER:'. "
+                    "Please respond in the correct format."
+                )
+                messages.append(LLMMessage(role="user", content=correction_prompt))
 
             except Exception as e:
                 logger.error(f"Error in ReAct round {round_num}: {e}", exc_info=True)
-                error_message = f"An error occurred in the ReAct loop: {e}"
-                messages.append(LLMMessage(role="assistant", content=error_message))
-                return error_message, messages
+                error_message = f"An error occurred in the ReAct loop: {e}. You can try to recover or abort."
+                messages.append(LLMMessage(role="user", content=f"Observation: {error_message}"))
 
-        final_thought = "I couldn't complete the task within the maximum number of reasoning steps."
-        messages.append(LLMMessage(role="assistant", content=final_thought))
-        return final_thought, messages
+        # This part is reached if max rounds are exceeded.
+        logger.warning("Max rounds reached without a definitive answer.")
+        last_thought = "Agent failed to produce an answer within the round limit."
+        # Find the last message from the assistant
+        for msg in reversed(messages):
+            if msg.role == 'assistant':
+                last_thought = msg.content
+                break
+
+        final_message = f"Error: Agent reached maximum iterations ({self.max_rounds}) without providing a FINAL_ANSWER. The task could not be completed. Last thought: {last_thought}"
+        return final_message, messages
 
     async def _execute_action(self, action_name: str, action_input: str) -> str:
         """Executes a tool and returns the result as a string."""
