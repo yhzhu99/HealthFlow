@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HealthFlow V2 Runner
+HealthFlow Runner
 
 Simple, self-evolving healthcare AI system with enhanced logging and clear workflow.
 """
@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from healthflow.core.config import HealthFlowConfig
-from healthflow.system import HealthFlowSystemV2
+from healthflow.system import HealthFlowSystem
 from healthflow.core.enhanced_logging import get_enhanced_logger
 from rich.console import Console
 from rich.panel import Panel
@@ -21,7 +21,7 @@ from rich.table import Table
 
 
 async def main():
-    """Main entry point for HealthFlow V2."""
+    """Main entry point for HealthFlow."""
     console = Console()
     enhanced_logger = get_enhanced_logger()
     
@@ -34,7 +34,7 @@ async def main():
         return 1
     
     # Initialize system
-    system = HealthFlowSystemV2(config)
+    system = HealthFlowSystem(config)
     
     try:
         # Start the system
@@ -42,7 +42,7 @@ async def main():
         
         # Display welcome message
         console.print(Panel(
-            "[bold cyan]HealthFlow V2 - Simple & Self-Evolving Healthcare AI[/bold cyan]\n\n"
+            "[bold cyan]HealthFlow - Simple & Self-Evolving Healthcare AI[/bold cyan]\n\n"
             "[white]Features:[/white]\n"
             "🧠 LLM-driven reasoning with ReAct loops\n"
             "🔄 Self-evolving prompts and strategies\n"
@@ -88,13 +88,13 @@ async def main():
                 continue
         
         # Shutdown
-        console.print("\n[dim]Shutting down HealthFlow V2...[/dim]")
+        console.print("\n[dim]Shutting down HealthFlow...[/dim]")
         await system.stop()
         
         # Display final stats
         status = system.get_system_status()
         console.print(f"\n[green]✅ Completed {status['task_count']} tasks this session[/green]")
-        console.print("[cyan]Thank you for using HealthFlow V2![/cyan]")
+        console.print("[cyan]Thank you for using HealthFlow![/cyan]")
         
         return 0
         
@@ -103,7 +103,7 @@ async def main():
         return 1
 
 
-def display_system_status(console: Console, system: HealthFlowSystemV2):
+def display_system_status(console: Console, system: HealthFlowSystem):
     """Display current system status and metrics."""
     status = system.get_system_status()
     
@@ -144,7 +144,7 @@ def display_system_status(console: Console, system: HealthFlowSystemV2):
 def display_help(console: Console):
     """Display help information."""
     help_text = """
-[bold cyan]HealthFlow V2 Commands:[/bold cyan]
+[bold cyan]HealthFlow Commands:[/bold cyan]
 
 [white]Task Execution:[/white]
 • Simply type your question or task to get started
@@ -156,7 +156,7 @@ def display_help(console: Console):
 [white]System Commands:[/white]
 • [green]status[/green]  - Show system metrics and evolution progress
 • [green]help[/green]    - Show this help message
-• [green]exit[/green]    - Exit HealthFlow V2
+• [green]exit[/green]    - Exit HealthFlow
 
 [white]Features:[/white]
 • 🧠 Intelligent task routing between medical expert and data analyst
@@ -194,7 +194,7 @@ if __name__ == "__main__":
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler('healthflow_v2.log'),
+                logging.FileHandler('healthflow.log'),
                 logging.StreamHandler(sys.stdout)
             ]
         )

@@ -1,5 +1,5 @@
 """
-HealthFlow System V2 - Simplified and Self-Evolving
+HealthFlow System - Simplified and Self-Evolving
 
 A clean, LLM-driven healthcare AI system that emphasizes simplicity and self-improvement.
 Features ReAct loops, simplified prompts, and transparent evolution tracking.
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 enhanced_logger = get_enhanced_logger()
 
 
-class HealthFlowSystemV2:
+class HealthFlowSystem:
     """
     Simple, self-evolving healthcare AI system.
     
@@ -43,10 +43,27 @@ class HealthFlowSystemV2:
         self.interpreter = SimpleHealthcareInterpreter()
         
         # Evolution management
-        self.evolution_config = EvolutionConfig(config.memory_dir / "evolution")
+        from pathlib import Path
+        memory_path = Path(config.memory_dir)
+        self.evolution_config = EvolutionConfig(memory_path / "evolution")
+        
+        # Initialize MCP tool server
+        from healthflow.tools.mcp_server import MCPToolServer
+        self.tool_server = MCPToolServer(tools_dir=memory_path / "tools")
         
         # Memory management
-        self.memory_manager = MemoryManager(config.memory_dir)
+        self.memory_manager = MemoryManager(memory_path)
+        
+        # Initialize memory manager
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(self.memory_manager.initialize())
+            else:
+                loop.run_until_complete(self.memory_manager.initialize())
+        except RuntimeError:
+            asyncio.run(self.memory_manager.initialize())
         
         # Simple evaluator
         self.evaluator = LLMTaskEvaluator(config=config)
@@ -63,22 +80,27 @@ class HealthFlowSystemV2:
     
     async def start(self):
         """Start the system."""
-        logger.info("🚀 Starting HealthFlow V2 - Simple & Self-Evolving")
+        logger.info("🚀 Starting HealthFlow - Simple & Self-Evolving")
+        
+        # Start MCP tool server
+        await self.tool_server.start()
         
         # Initialize agents with evolved prompts
         self._initialize_agents()
         
         self.is_running = True
-        logger.info("✅ HealthFlow V2 started successfully")
+        logger.info("✅ HealthFlow started successfully")
     
     async def stop(self):
         """Stop the system."""
         if self.is_running:
-            logger.info("🛑 Stopping HealthFlow V2...")
+            logger.info("🛑 Stopping HealthFlow...")
             # Save evolution state
             self.evolution_config.save_all()
+            # Stop tool server
+            await self.tool_server.stop()
             self.is_running = False
-            logger.info("✅ HealthFlow V2 stopped")
+            logger.info("✅ HealthFlow stopped")
     
     def _initialize_agents(self):
         """Initialize agents with the best evolved prompts."""
@@ -134,10 +156,13 @@ class HealthFlowSystemV2:
                 token_limit=4096
             )
             
+            # Analyst agent gets the tool
+            camel_tool = self.tool_server.as_camel_tool()
             self.analyst_agent = ChatAgent(
                 system_message=analyst_sys_msg,
                 model=model,
-                token_limit=4096
+                token_limit=4096,
+                tools=[camel_tool]
             )
             
             logger.info("✅ Agents initialized successfully")

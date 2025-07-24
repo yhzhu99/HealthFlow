@@ -266,8 +266,12 @@ class EvolutionConfig:
         """Get the best performing prompt for a role."""
         if role not in self.prompts or not self.prompts[role]:
             # Return detailed default prompts with baseline score
-            from .prompts import _PROMPTS
-            return _PROMPTS.get(role, _PROMPTS["orchestrator"]), 7.0  # Give default prompts a baseline score
+            try:
+                from .prompts import _PROMPTS
+                return _PROMPTS.get(role, _PROMPTS["orchestrator"]), 7.0  # Give default prompts a baseline score
+            except ImportError:
+                # Fallback if prompts module is not available
+                return self._get_fallback_prompt(role), 7.0
         
         # Get the highest scoring prompt
         best_prompt = max(self.prompts[role], key=lambda p: p.score)
@@ -331,3 +335,12 @@ class EvolutionConfig:
         """Check if the system should evolve based on task count."""
         frequency = self.get_system_param("evolution_frequency", 5)
         return task_count % frequency == 0
+    
+    def _get_fallback_prompt(self, role: str) -> str:
+        """Get fallback prompt when prompts module is not available."""
+        fallback_prompts = {
+            "orchestrator": "You are the Orchestrator Agent. Plan and coordinate tasks between medical experts and data analysts.",
+            "expert": "You are the Expert Agent. Provide medical expertise and clinical knowledge.",
+            "analyst": "You are the Analyst Agent. Perform data analysis and computational tasks using Python tools."
+        }
+        return fallback_prompts.get(role, "You are a helpful assistant.")
