@@ -2,11 +2,10 @@
 ReAct (Reasoning and Acting) Agent implementation using OpenAI's native format.
 """
 import logging
-from typing import List, Dict, Any, Optional
-import json
-import asyncio
+import re
+from typing import List, Optional
 
-from .llm_provider import LLMProvider, LLMMessage, LLMResponse
+from .llm_provider import LLMMessage, LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +17,11 @@ class ReactAgent:
         self.tools_manager = tools_manager
         self.max_rounds = max_rounds
 
-    async def run(self, task: str, system_prompt: str) -> str:
-        """Run the ReAct loop for the given task."""
+    async def run(self, task: str, system_prompt: str) -> tuple[str, List[LLMMessage]]:
+        """Run the ReAct loop and return the final answer and the conversation history."""
         logger.info(f"ReAct Agent starting task: {task[:100]}...")
 
-        # Initialize conversation with system prompt and task
-        messages = [
+        messages: List[LLMMessage] = [
             LLMMessage(role="system", content=system_prompt),
             LLMMessage(role="user", content=f"Task: {task}")
         ]
@@ -32,71 +30,57 @@ class ReactAgent:
             logger.info(f"ReAct Round {round_num}/{self.max_rounds}")
 
             try:
-                # Get LLM response
-                response = await self.llm_provider.generate(
-                    messages=messages,
-                    temperature=0.1,
-                    max_tokens=2048
-                )
-
+                response = await self.llm_provider.generate(messages=messages, temperature=0.1, max_tokens=2048)
                 content = response.content.strip()
                 messages.append(LLMMessage(role="assistant", content=content))
 
-                # Parse the response for actions
-                if "FINAL_ANSWER:" in content:
-                    # Extract final answer
-                    final_answer = content.split("FINAL_ANSWER:", 1)[1].strip()
+                # Case-insensitive check for final answer
+                if "final_answer:" in content.lower():
+                    final_answer = re.split(r"final_answer:", content, flags=re.IGNORECASE)[1].strip()
                     logger.info("ReAct agent finished by providing a final answer.")
-                    return final_answer
+                    return final_answer, messages
 
-                # Look for tool usage
-                if "Action:" in content and "Action Input:" in content:
-                    action_result = await self._execute_action(content)
-                    if action_result:
-                        # Add observation to conversation
-                        observation = f"Observation: {action_result}"
-                        messages.append(LLMMessage(role="user", content=observation))
+                # Case-insensitive and robust action parsing
+                action_match = re.search(r"Action:\s*(.*)", content, re.IGNORECASE)
+                input_match = re.search(r"Action Input:\s*(.*)", content, re.IGNORECASE | re.DOTALL)
+
+                if action_match and input_match:
+                    action_name = action_match.group(1).strip()
+                    action_input = input_match.group(1).strip()
+
+                    if not action_name:
+                        logger.warning("Action name is empty. Continuing to next round for clarification.")
                         continue
 
-                # If no action and no final answer, treat as final answer
-                logger.info("ReAct agent finished by providing a final text answer.")
-                return content
+                    logger.info(f"Executing action: {action_name}")
+                    action_result = await self._execute_action(action_name, action_input)
+
+                    observation = f"Observation: {action_result}"
+                    # Use 'user' role for observation as per original simple design, to avoid model API errors
+                    messages.append(LLMMessage(role="user", content=observation))
+                    continue
+
+                # If no action and no final answer, but it's the last round, treat the last response as the answer.
+                if round_num == self.max_rounds:
+                    logger.warning("Max rounds reached. No FINAL_ANSWER found. Returning last content.")
+                    return content, messages
 
             except Exception as e:
-                logger.error(f"Error in ReAct round {round_num}: {e}")
-                # Continue to next round or return error message
-                if round_num == self.max_rounds:
-                    return f"I encountered an error while processing your request: {str(e)}"
-                continue
+                logger.error(f"Error in ReAct round {round_num}: {e}", exc_info=True)
+                error_message = f"An error occurred in the ReAct loop: {e}"
+                messages.append(LLMMessage(role="assistant", content=error_message))
+                return error_message, messages
 
-        return "I couldn't complete the task within the maximum number of reasoning steps."
+        final_thought = "I couldn't complete the task within the maximum number of reasoning steps."
+        messages.append(LLMMessage(role="assistant", content=final_thought))
+        return final_thought, messages
 
-    async def _execute_action(self, content: str) -> Optional[str]:
-        """Execute an action from the LLM response."""
+    async def _execute_action(self, action_name: str, action_input: str) -> str:
+        """Executes a tool and returns the result as a string."""
+        logger.debug(f"Attempting to execute tool '{action_name}' with input: '{action_input[:200]}'")
         try:
-            # Parse action and input
-            lines = content.split('\n')
-            action_name = None
-            action_input = None
-
-            for line in lines:
-                if line.startswith("Action:"):
-                    action_name = line.split("Action:", 1)[1].strip()
-                elif line.startswith("Action Input:"):
-                    action_input = line.split("Action Input:", 1)[1].strip()
-
-            if not action_name or not action_input:
-                return None
-
-            # Execute the tool
-            if hasattr(self.tools_manager, 'execute_tool'):
-                result = await self.tools_manager.execute_tool(action_name, action_input)
-                return str(result) if result is not None else "Tool executed successfully."
-            else:
-                # Fallback for synchronous tool execution
-                result = self.tools_manager.call_tool(action_name, action_input)
-                return str(result) if result is not None else "Tool executed successfully."
-
+            result = await self.tools_manager.execute_tool(action_name, action_input)
+            return str(result) if result is not None else "Tool executed successfully with no return value."
         except Exception as e:
-            logger.error(f"Error executing action: {e}")
-            return f"Error executing action: {str(e)}"
+            logger.error(f"Error executing action '{action_name}': {e}", exc_info=True)
+            return f"Error: Failed to execute tool '{action_name}'. Reason: {e}"

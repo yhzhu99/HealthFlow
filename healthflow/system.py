@@ -27,9 +27,11 @@ class HealthFlowSystem:
         self.memory_manager = MemoryManager(self.config.memory_dir)
         self.evolution_manager = EvolutionManager(self.config.evolution_dir)
         self.tool_manager = ToolManager()
-        self.react_agent = ReactAgent(self.llm_provider, self.tool_manager)
+        self.react_agent = ReactAgent(self.llm_provider, self.tool_manager, max_rounds=self.config.max_react_rounds)
         self.evaluator = LLMTaskEvaluator(self.config, self.llm_provider)
         self._task_counter = 0
+        self.conversation_history: List[LLMMessage] = []
+
 
         # Load evolved prompts
         self.prompts = {
@@ -143,6 +145,11 @@ class HealthFlowSystem:
             # Save evolution data
             self.evolution_manager.save_all()
 
+            # Store conversation history for context in next turn
+            self.conversation_history.append(LLMMessage(role="user", content=user_input))
+            self.conversation_history.append(LLMMessage(role="assistant", content=result))
+
+
             execution_time = time.time() - start_time
             logger.info(f"--- Finished Task #{self._task_counter} in {execution_time:.2f}s. Success: {evaluation.overall_success} ---")
 
@@ -167,11 +174,27 @@ class HealthFlowSystem:
             }
 
     async def _orchestrator_plan(self, user_input: str) -> Optional[Dict[str, str]]:
-        """Get execution plan from orchestrator."""
+        """Get execution plan from orchestrator, including conversation history for context."""
         try:
+            # Create a string from the recent conversation history (last 3 turns)
+            history_str = "\n".join([f"{msg.role.capitalize()}: {msg.content}" for msg in self.conversation_history[-6:]])
+
+            # The user message for the orchestrator now includes history
+            user_prompt = f"""Review the conversation history and the latest user task to create a plan.
+
+CONVERSATION HISTORY:
+{history_str if history_str else "No history yet."}
+
+---
+LATEST USER TASK:
+"{user_input}"
+
+---
+Your output must be a JSON object with 'plan' and 'strategy' keys. Strategy must be one of: ['analyst_only', 'expert_only', 'expert_then_analyst'].
+"""
             messages = [
                 LLMMessage(role="system", content=self.prompts['orchestrator']['prompt']),
-                LLMMessage(role="user", content=f"Analyze this task and create a plan. Your output must be a JSON object with 'plan' and 'strategy' keys. Strategy must be one of: ['analyst_only', 'expert_only', 'expert_then_analyst'].\n\nTask: {user_input}")
+                LLMMessage(role="user", content=user_prompt)
             ]
 
             response = await self.llm_provider.generate(messages, temperature=0.1)
@@ -190,7 +213,9 @@ class HealthFlowSystem:
 
         messages = [
             LLMMessage(role="system", content=self.prompts['expert']['prompt']),
-            LLMMessage(role="user", content=f"Based on this plan: '{plan}', provide your medical expertise on the following task: '{user_input}'.")
+            # The plan is for the system, not a direct instruction for the expert LLM.
+            # Passing the direct user input is cleaner and avoids confusing the LLM.
+            LLMMessage(role="user", content=user_input)
         ]
 
         response = await self.llm_provider.generate(messages, temperature=0.3)
@@ -198,7 +223,7 @@ class HealthFlowSystem:
         # Create conversation trace
         trace = [
             self._create_trace_message("system", self.prompts['expert']['prompt']),
-            self._create_trace_message("user", f"Based on this plan: '{plan}', provide your medical expertise on the following task: '{user_input}'."),
+            self._create_trace_message("user", user_input),
             self._create_trace_message("assistant", response.content)
         ]
 
@@ -208,27 +233,14 @@ class HealthFlowSystem:
         """Execute using analyst agent (ReAct) only."""
         logger.info("Engaging Analyst Agent with ReAct...")
 
-        system_prompt = f"""You are an Analyst Agent. Your role is to solve analytical tasks using available tools.
+        system_prompt = f"""{self.prompts['analyst']['prompt']}
 
-AVAILABLE TOOLS:
-{self._get_tools_description()}
+Your task plan from the orchestrator is: {plan}
+"""
+        result, react_messages = await self.react_agent.run(user_input, system_prompt)
 
-INSTRUCTIONS:
-1. Think step by step about what you need to do
-2. Use tools when necessary by formatting: Action: tool_name, Action Input: parameters
-3. After using a tool, wait for the Observation before proceeding
-4. When you have the final answer, respond with: FINAL_ANSWER: [your answer]
-
-Your task plan: {plan}"""
-
-        result = await self.react_agent.run(user_input, system_prompt)
-
-        # Create conversation trace (simplified)
-        trace = [
-            self._create_trace_message("system", system_prompt),
-            self._create_trace_message("user", user_input),
-            self._create_trace_message("assistant", result)
-        ]
+        # The ReAct agent now returns the full conversation. We use this to build a proper trace.
+        trace = [self._create_trace_message(msg.role, msg.content) for msg in react_messages]
 
         return result, trace
 
@@ -250,9 +262,9 @@ Your task plan: {plan}"""
     def _create_trace_message(self, role: str, content: str):
         """Create a trace message object."""
         class TraceMessage:
-            def __init__(self, role_name, content):
+            def __init__(self, role_name, content_text):
                 self.role_name = role_name
-                self.content = content
+                self.content = content_text
                 self.meta_dict = {}
 
         return TraceMessage(role, content)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 HealthFlow Runner
 
@@ -54,10 +53,12 @@ async def main():
     try:
         await system.start()
         console.print("[green]✅ System initialized and ready.[/green]")
+        console.print("\nI am the [bold cyan]HealthFlow AI Agent[/bold cyan]. How can I help you today?")
+
 
         while True:
             console.print()
-            task_input = console.input("[bold magenta]HealthFlow>[/bold magenta] ").strip()
+            task_input = console.input("[bold magenta]HealthFlow AI>[/bold magenta] ").strip()
 
             if not task_input:
                 continue
