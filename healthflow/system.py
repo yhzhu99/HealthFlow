@@ -20,6 +20,7 @@ from healthflow.core.simple_interpreter import SimpleHealthcareInterpreter
 from healthflow.core.react_agent import ReactAgent
 from healthflow.core.evolution_config import EvolutionConfig
 from healthflow.core.enhanced_logging import get_enhanced_logger
+from healthflow.core.memory import MemoryManager
 from healthflow.evaluation.evaluator import LLMTaskEvaluator
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,9 @@ class HealthFlowSystemV2:
         
         # Evolution management
         self.evolution_config = EvolutionConfig(config.memory_dir / "evolution")
+        
+        # Memory management
+        self.memory_manager = MemoryManager(config.memory_dir)
         
         # Simple evaluator
         self.evaluator = LLMTaskEvaluator(config=config)

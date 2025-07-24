@@ -133,3 +133,23 @@ class MemoryManager:
         await self._save_prompts()
         logger.info(f"Evolved new prompt '{new_prompt_id}' for role '{role}'.")
         return new_prompt_id
+
+    def store_experience(self, task_id: str, task_description: str, evaluation: EvaluationResult, trace: List[Any]):
+        """
+        Synchronous wrapper for add_experience to match the interface expected by the system.
+        """
+        import asyncio
+        try:
+            # Try to get the current event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're in an async context, create a task
+                loop.create_task(self.add_experience(task_id, task_description, trace, evaluation))
+            else:
+                # If no loop is running, run the coroutine
+                loop.run_until_complete(self.add_experience(task_id, task_description, trace, evaluation))
+        except RuntimeError:
+            # No event loop, create one
+            asyncio.run(self.add_experience(task_id, task_description, trace, evaluation))
+        
+        logger.info(f"Stored experience for task {task_id}: {evaluation.overall_score:.2f} score")

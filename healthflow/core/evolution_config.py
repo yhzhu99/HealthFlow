@@ -265,9 +265,9 @@ class EvolutionConfig:
     def get_best_prompt(self, role: str) -> tuple[str, float]:
         """Get the best performing prompt for a role."""
         if role not in self.prompts or not self.prompts[role]:
-            # Return simple default
-            from .simple_prompts import get_simple_prompt
-            return get_simple_prompt(role), 0.0
+            # Return detailed default prompts with baseline score
+            from .prompts import _PROMPTS
+            return _PROMPTS.get(role, _PROMPTS["orchestrator"]), 7.0  # Give default prompts a baseline score
         
         # Get the highest scoring prompt
         best_prompt = max(self.prompts[role], key=lambda p: p.score)
