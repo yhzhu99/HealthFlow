@@ -127,7 +127,18 @@ class HealthFlowSystem:
             # Step 2: Execute the plan using the chosen strategy
             execution_result, trace = await self._execute_plan(plan, strategy, task_description, trace)
             final_result = execution_result
-            success = "error" not in final_result.lower() and "failed" not in final_result.lower()
+
+            # FIX: Better success detection based on actual execution results
+            success = (
+                "error" not in final_result.lower() and
+                "failed" not in final_result.lower() and
+                "exception" not in final_result.lower() and
+                "can't be used in" not in final_result.lower() and
+                "traceback" not in final_result.lower()
+            )
+
+            if not success:
+                logger.warning(f"Execution appears to have failed based on result: {final_result[:200]}...")
 
         except Exception as e:
             logger.error(f"Task execution failed with an exception: {e}", exc_info=True)

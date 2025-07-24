@@ -44,7 +44,17 @@ class ReactAgent:
                     else:
                         role_value = str(msg.role_type).lower()
 
-                    if role_value == 'assistant':
+                    # FIX: Map role types properly
+                    if role_value in ['default', 'system']:
+                        openai_role = 'system'
+                    elif role_value == 'assistant':
+                        openai_role = 'assistant'
+                    elif role_value == 'tool':
+                        openai_role = 'tool'
+                    else:
+                        openai_role = 'user'
+
+                    if openai_role == 'assistant':
                         # Manually construct the dict for the 'assistant' role
                         msg_dict = {'role': 'assistant', 'content': msg.content}
                         if msg.meta_dict and 'tool_calls' in msg.meta_dict and msg.meta_dict['tool_calls']:
@@ -53,26 +63,28 @@ class ReactAgent:
                             if not msg_dict['content']:
                                 msg_dict['content'] = None
                         openai_messages.append(msg_dict)
+                    elif openai_role == 'tool':
+                        # Handle tool response messages
+                        msg_dict = {
+                            'role': 'tool',
+                            'content': msg.content,
+                            'tool_call_id': msg.meta_dict.get('tool_call_id', 'unknown')
+                        }
+                        openai_messages.append(msg_dict)
                     else:
-                        # For other roles, try the library function first, fallback to manual construction
-                        try:
-                            openai_messages.append(
-                                msg.to_openai_message(role_at_backend=role_value)
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to convert message using library method: {e}")
-                            # Fallback to manual construction
-                            openai_messages.append({
-                                'role': role_value if role_value in ['user', 'system', 'tool'] else 'user',
-                                'content': msg.content
-                            })
+                        # For system and user messages
+                        openai_messages.append({
+                            'role': openai_role,
+                            'content': msg.content or ""
+                        })
+
                 except Exception as e:
                     logger.error(f"Error processing message for OpenAI format: {e}")
                     # Ultimate fallback
                     openai_messages.append({'role': 'user', 'content': msg.content or ""})
 
             try:
-                # Call the model backend directly, bypassing ChatAgent.step()
+                # FIX: Call the model backend without await since it's synchronous
                 response_obj = self.agent.model_backend.run(openai_messages)
 
                 if not response_obj or not response_obj.choices:

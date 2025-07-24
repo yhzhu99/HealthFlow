@@ -54,6 +54,10 @@ class LLMTaskEvaluator:
     ) -> EvaluationResult:
         """Evaluates a completed task by analyzing its conversation trace."""
         trace_str = self._format_trace(task_description, conversation_trace)
+
+        # FIX: Check for critical failures BEFORE calling LLM evaluation
+        has_critical_failures = self._has_critical_failures(trace_str, "")
+
         full_prompt = f"Task:\n{task_description}\n\nTrace:\n{trace_str}\n\nEvaluation Instructions:\n{self.evaluation_prompt_template}"
 
         # FIX: The model's run method expects a list of message dictionaries, not a raw string.
@@ -70,10 +74,10 @@ class LLMTaskEvaluator:
 
             eval_data = self._parse_evaluation_response(response_content)
 
-            # FIX: Better handling of evaluation failures
+            # FIX: Better handling of evaluation failures and critical errors
             if not eval_data or "scores" not in eval_data:
                 logger.warning("Evaluation parsing failed or returned empty results")
-                return self._create_fallback_evaluation(task_id, "Evaluation parsing failed")
+                return self._create_fallback_evaluation(task_id, "Evaluation parsing failed", has_critical_failures)
 
             # Calculate weighted score
             scores = eval_data.get("scores", {})
@@ -91,11 +95,16 @@ class LLMTaskEvaluator:
 
             overall_score = (total_score / total_weight) if total_weight > 0 else 0.0
 
+            # FIX: CRITICAL - If there were execution failures, cap the score significantly
+            if has_critical_failures:
+                overall_score = min(overall_score, 2.0)  # Cap at 2.0 if there were critical failures
+                logger.info(f"Critical failures detected, capping score at {overall_score}")
+
             # FIX: More robust success determination
             # Consider a task successful only if it has a reasonable score AND no critical failures
             task_success = (
                 overall_score >= self.config.success_threshold and
-                not self._has_critical_failures(trace_str, response_content)
+                not has_critical_failures
             )
 
             return EvaluationResult(
@@ -110,7 +119,7 @@ class LLMTaskEvaluator:
             )
         except Exception as e:
             logger.error(f"Error during task evaluation: {e}", exc_info=True)
-            return self._create_fallback_evaluation(task_id, str(e))
+            return self._create_fallback_evaluation(task_id, str(e), has_critical_failures)
 
     def _format_trace(self, task_desc: str, trace: List[BaseMessage]) -> str:
         formatted = ""
@@ -157,29 +166,42 @@ class LLMTaskEvaluator:
             "execution failed",
             "timeout",
             "could not",
-            "unable to"
+            "unable to",
+            "can't be used in 'await' expression",  # FIX: Add specific error patterns
+            "TypeError:",
+            "ValueError:",
+            "AttributeError:",
+            "ImportError:",
+            "Failed to get model response",
+            "Error calling model"
         ]
 
         trace_lower = trace_str.lower()
         for indicator in failure_indicators:
-            if indicator in trace_lower:
+            if indicator.lower() in trace_lower:
+                logger.info(f"Critical failure detected with indicator: {indicator}")
                 return True
         return False
 
-    def _create_fallback_evaluation(self, task_id: str, error: str) -> EvaluationResult:
+    def _create_fallback_evaluation(self, task_id: str, error: str, has_critical_failures: bool = True) -> EvaluationResult:
         """Creates a default evaluation result when an error occurs."""
-        # FIX: Don't give a score of 0.0 for evaluation failures, give a low but not zero score
-        # to distinguish between "task failed" and "evaluation failed"
-        fallback_score = 1.0  # Low score indicating evaluation failure
+        # FIX: Score should reflect the actual failure state
+        if has_critical_failures:
+            fallback_score = 1.0  # Very low score for critical failures
+            success = False
+        else:
+            fallback_score = 3.0  # Low score for evaluation failure but no execution failure
+            success = False
 
         return EvaluationResult(
             evaluation_id=str(uuid.uuid4()),
             task_id=task_id,
             timestamp=datetime.now(),
-            overall_success=False,
+            overall_success=success,
             overall_score=fallback_score,
             scores={"success_accuracy": fallback_score, "strategy_reasoning": fallback_score,
                    "tool_usage_agentic_skill": fallback_score, "safety_clarity": fallback_score},
-            executive_summary=f"Evaluation failed due to an error: {error}",
-            improvement_suggestions={"prompt_templates": ["Fix evaluation system to handle edge cases better"]},
+            executive_summary=f"Task evaluation failed or execution had critical errors: {error}",
+            improvement_suggestions={"prompt_templates": ["Fix system errors and improve error handling"],
+                                   "tool_creation": [], "collaboration_strategy": []},
         )
