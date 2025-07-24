@@ -26,18 +26,24 @@ model_name = "deepseek-reasoner"
 data_dir = "./data"                    # Root data directory
 memory_dir = "./data/memory"           # Stores experiences and evolving prompts
 tools_dir = "./data/tools"             # Stores dynamically created tool code
-evaluation_dir = "./data/evaluation"   # Stores evaluation traces and feedback
+evolution_dir = "./data/evolution"     # Stores evolution data
 
 # Agent System Configuration
 [agent]
 max_iterations = 10      # Maximum iterations per task execution
 tool_timeout = 120       # Tool execution timeout in seconds
+max_react_rounds = 8     # Maximum ReAct rounds for complex tasks
 
 # Evaluation Configuration for Self-Evolution Loop
 [evaluation]
-success_threshold = 7.5              # Overall score threshold for task success
+success_threshold = 6.0              # Lowered threshold to encourage evolution
 evaluation_timeout = 180             # LLM evaluation timeout in seconds
 store_evaluation_traces = true       # Store detailed traces for research and evolution
+
+# Evolution Configuration (NEW SECTION)
+[evolution]
+evolution_trigger_score = 6.0        # Score below which evolution is triggered
+evolution_frequency_tasks = 3        # Evolve every N tasks regardless of score
 
 # Logging Configuration
 [logging]

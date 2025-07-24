@@ -1,13 +1,14 @@
 import logging
 import uuid
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict, Optional, List, Tuple
 from pathlib import Path
 
 from camel.agents import ChatAgent
 from camel.models import ModelFactory
-from camel.types import ModelPlatformType
+from camel.types import ModelPlatformType, RoleType
 from camel.messages import BaseMessage
 
 from healthflow.core.config import HealthFlowConfig
@@ -77,7 +78,7 @@ class HealthFlowSystem:
         expert_prompt = self.evolution_manager.get_best_prompt("expert")
         analyst_prompt = self.evolution_manager.get_best_prompt("analyst")
 
-        logger.info(f"Loaded prompts. Orchestrator score: {orchestrator_prompt[1]:.2f}, Analyst score: {analyst_prompt[1]:.2f}")
+        logger.info(f"Loaded prompts. Orchestrator score: {orchestrator_prompt[1]:.2f}, Expert score: {expert_prompt[1]:.2f}, Analyst score: {analyst_prompt[1]:.2f}")
 
         # Create agents
         self.orchestrator_agent = self._create_agent("Orchestrator", orchestrator_prompt[0])
@@ -94,7 +95,13 @@ class HealthFlowSystem:
 
     def _create_agent(self, role: str, system_prompt: str, tools: Optional[List[Any]] = None) -> ChatAgent:
         """Helper to create a ChatAgent."""
-        sys_msg = BaseMessage.make_assistant_message(role_name=f"{role}Agent", content=system_prompt)
+        # FIX: Changed RoleType.SYSTEM to RoleType.DEFAULT since SYSTEM doesn't exist
+        sys_msg = BaseMessage(
+            role_name=f"{role}Agent",
+            role_type=RoleType.DEFAULT,
+            meta_dict={},
+            content=system_prompt,
+        )
         return ChatAgent(system_message=sys_msg, model=self.model, tools=tools)
 
     async def run_task(self, task_description: str) -> Dict[str, Any]:
@@ -131,6 +138,7 @@ class HealthFlowSystem:
         try:
             evaluation_result = await self._evaluate_and_evolve(task_id, task_description, trace, success)
             if evaluation_result:
+                # FIX: Use evaluation result to determine actual success, not just execution success
                 success = evaluation_result.overall_success
                 self.evolution_manager.update_strategy_performance(strategy, success)
         except Exception as e:
@@ -155,7 +163,7 @@ class HealthFlowSystem:
         user_msg = BaseMessage.make_user_message("User", content=f"Analyze this task and create a plan. Your output must be a JSON object with 'plan' and 'strategy' keys. Strategy must be one of: ['analyst_only', 'expert_only', 'expert_then_analyst'].\n\nTask: {task_description}")
         trace.append(user_msg)
 
-        response = await self.orchestrator_agent.step(user_msg)
+        response = self.orchestrator_agent.step(user_msg)
         trace.append(response.msg)
 
         plan_content = response.msg.content
@@ -214,14 +222,12 @@ class HealthFlowSystem:
         expert_prompt = f"Based on this plan: '{plan}', provide your medical expertise on the following task: '{task_desc}'."
         user_msg = BaseMessage.make_user_message("User", content=expert_prompt)
         trace.append(user_msg)
-        response = await self.expert_agent.step(user_msg)
+        response = self.expert_agent.step(user_msg)
         trace.append(response.msg)
         return response.msg.content, trace
 
     async def _evaluate_and_evolve(self, task_id: str, task_desc: str, trace: List, success: bool) -> Optional[EvaluationResult]:
         """Evaluates the task and triggers system evolution if needed."""
-        # This implementation remains the same, no changes needed here.
-        import re
         logger.info("Evaluating task performance...")
         evaluation_result = await self.evaluator.evaluate_task(task_id, task_desc, trace)
         score = evaluation_result.overall_score
@@ -243,7 +249,6 @@ class HealthFlowSystem:
 
     async def _evolve_prompts(self, eval_result: EvaluationResult):
         """Evolves agent prompts based on evaluation feedback."""
-        # This implementation remains the same, no changes needed here.
         feedback = f"Evaluation Summary: {eval_result.executive_summary}. Suggestions: {eval_result.improvement_suggestions.get('prompt_templates', [])}"
 
         for role in ["orchestrator", "expert", "analyst"]:
@@ -255,18 +260,18 @@ class HealthFlowSystem:
                 feedback=feedback
             )
             user_msg = BaseMessage.make_user_message("User", content=evolution_request)
-            response = await evolver_agent.step(user_msg)
+            response = evolver_agent.step(user_msg)
             new_prompt = response.msg.content
 
             if new_prompt and new_prompt != current_prompt:
+                # FIX: Use the evaluation score to update the prompt score, not a default
                 self.evolution_manager.add_prompt_version(role, new_prompt, eval_result.overall_score, feedback)
-                logger.info(f"Evolved prompt for role: {role}")
+                logger.info(f"Evolved prompt for role: {role} with score {eval_result.overall_score:.2f}")
 
         self._initialize_agents()
 
     async def _evolve_tools(self, suggestions: List[str]):
         """Triggers the Analyst agent to create new tools based on suggestions."""
-        # This implementation remains the same, no changes needed here.
         creator_agent = ReactAgent(
             chat_agent=self.analyst_agent,
             tool_manager=self.tool_manager,
@@ -281,7 +286,6 @@ class HealthFlowSystem:
 
     async def get_system_status(self) -> Dict[str, Any]:
         """Retrieves and formats the current system status for display."""
-        # This implementation remains the same, no changes needed here.
         return {
             "task_count": self.task_count,
             "prompt_status": self.evolution_manager.get_prompt_status(),
