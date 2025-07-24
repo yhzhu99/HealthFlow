@@ -1,166 +1,102 @@
+"""
+ReAct (Reasoning and Acting) Agent implementation using OpenAI's native format.
+"""
 import logging
+from typing import List, Dict, Any, Optional
 import json
-from typing import Dict, Any, List, Tuple
+import asyncio
 
-from camel.agents import ChatAgent
-from camel.messages import BaseMessage
-from camel.types import RoleType  # FIX: Import RoleType for proper role handling
-from healthflow.tools.tool_manager import ToolManager
+from .llm_provider import LLMProvider, LLMMessage, LLMResponse
 
 logger = logging.getLogger(__name__)
 
 class ReactAgent:
-    """
-    Implements the ReAct (Reason-Act) loop to enable agentic behavior,
-    especially for complex, multi-step computational tasks.
-    This version manages history manually to bypass issues in ChatAgent.step()
-    with certain OpenAI-compatible APIs.
-    """
-    def __init__(self, chat_agent: ChatAgent, tool_manager: ToolManager, max_rounds: int = 5):
-        self.agent = chat_agent
-        self.tool_manager = tool_manager
+    """ReAct agent that uses reasoning and acting in an iterative loop."""
+
+    def __init__(self, llm_provider: LLMProvider, tools_manager, max_rounds: int = 8):
+        self.llm_provider = llm_provider
+        self.tools_manager = tools_manager
         self.max_rounds = max_rounds
 
-    async def solve_task(self, task_description: str) -> Dict[str, Any]:
-        """
-        Solves a task using an iterative think-act loop with manual history management.
-        """
-        logger.info(f"ReAct Agent starting task: {task_description[:100]}...")
+    async def run(self, task: str, system_prompt: str) -> str:
+        """Run the ReAct loop for the given task."""
+        logger.info(f"ReAct Agent starting task: {task[:100]}...")
 
-        # Manually manage history, starting with the agent's system message.
-        history: List[BaseMessage] = [self.agent.system_message]
-        history.append(BaseMessage.make_user_message("User", task_description))
+        # Initialize conversation with system prompt and task
+        messages = [
+            LLMMessage(role="system", content=system_prompt),
+            LLMMessage(role="user", content=f"Task: {task}")
+        ]
 
-        for i in range(self.max_rounds):
-            logger.info(f"ReAct Round {i+1}/{self.max_rounds}")
-
-            # FIX: Better role handling for different message types
-            openai_messages = []
-            for msg in history:
-                try:
-                    # FIX: Handle different role types more robustly
-                    if hasattr(msg.role_type, 'value'):
-                        role_value = msg.role_type.value
-                    else:
-                        role_value = str(msg.role_type).lower()
-
-                    # FIX: Map role types properly
-                    if role_value in ['default', 'system']:
-                        openai_role = 'system'
-                    elif role_value == 'assistant':
-                        openai_role = 'assistant'
-                    elif role_value == 'tool':
-                        openai_role = 'tool'
-                    else:
-                        openai_role = 'user'
-
-                    if openai_role == 'assistant':
-                        # Manually construct the dict for the 'assistant' role
-                        msg_dict = {'role': 'assistant', 'content': msg.content}
-                        if msg.meta_dict and 'tool_calls' in msg.meta_dict and msg.meta_dict['tool_calls']:
-                            msg_dict['tool_calls'] = [tc.model_dump() for tc in msg.meta_dict['tool_calls']]
-                            # Per OpenAI API spec, content can be null when tool_calls are present
-                            if not msg_dict['content']:
-                                msg_dict['content'] = None
-                        openai_messages.append(msg_dict)
-                    elif openai_role == 'tool':
-                        # Handle tool response messages
-                        msg_dict = {
-                            'role': 'tool',
-                            'content': msg.content,
-                            'tool_call_id': msg.meta_dict.get('tool_call_id', 'unknown')
-                        }
-                        openai_messages.append(msg_dict)
-                    else:
-                        # For system and user messages
-                        openai_messages.append({
-                            'role': openai_role,
-                            'content': msg.content or ""
-                        })
-
-                except Exception as e:
-                    logger.error(f"Error processing message for OpenAI format: {e}")
-                    # Ultimate fallback
-                    openai_messages.append({'role': 'user', 'content': msg.content or ""})
+        for round_num in range(1, self.max_rounds + 1):
+            logger.info(f"ReAct Round {round_num}/{self.max_rounds}")
 
             try:
-                # FIX: Call the model backend without await since it's synchronous
-                response_obj = self.agent.model_backend.run(openai_messages)
+                # Get LLM response
+                response = await self.llm_provider.generate(
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=2048
+                )
 
-                if not response_obj or not response_obj.choices:
-                    final_answer = "Error: Model returned no response or an empty response."
-                    logger.error(final_answer)
-                    return self._prepare_result(final_answer, history, False)
+                content = response.content.strip()
+                messages.append(LLMMessage(role="assistant", content=content))
 
-                # Create a BaseMessage from the raw OpenAI response
-                try:
-                    assistant_response_msg = BaseMessage.from_openai_message(
-                        response_obj.choices[0].message
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to create BaseMessage from OpenAI response: {e}")
-                    # FIX: Fallback manual message creation
-                    assistant_response_msg = BaseMessage(
-                        role_name="Assistant",
-                        role_type=RoleType.ASSISTANT,
-                        meta_dict={},
-                        content=response_obj.choices[0].message.content or ""
-                    )
+                # Parse the response for actions
+                if "FINAL_ANSWER:" in content:
+                    # Extract final answer
+                    final_answer = content.split("FINAL_ANSWER:", 1)[1].strip()
+                    logger.info("ReAct agent finished by providing a final answer.")
+                    return final_answer
 
-                history.append(assistant_response_msg)
+                # Look for tool usage
+                if "Action:" in content and "Action Input:" in content:
+                    action_result = await self._execute_action(content)
+                    if action_result:
+                        # Add observation to conversation
+                        observation = f"Observation: {action_result}"
+                        messages.append(LLMMessage(role="user", content=observation))
+                        continue
+
+                # If no action and no final answer, treat as final answer
+                logger.info("ReAct agent finished by providing a final text answer.")
+                return content
 
             except Exception as e:
-                logger.error(f"Error calling model in ReAct loop: {e}", exc_info=True)
-                return self._prepare_result(f"Failed to get model response: {e}", history, False)
+                logger.error(f"Error in ReAct round {round_num}: {e}")
+                # Continue to next round or return error message
+                if round_num == self.max_rounds:
+                    return f"I encountered an error while processing your request: {str(e)}"
+                continue
 
-            # Check for termination condition in the assistant's text content
-            if assistant_response_msg.content and "<DONE>" in assistant_response_msg.content:
-                logger.info("ReAct agent finished with <DONE> tag.")
-                final_answer = assistant_response_msg.content.replace("<DONE>", "").strip()
-                return self._prepare_result(final_answer, history, True)
+        return "I couldn't complete the task within the maximum number of reasoning steps."
 
-            # Check if the agent wants to use a tool
-            if assistant_response_msg.meta_dict and "tool_calls" in assistant_response_msg.meta_dict:
-                tool_calls = assistant_response_msg.meta_dict["tool_calls"]
+    async def _execute_action(self, content: str) -> Optional[str]:
+        """Execute an action from the LLM response."""
+        try:
+            # Parse action and input
+            lines = content.split('\n')
+            action_name = None
+            action_input = None
 
-                # Execute the tool calls
-                tool_results = await self.tool_manager.execute_tool_calls(tool_calls)
+            for line in lines:
+                if line.startswith("Action:"):
+                    action_name = line.split("Action:", 1)[1].strip()
+                elif line.startswith("Action Input:"):
+                    action_input = line.split("Action Input:", 1)[1].strip()
 
-                # Create and append tool response messages to the history
-                for res in tool_results:
-                    try:
-                        tool_response_msg = BaseMessage.make_tool_response_message(
-                            tool_call_id=res['tool_call_id'],
-                            name=res['name'],
-                            content=str(res['result']) # Ensure content is a string
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to create tool response message: {e}")
-                        # FIX: Fallback manual tool response creation
-                        tool_response_msg = BaseMessage(
-                            role_name="Tool",
-                            role_type=RoleType.TOOL,
-                            meta_dict={"tool_call_id": res['tool_call_id'], "name": res['name']},
-                            content=str(res['result'])
-                        )
-                    history.append(tool_response_msg)
+            if not action_name or not action_input:
+                return None
+
+            # Execute the tool
+            if hasattr(self.tools_manager, 'execute_tool'):
+                result = await self.tools_manager.execute_tool(action_name, action_input)
+                return str(result) if result is not None else "Tool executed successfully."
             else:
-                # Agent provided a response without using a tool, which we treat as the final answer.
-                logger.info("ReAct agent finished by providing a final text answer.")
-                final_answer = assistant_response_msg.content or "Agent finished without a clear textual answer."
-                return self._prepare_result(final_answer, history, True)
+                # Fallback for synchronous tool execution
+                result = self.tools_manager.call_tool(action_name, action_input)
+                return str(result) if result is not None else "Tool executed successfully."
 
-        logger.warning("ReAct agent reached max rounds without finishing.")
-        final_answer = "Reached maximum rounds of execution without a final answer. The last message was: "
-        if history[-1].content:
-            final_answer += history[-1].content
-        else:
-            final_answer += "(No text content in last message)"
-        return self._prepare_result(final_answer, history, False)
-
-    def _prepare_result(self, final_result: str, trace: List[BaseMessage], success: bool) -> Dict[str, Any]:
-        return {
-            "final_result": final_result,
-            "trace": trace,
-            "success": success
-        }
+        except Exception as e:
+            logger.error(f"Error executing action: {e}")
+            return f"Error executing action: {str(e)}"

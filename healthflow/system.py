@@ -1,305 +1,216 @@
+"""
+Main HealthFlow system orchestration using OpenAI's native format.
+"""
 import logging
-import uuid
+import asyncio
+from typing import Dict, Any, Optional
 import json
-import re
-from datetime import datetime
-from typing import Any, Dict, Optional, List, Tuple
-from pathlib import Path
+import time
+import uuid
 
-from camel.agents import ChatAgent
-from camel.models import ModelFactory
-from camel.types import ModelPlatformType, RoleType
-from camel.messages import BaseMessage
-
-from healthflow.core.config import HealthFlowConfig
-from healthflow.core.prompts import get_prompt
-from healthflow.core.react_agent import ReactAgent
-from healthflow.core.evolution import EvolutionManager
-from healthflow.core.memory import MemoryManager
-from healthflow.evaluation.evaluator import LLMTaskEvaluator, EvaluationResult
-from healthflow.tools.tool_manager import ToolManager
+from .core.llm_provider import LLMProvider, LLMMessage, create_llm_provider
+from .core.react_agent import ReactAgent
+from .core.memory import MemoryManager
+from .core.evolution import EvolutionManager
+from .tools.tool_manager import ToolManager
 
 logger = logging.getLogger(__name__)
 
 class HealthFlowSystem:
-    """
-    The central class of the HealthFlow framework. It orchestrates agent
-    collaboration, task execution, and the self-evolution loop.
-    """
+    """Main HealthFlow system coordinator."""
 
-    def __init__(self, config: HealthFlowConfig):
+    def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.task_count = 0
-        self.is_running = False
+        self.llm_provider = self._create_llm_provider()
+        self.memory_manager = MemoryManager(config.get('memory', {}))
+        self.evolution_manager = EvolutionManager()
+        self.tool_manager = ToolManager()
+        self.react_agent = ReactAgent(self.llm_provider, self.tool_manager)
 
-        # Core Components
-        self.evolution_manager = EvolutionManager(Path(config.evolution_dir))
-        self.memory_manager = MemoryManager(Path(config.memory_dir))
-        self.tool_manager = ToolManager(tools_dir=Path(config.tools_dir))
-        self.evaluator = LLMTaskEvaluator(config=config)
+        # Load evolved prompts
+        self.prompts = self.evolution_manager.load_best_prompts()
+        logger.info(f"Loaded prompts. Orchestrator score: {self.prompts['orchestrator']['score']:.2f}, "
+                   f"Expert score: {self.prompts['expert']['score']:.2f}, "
+                   f"Analyst score: {self.prompts['analyst']['score']:.2f}")
 
-        # Agent Placeholders
-        self.model: Optional[Any] = None
-        self.orchestrator_agent: Optional[ChatAgent] = None
-        self.expert_agent: Optional[ChatAgent] = None
-        self.analyst_agent: Optional[ChatAgent] = None
-
-    async def start(self):
-        """Initializes the system, loads evolving assets, and prepares agents."""
-        logger.info("🚀 Starting HealthFlow System...")
-        await self.tool_manager.load_tools()
-        self._initialize_agents()
-        self.is_running = True
-        logger.info("✅ HealthFlow started successfully.")
-
-    async def stop(self):
-        """Shuts down the system and saves any pending evolution data."""
-        if self.is_running:
-            logger.info("🛑 Stopping HealthFlow...")
-            self.evolution_manager.save_all()
-            self.is_running = False
-            logger.info("✅ HealthFlow stopped.")
-
-    def _initialize_agents(self):
-        """Initializes or re-initializes agents with the best-performing prompts."""
-        logger.info("🤖 Initializing agents with the best evolved prompts...")
-
-        # BUG FIX: Added max_tokens to prevent the warning and ensure consistent behavior.
-        self.model = ModelFactory.create(
-            model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,
-            model_type=self.config.model_name,
-            api_key=self.config.api_key,
-            url=self.config.base_url,
-            model_config_dict={"temperature": 0.2, "timeout": 180, "max_tokens": 4096}
+    def _create_llm_provider(self) -> LLMProvider:
+        """Create LLM provider from config."""
+        llm_config = self.config['llm']
+        return create_llm_provider(
+            api_key=llm_config['api_key'],
+            base_url=llm_config['base_url'],
+            model_name=llm_config['model']
         )
 
-        # Get best prompts for each role
-        orchestrator_prompt = self.evolution_manager.get_best_prompt("orchestrator")
-        expert_prompt = self.evolution_manager.get_best_prompt("expert")
-        analyst_prompt = self.evolution_manager.get_best_prompt("analyst")
+    async def process_task(self, user_input: str) -> Dict[str, Any]:
+        """Process a user task through the HealthFlow pipeline."""
+        task_id = str(uuid.uuid4())[:8]
+        start_time = time.time()
 
-        logger.info(f"Loaded prompts. Orchestrator score: {orchestrator_prompt[1]:.2f}, Expert score: {expert_prompt[1]:.2f}, Analyst score: {analyst_prompt[1]:.2f}")
-
-        # Create agents
-        self.orchestrator_agent = self._create_agent("Orchestrator", orchestrator_prompt[0])
-        self.expert_agent = self._create_agent("Expert", expert_prompt[0])
-
-        # BUG FIX: The `tools` parameter now receives a list of FunctionTool objects
-        # directly from the new `get_camel_tools` method.
-        self.analyst_agent = self._create_agent(
-            "Analyst",
-            analyst_prompt[0],
-            tools=self.tool_manager.get_camel_tools()
-        )
-        logger.info("✅ Agents initialized.")
-
-    def _create_agent(self, role: str, system_prompt: str, tools: Optional[List[Any]] = None) -> ChatAgent:
-        """Helper to create a ChatAgent."""
-        # FIX: Changed RoleType.SYSTEM to RoleType.DEFAULT since SYSTEM doesn't exist
-        sys_msg = BaseMessage(
-            role_name=f"{role}Agent",
-            role_type=RoleType.DEFAULT,
-            meta_dict={},
-            content=system_prompt,
-        )
-        return ChatAgent(system_message=sys_msg, model=self.model, tools=tools)
-
-    async def run_task(self, task_description: str) -> Dict[str, Any]:
-        """
-        Executes a complete task, including planning, execution, and evolution.
-        """
-        task_id = str(uuid.uuid4())
-        start_time = datetime.now()
-        self.task_count += 1
-        logger.info(f"--- Starting Task #{self.task_count}: {task_description} ---")
-
-        trace = []
-        final_result = "Task failed to produce a result."
-        success = False
-        evaluation_result = None
-        strategy = "analyst_only" # Default strategy
+        logger.info(f"--- Starting Task #{self._get_task_counter()}: {user_input} ---")
 
         try:
-            # Step 1: Orchestrator plans the approach
-            plan, strategy, trace = await self._plan_task(task_description, trace)
-            self.evolution_manager.record_strategy_usage(strategy)
+            # Step 1: Orchestrator planning
+            logger.info("Orchestrator is planning...")
+            plan_result = await self._orchestrator_plan(user_input)
 
-            # Step 2: Execute the plan using the chosen strategy
-            execution_result, trace = await self._execute_plan(plan, strategy, task_description, trace)
-            final_result = execution_result
+            if not plan_result:
+                return {"success": False, "error": "Failed to create execution plan"}
 
-            # FIX: Better success detection based on actual execution results
-            success = (
-                "error" not in final_result.lower() and
-                "failed" not in final_result.lower() and
-                "exception" not in final_result.lower() and
-                "can't be used in" not in final_result.lower() and
-                "traceback" not in final_result.lower()
-            )
+            strategy = plan_result.get('strategy')
+            plan = plan_result.get('plan')
 
-            if not success:
-                logger.warning(f"Execution appears to have failed based on result: {final_result[:200]}...")
+            logger.info(f"Orchestrator decided on strategy: {strategy}")
+            logger.info(f"Executing with strategy: {strategy}")
+
+            # Step 2: Execute based on strategy
+            if strategy == "expert_only":
+                result = await self._execute_expert_only(plan, user_input)
+            elif strategy == "analyst_only":
+                result = await self._execute_analyst_only(plan, user_input)
+            elif strategy == "expert_then_analyst":
+                result = await self._execute_expert_then_analyst(plan, user_input)
+            else:
+                return {"success": False, "error": f"Unknown strategy: {strategy}"}
+
+            # Step 3: Evaluate and store
+            evaluation = await self._evaluate_performance(user_input, result, strategy)
+
+            # Store experience
+            experience = {
+                "task_id": task_id,
+                "user_input": user_input,
+                "strategy": strategy,
+                "plan": plan,
+                "result": result,
+                "evaluation": evaluation,
+                "execution_time": time.time() - start_time
+            }
+
+            self.memory_manager.store_experience(experience)
+            self.evolution_manager.save_evolution_data()
+
+            execution_time = time.time() - start_time
+            logger.info(f"--- Finished Task #{self._get_task_counter()} in {execution_time:.2f}s. Success: True ---")
+
+            return {
+                "success": True,
+                "final_answer": result,
+                "task_id": task_id,
+                "execution_time": execution_time,
+                "evaluation": evaluation
+            }
 
         except Exception as e:
-            logger.error(f"Task execution failed with an exception: {e}", exc_info=True)
-            final_result = f"Task failed due to a critical error: {e}"
-            success = False
+            logger.error(f"Task processing failed: {e}", exc_info=True)
+            execution_time = time.time() - start_time
+            logger.info(f"--- Finished Task #{self._get_task_counter()} in {execution_time:.2f}s. Success: False ---")
 
-        # Step 3: Evaluate and Evolve
+            return {
+                "success": False,
+                "error": str(e),
+                "task_id": task_id,
+                "execution_time": execution_time
+            }
+
+    async def _orchestrator_plan(self, user_input: str) -> Optional[Dict[str, str]]:
+        """Get execution plan from orchestrator."""
         try:
-            evaluation_result = await self._evaluate_and_evolve(task_id, task_description, trace, success)
-            if evaluation_result:
-                # FIX: Use evaluation result to determine actual success, not just execution success
-                success = evaluation_result.overall_success
-                self.evolution_manager.update_strategy_performance(strategy, success)
+            messages = [
+                LLMMessage(role="system", content=self.prompts['orchestrator']['prompt']),
+                LLMMessage(role="user", content=f"Analyze this task and create a plan. Your output must be a JSON object with 'plan' and 'strategy' keys. Strategy must be one of: ['analyst_only', 'expert_only', 'expert_then_analyst'].\n\nTask: {user_input}")
+            ]
+
+            response = await self.llm_provider.generate(messages, temperature=0.1)
+
+            # Parse JSON response
+            result = json.loads(response.content)
+            return result
+
         except Exception as e:
-            logger.error(f"Evaluation and evolution step failed: {e}", exc_info=True)
+            logger.error(f"Orchestrator planning failed: {e}")
+            return None
 
-        end_time = datetime.now()
-        execution_time = (end_time - start_time).total_seconds()
-
-        logger.info(f"--- Finished Task #{self.task_count} in {execution_time:.2f}s. Success: {success} ---")
-
-        return {
-            "task_id": task_id,
-            "success": success,
-            "result": final_result,
-            "execution_time": execution_time,
-            "evaluation": evaluation_result.to_dict() if evaluation_result else None,
-        }
-
-    async def _plan_task(self, task_description: str, trace: List) -> Tuple[str, str, List]:
-        """Lets the orchestrator create a plan and choose a strategy."""
-        logger.info("Orchestrator is planning...")
-        user_msg = BaseMessage.make_user_message("User", content=f"Analyze this task and create a plan. Your output must be a JSON object with 'plan' and 'strategy' keys. Strategy must be one of: ['analyst_only', 'expert_only', 'expert_then_analyst'].\n\nTask: {task_description}")
-        trace.append(user_msg)
-
-        response = self.orchestrator_agent.step(user_msg)
-        trace.append(response.msg)
-
-        plan_content = response.msg.content
-        # Try to find JSON in the response
-        try:
-            json_match = re.search(r"\{.*\}", plan_content, re.DOTALL)
-            if json_match:
-                plan_data = json.loads(json_match.group(0))
-                plan = plan_data.get("plan", "No plan provided.")
-                strategy = plan_data.get("strategy", "analyst_only")
-                if strategy not in ['analyst_only', 'expert_only', 'expert_then_analyst']:
-                    strategy = 'analyst_only' # Default fallback
-                logger.info(f"Orchestrator decided on strategy: {strategy}")
-                return plan, strategy, trace
-        except json.JSONDecodeError:
-            pass # Fall through to default
-
-        logger.warning("Orchestrator failed to produce valid JSON plan. Defaulting to analyst_only.")
-        return plan_content, "analyst_only", trace
-
-
-    async def _execute_plan(self, plan: str, strategy: str, task_desc: str, trace: List) -> Tuple[str, List]:
-        """Executes the task based on the chosen strategy."""
-        logger.info(f"Executing with strategy: {strategy}")
-        if strategy == "expert_only":
-            return await self._execute_with_expert(plan, task_desc, trace)
-
-        if strategy == "expert_then_analyst":
-            expert_opinion, trace = await self._execute_with_expert(plan, task_desc, trace)
-            context = f"Here is the initial medical expert opinion:\n{expert_opinion}\n\nNow, perform the computational part of the plan."
-            return await self._execute_with_analyst(plan, task_desc, trace, context)
-
-        return await self._execute_with_analyst(plan, task_desc, trace)
-
-    async def _execute_with_analyst(self, plan: str, task_desc: str, trace: List, context: str = "") -> Tuple[str, List]:
-        """Executes a task using the Analyst agent with ReAct capabilities."""
-        logger.info("Engaging Analyst Agent with ReAct...")
-        react_agent = ReactAgent(
-            chat_agent=self.analyst_agent,
-            tool_manager=self.tool_manager,
-            max_rounds=self.config.max_react_rounds
-        )
-
-        react_prompt = f"Based on this plan: '{plan}', solve the following task: '{task_desc}'."
-        if context:
-            react_prompt += f"\n\nAdditional context: {context}"
-
-        react_result = await react_agent.solve_task(react_prompt)
-        trace.extend(react_result['trace'])
-
-        return react_result['final_result'], trace
-
-    async def _execute_with_expert(self, plan: str, task_desc: str, trace: List) -> Tuple[str, List]:
-        """Executes a task using the Expert agent."""
+    async def _execute_expert_only(self, plan: str, user_input: str) -> str:
+        """Execute using expert agent only."""
         logger.info("Engaging Expert Agent...")
-        expert_prompt = f"Based on this plan: '{plan}', provide your medical expertise on the following task: '{task_desc}'."
-        user_msg = BaseMessage.make_user_message("User", content=expert_prompt)
-        trace.append(user_msg)
-        response = self.expert_agent.step(user_msg)
-        trace.append(response.msg)
-        return response.msg.content, trace
 
-    async def _evaluate_and_evolve(self, task_id: str, task_desc: str, trace: List, success: bool) -> Optional[EvaluationResult]:
-        """Evaluates the task and triggers system evolution if needed."""
+        messages = [
+            LLMMessage(role="system", content=self.prompts['expert']['prompt']),
+            LLMMessage(role="user", content=f"Based on this plan: '{plan}', provide your medical expertise on the following task: '{user_input}'.")
+        ]
+
+        response = await self.llm_provider.generate(messages, temperature=0.3)
+        return response.content
+
+    async def _execute_analyst_only(self, plan: str, user_input: str) -> str:
+        """Execute using analyst agent (ReAct) only."""
+        logger.info("Engaging Analyst Agent with ReAct...")
+
+        system_prompt = f"""You are an Analyst Agent. Your role is to solve analytical tasks using available tools.
+
+AVAILABLE TOOLS:
+{self._get_tools_description()}
+
+INSTRUCTIONS:
+1. Think step by step about what you need to do
+2. Use tools when necessary by formatting: Action: tool_name, Action Input: parameters
+3. After using a tool, wait for the Observation before proceeding
+4. When you have the final answer, respond with: FINAL_ANSWER: [your answer]
+
+Your task plan: {plan}"""
+
+        return await self.react_agent.run(user_input, system_prompt)
+
+    async def _execute_expert_then_analyst(self, plan: str, user_input: str) -> str:
+        """Execute expert first, then analyst."""
+        # First get expert knowledge
+        expert_result = await self._execute_expert_only(plan, user_input)
+
+        # Then use analyst with expert context
+        logger.info("Engaging Analyst Agent with expert context...")
+        enhanced_task = f"Expert context: {expert_result}\n\nNow complete this analytical task: {user_input}"
+        return await self._execute_analyst_only(plan, enhanced_task)
+
+    def _get_tools_description(self) -> str:
+        """Get description of available tools."""
+        tools = self.tool_manager.get_available_tools()
+        descriptions = []
+        for tool_name in tools:
+            tool_info = self.tool_manager.get_tool_info(tool_name)
+            descriptions.append(f"- {tool_name}: {tool_info.get('description', 'No description')}")
+        return "\n".join(descriptions)
+
+    async def _evaluate_performance(self, user_input: str, result: str, strategy: str) -> Dict[str, Any]:
+        """Evaluate task performance."""
         logger.info("Evaluating task performance...")
-        evaluation_result = await self.evaluator.evaluate_task(task_id, task_desc, trace)
-        score = evaluation_result.overall_score
 
-        logger.info(f"Evaluation complete. Score: {score:.2f}/10.0")
+        eval_prompt = f"""Evaluate this AI agent's performance on the following task:
 
-        await self.memory_manager.add_experience(task_id, task_desc, trace, evaluation_result)
+Task: {user_input}
+Strategy Used: {strategy}
+Result: {result}
 
-        if score < self.config.evolution_trigger_score:
-            logger.info(f"Low score detected ({score:.2f}). Triggering prompt evolution.")
-            await self._evolve_prompts(evaluation_result)
+Rate the performance from 1-10 considering:
+- Accuracy and correctness
+- Completeness of the answer
+- Appropriateness of strategy chosen
+- Efficiency of execution
 
-        tool_suggestions = evaluation_result.improvement_suggestions.get("tool_creation", [])
-        if tool_suggestions:
-            logger.info("Tool creation suggestions found. Attempting to evolve tools.")
-            await self._evolve_tools(tool_suggestions)
+Respond with JSON: {{"score": X.X, "summary": "brief explanation"}}"""
 
-        return evaluation_result
+        try:
+            messages = [LLMMessage(role="user", content=eval_prompt)]
+            response = await self.llm_provider.generate(messages, temperature=0.1)
 
-    async def _evolve_prompts(self, eval_result: EvaluationResult):
-        """Evolves agent prompts based on evaluation feedback."""
-        feedback = f"Evaluation Summary: {eval_result.executive_summary}. Suggestions: {eval_result.improvement_suggestions.get('prompt_templates', [])}"
+            evaluation = json.loads(response.content)
+            logger.info(f"Evaluation complete. Score: {evaluation['score']}/10.0")
+            return evaluation
 
-        for role in ["orchestrator", "expert", "analyst"]:
-            prompt_id, current_prompt, old_score = self.evolution_manager.get_best_prompt_with_id(role)
-            evolver_agent = self._create_agent("Evolver", get_prompt("evolve_prompt_system"))
-            evolution_request = get_prompt("evolve_prompt_task").format(
-                role=role,
-                current_prompt=current_prompt,
-                feedback=feedback
-            )
-            user_msg = BaseMessage.make_user_message("User", content=evolution_request)
-            response = evolver_agent.step(user_msg)
-            new_prompt = response.msg.content
+        except Exception as e:
+            logger.error(f"Evaluation failed: {e}")
+            return {"score": 5.0, "summary": "Evaluation failed"}
 
-            if new_prompt and new_prompt != current_prompt:
-                # FIX: Use the evaluation score to update the prompt score, not a default
-                self.evolution_manager.add_prompt_version(role, new_prompt, eval_result.overall_score, feedback)
-                logger.info(f"Evolved prompt for role: {role} with score {eval_result.overall_score:.2f}")
-
-        self._initialize_agents()
-
-    async def _evolve_tools(self, suggestions: List[str]):
-        """Triggers the Analyst agent to create new tools based on suggestions."""
-        creator_agent = ReactAgent(
-            chat_agent=self.analyst_agent,
-            tool_manager=self.tool_manager,
-            max_rounds=3
-        )
-        for suggestion in suggestions:
-            logger.info(f"Attempting to create tool for suggestion: {suggestion}")
-            tool_creation_task = f"A new tool is needed. Suggestion: '{suggestion}'. Your task is to write the Python code for this tool and register it using the `add_new_tool` function. Analyze the request, write a single Python function, and then call `add_new_tool` with the correct arguments (name, code, description)."
-            await creator_agent.solve_task(tool_creation_task)
-
-        await self.tool_manager.load_tools()
-
-    async def get_system_status(self) -> Dict[str, Any]:
-        """Retrieves and formats the current system status for display."""
-        return {
-            "task_count": self.task_count,
-            "prompt_status": self.evolution_manager.get_prompt_status(),
-            "strategy_performance": self.evolution_manager.get_strategy_performance(),
-            "tool_status": self.tool_manager.get_tool_info(),
-        }
+    def _get_task_counter(self) -> int:
+        """Get current task counter (simplified)."""
+        return getattr(self, '_task_counter', 0) + 1
