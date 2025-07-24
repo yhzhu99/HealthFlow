@@ -158,13 +158,27 @@ class HealthFlowSystem:
             # STEP 2: Determine which specialist agent(s) to use based on the task
             needs_medical_expert = any(word in task_description.lower() for word in [
                 'medical', 'disease', 'symptom', 'diagnosis', 'treatment', 'health', 
-                'medication', 'patient', 'clinical', 'hypertension', 'diabetes'
+                'medication', 'patient', 'clinical', 'hypertension', 'diabetes', 'prescription',
+                'therapy', 'infection', 'cancer', 'surgery', 'pathology', 'anatomy',
+                'physiology', 'pharmacology', 'dosage', 'side effects', 'contraindication'
             ])
             
             needs_analyst = any(word in task_description.lower() for word in [
                 'calculate', 'compute', 'analyze', 'data', 'python', 'code', 'math',
-                'statistics', 'plot', 'graph', 'number'
+                'statistics', 'plot', 'graph', 'number', 'model', 'machine learning',
+                'pytorch', 'tensorflow', 'neural network', 'prediction', 'forecast',
+                'time series', 'ehr', 'dataset', 'csv', 'visualization', 'regression'
             ])
+            
+            # Healthcare calculations should go to Expert Agent with Analyst support
+            healthcare_calculations = any(word in task_description.lower() for word in [
+                'bmi', 'body mass index', 'creatinine clearance', 'drug dosing',
+                'body surface area', 'kidney function', 'cardiac output'
+            ])
+            
+            if healthcare_calculations:
+                needs_medical_expert = True
+                needs_analyst = True
 
             specialist_results = []
 
@@ -200,22 +214,36 @@ class HealthFlowSystem:
                     specialist_results.append(f"Data Analyst Results:\n{enhanced_content}")
                     logger.info("Analyst provided computational analysis with code execution")
 
-            # STEP 5: If no specialist was clearly needed, use the most appropriate agent
+            # STEP 5: If no specialist was clearly needed, route based on complexity
             if not specialist_results:
-                logger.info("Step 5: Using Analyst as default for general task...")
-                analyst_input = BaseMessage.make_user_message(
-                    role_name="User",
-                    content=task_description
-                )
-                
-                analyst_response = self.analyst_agent.step(analyst_input)
-                if analyst_response and hasattr(analyst_response, 'msg') and analyst_response.msg:
-                    # Execute any Python code in the analyst response
-                    enhanced_content = self._execute_python_code_in_response(analyst_response.msg.content)
-                    analyst_response.msg.content = enhanced_content
+                # For complex queries or those requiring reasoning, use Expert
+                if len(task_description.split()) > 10 or '?' in task_description:
+                    logger.info("Step 5: Using Expert for complex reasoning task...")
+                    expert_input = BaseMessage.make_user_message(
+                        role_name="User",
+                        content=task_description
+                    )
                     
-                    conversation_trace.append(analyst_response.msg)
-                    specialist_results.append(f"General Analysis:\n{enhanced_content}")
+                    expert_response = self.expert_agent.step(expert_input)
+                    if expert_response and hasattr(expert_response, 'msg') and expert_response.msg:
+                        conversation_trace.append(expert_response.msg)
+                        specialist_results.append(f"Medical Expert Analysis:\n{expert_response.msg.content}")
+                else:
+                    # For simple queries, use Analyst
+                    logger.info("Step 5: Using Analyst for simple task...")
+                    analyst_input = BaseMessage.make_user_message(
+                        role_name="User",
+                        content=task_description
+                    )
+                    
+                    analyst_response = self.analyst_agent.step(analyst_input)
+                    if analyst_response and hasattr(analyst_response, 'msg') and analyst_response.msg:
+                        # Execute any Python code in the analyst response
+                        enhanced_content = self._execute_python_code_in_response(analyst_response.msg.content)
+                        analyst_response.msg.content = enhanced_content
+                        
+                        conversation_trace.append(analyst_response.msg)
+                        specialist_results.append(f"General Analysis:\n{enhanced_content}")
 
             # STEP 6: Orchestrator synthesizes final result
             logger.info("Step 6: Orchestrator synthesizing final result...")
@@ -325,7 +353,7 @@ class HealthFlowSystem:
 
     def _execute_python_code_in_response(self, response_content: str) -> str:
         """
-        Process analyst responses to find and execute Python code blocks.
+        Process analyst responses to find and execute Python code blocks with debugging support.
         Returns the response with executed code results.
         """
         # Find Python code blocks in the response
@@ -339,11 +367,14 @@ class HealthFlowSystem:
         
         for code_block in matches:
             try:
+                # Clean up the code - remove print statements and add result calculation
+                cleaned_code = self._clean_code_for_execution(code_block)
+                
                 # Execute the Python code
-                result = self.interpreter.run(code_block, "python")
+                result = self.interpreter.run(cleaned_code, "python")
                 
                 # Replace the code block with code + executed result
-                executed_block = f"```python\n{code_block}\n```\n**Executed Result:**\n```\n{result}\n```"
+                executed_block = f"```python\n{code_block}\n```\n**Execution Result:**\n```\n{result}\n```"
                 
                 # Find and replace the original code block
                 original_block = f"```python\n{code_block}\n```"
@@ -352,15 +383,180 @@ class HealthFlowSystem:
                 logger.info(f"Executed Python code successfully, result: {result}")
                 
             except Exception as e:
-                # If execution fails, add error message
-                error_msg = f"**Code Execution Error:** {str(e)}"
-                original_block = f"```python\n{code_block}\n```"
-                executed_block = f"{original_block}\n{error_msg}"
-                enhanced_response = enhanced_response.replace(original_block, executed_block)
+                # Implement debugging strategy for failed code execution
+                debug_result = self._debug_code_execution(code_block, str(e))
                 
-                logger.warning(f"Python code execution failed: {e}")
+                if debug_result:
+                    executed_block = f"```python\n{code_block}\n```\n**Debug Result:**\n```\n{debug_result}\n```"
+                    original_block = f"```python\n{code_block}\n```"
+                    enhanced_response = enhanced_response.replace(original_block, executed_block)
+                    logger.info(f"Code execution debugged successfully: {debug_result}")
+                else:
+                    # If debugging fails, try simple calculation approach
+                    try:
+                        simple_result = self._execute_simple_calculation(code_block)
+                        if simple_result is not None:
+                            executed_block = f"```python\n{code_block}\n```\n**Calculation Result:**\n```\n{simple_result}\n```"
+                            original_block = f"```python\n{code_block}\n```"
+                            enhanced_response = enhanced_response.replace(original_block, executed_block)
+                            logger.info(f"Executed simple calculation, result: {simple_result}")
+                        else:
+                            # If all methods fail, show error with suggestions
+                            error_msg = f"**Code Execution Error:** {str(e)}\n**Suggestion:** Check for missing imports, syntax errors, or undefined variables."
+                            original_block = f"```python\n{code_block}\n```"
+                            executed_block = f"{original_block}\n{error_msg}"
+                            enhanced_response = enhanced_response.replace(original_block, executed_block)
+                            logger.warning(f"Python code execution failed: {e}")
+                    except Exception as e2:
+                        error_msg = f"**Code Execution Error:** {str(e2)}"
+                        original_block = f"```python\n{code_block}\n```"
+                        executed_block = f"{original_block}\n{error_msg}"
+                        enhanced_response = enhanced_response.replace(original_block, executed_block)
+                        logger.warning(f"All execution attempts failed: {e}, {e2}")
         
         return enhanced_response
+
+    def _clean_code_for_execution(self, code: str) -> str:
+        """Clean Python code to work with InternalPythonInterpreter."""
+        lines = code.strip().split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            # Skip print statements and comments
+            if line.strip().startswith('print(') or line.strip().startswith('#'):
+                continue
+            cleaned_lines.append(line)
+        
+        # Add a simple return statement for the last variable if it exists
+        if cleaned_lines and '=' in cleaned_lines[-1]:
+            var_name = cleaned_lines[-1].split('=')[0].strip()
+            cleaned_lines.append(var_name)
+        
+        return '\n'.join(cleaned_lines)
+
+    def _execute_simple_calculation(self, code: str) -> str:
+        """Execute healthcare-specific calculations manually."""
+        try:
+            # BMI calculation for healthcare applications
+            if 'bmi' in code.lower() and 'height' in code.lower() and 'weight' in code.lower():
+                # Extract values using regex
+                height_match = re.search(r'height_cm\s*=\s*(\d+(?:\.\d+)?)', code)
+                weight_match = re.search(r'weight_kg\s*=\s*(\d+(?:\.\d+)?)', code)
+                
+                if height_match and weight_match:
+                    height_cm = float(height_match.group(1))
+                    weight_kg = float(weight_match.group(1))
+                    
+                    # Calculate BMI
+                    height_m = height_cm / 100
+                    bmi = weight_kg / (height_m ** 2)
+                    
+                    # BMI interpretation for healthcare context
+                    if bmi < 18.5:
+                        category = "Underweight"
+                    elif bmi < 25:
+                        category = "Normal weight"
+                    elif bmi < 30:
+                        category = "Overweight"
+                    else:
+                        category = "Obese"
+                    
+                    return f"BMI: {bmi:.2f} ({category})"
+            
+            # Body Surface Area (BSA) calculation for drug dosing
+            if 'bsa' in code.lower() and 'height' in code.lower() and 'weight' in code.lower():
+                height_match = re.search(r'height_cm\s*=\s*(\d+(?:\.\d+)?)', code)
+                weight_match = re.search(r'weight_kg\s*=\s*(\d+(?:\.\d+)?)', code)
+                
+                if height_match and weight_match:
+                    height_cm = float(height_match.group(1))
+                    weight_kg = float(weight_match.group(1))
+                    
+                    # Mosteller formula for BSA
+                    bsa = ((height_cm * weight_kg) / 3600) ** 0.5
+                    return f"Body Surface Area: {bsa:.2f} m²"
+            
+            # Creatinine clearance calculation (Cockcroft-Gault)
+            if 'creatinine_clearance' in code.lower() or 'cockcroft' in code.lower():
+                age_match = re.search(r'age\s*=\s*(\d+)', code)
+                weight_match = re.search(r'weight_kg\s*=\s*(\d+(?:\.\d+)?)', code)
+                creatinine_match = re.search(r'creatinine\s*=\s*(\d+(?:\.\d+)?)', code)
+                gender_match = re.search(r'gender\s*=\s*["\']?(male|female)["\']?', code, re.IGNORECASE)
+                
+                if age_match and weight_match and creatinine_match and gender_match:
+                    age = int(age_match.group(1))
+                    weight = float(weight_match.group(1))
+                    creatinine = float(creatinine_match.group(1))
+                    gender = gender_match.group(1).lower()
+                    
+                    # Cockcroft-Gault formula
+                    cc = ((140 - age) * weight) / (72 * creatinine)
+                    if gender == 'female':
+                        cc *= 0.85
+                    
+                    return f"Creatinine Clearance: {cc:.2f} mL/min"
+            
+            return None
+            
+        except Exception:
+            return None
+    
+    def _debug_code_execution(self, code: str, error_message: str) -> Optional[str]:
+        """
+        Debug failed code execution by analyzing common errors and providing fixes.
+        """
+        try:
+            # Common debugging strategies
+            debug_attempts = []
+            
+            # 1. Check for missing imports
+            if 'not defined' in error_message or 'NameError' in error_message:
+                # Add common imports
+                common_imports = [
+                    'import pandas as pd',
+                    'import numpy as np', 
+                    'import torch',
+                    'import torch.nn as nn',
+                    'import matplotlib.pyplot as plt',
+                    'import seaborn as sns',
+                    'from sklearn.metrics import accuracy_score, precision_score, recall_score',
+                    'from sklearn.model_selection import train_test_split',
+                    'import warnings',
+                    'warnings.filterwarnings("ignore")'
+                ]
+                
+                debug_code = '\\n'.join(common_imports) + '\\n' + code
+                debug_attempts.append(debug_code)
+            
+            # 2. Check for syntax errors and fix common issues
+            if 'SyntaxError' in error_message:
+                # Fix common syntax issues
+                fixed_code = code.replace('print(', '# print(')  # Comment out prints
+                fixed_code = re.sub(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([^\\n]+)\\n*$', r'\\1 = \\2\\nresult = \\1', fixed_code, flags=re.MULTILINE)
+                debug_attempts.append(fixed_code)
+            
+            # 3. Check for tensor/array dimension issues in PyTorch/ML code
+            if 'dimension' in error_message.lower() or 'shape' in error_message.lower():
+                # Add dimension debugging
+                tensor_debug = code + '\\n# Debug: Check tensor shapes\\n'
+                if 'torch' in code.lower():
+                    tensor_debug += 'print(f"Tensor shapes: {[t.shape for t in locals().values() if hasattr(t, \"shape\")]}")\\n'
+                debug_attempts.append(tensor_debug)
+            
+            # Try each debug attempt
+            for attempt in debug_attempts:
+                try:
+                    cleaned_attempt = self._clean_code_for_execution(attempt)
+                    result = self.interpreter.run(cleaned_attempt, "python")
+                    return f"Debug successful: {result}"
+                except Exception as debug_error:
+                    continue
+            
+            # If all attempts fail, return diagnostic information
+            return f"Debug analysis: {error_message}. Suggested fixes: Check imports, variable definitions, and data types."
+            
+        except Exception:
+            return None
 
     async def _evolve(self, task_id: str, task_description: str,
                       evaluation: EvaluationResult, trace: List[Any]):
