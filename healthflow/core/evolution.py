@@ -46,6 +46,10 @@ class EvolutionManager:
         self._save_json(self.strategies_file, self.strategies)
         logger.info("Evolution data saved.")
 
+    def save_evolution_data(self):
+        """Alias for save_all for backward compatibility."""
+        self.save_all()
+
     # --- Prompt Evolution ---
 
     def _get_default_prompts(self) -> Dict:
@@ -54,7 +58,7 @@ class EvolutionManager:
             prompts[role] = [{
                 "id": f"{role}_v1",
                 "content": get_default_prompt(role),
-                "score": 5.0, # FIX: Lower initial score to encourage evolution
+                "score": 5.0, # Lower initial score to encourage evolution
                 "created_at": datetime.now().isoformat(),
                 "feedback": "Initial prompt."
             }]
@@ -63,7 +67,7 @@ class EvolutionManager:
     def get_best_prompt(self, role: str) -> Tuple[str, float]:
         """Gets the content and score of the best prompt for a role."""
         if role not in self.prompts or not self.prompts[role]:
-            return get_default_prompt(role), 5.0  # FIX: Changed from 7.5 to 5.0
+            return get_default_prompt(role), 5.0
 
         best_prompt_version = max(self.prompts[role], key=lambda p: p['score'])
         return best_prompt_version['content'], best_prompt_version['score']
@@ -71,7 +75,7 @@ class EvolutionManager:
     def get_best_prompt_with_id(self, role: str) -> Tuple[str, str, float]:
         """Gets the ID, content, and score of the best prompt."""
         if role not in self.prompts or not self.prompts[role]:
-            return f"{role}_v1", get_default_prompt(role), 5.0  # FIX: Changed from 7.5 to 5.0
+            return f"{role}_v1", get_default_prompt(role), 5.0
 
         best = max(self.prompts[role], key=lambda p: p['score'])
         return best['id'], best['content'], best['score']

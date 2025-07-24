@@ -3,51 +3,102 @@ Main HealthFlow system orchestration using OpenAI's native format.
 """
 import logging
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import json
 import time
 import uuid
+from datetime import datetime
 
 from .core.llm_provider import LLMProvider, LLMMessage, create_llm_provider
 from .core.react_agent import ReactAgent
 from .core.memory import MemoryManager
 from .core.evolution import EvolutionManager
 from .tools.tool_manager import ToolManager
+from .evaluation.evaluator import LLMTaskEvaluator, EvaluationResult
 
 logger = logging.getLogger(__name__)
 
 class HealthFlowSystem:
     """Main HealthFlow system coordinator."""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config):
         self.config = config
         self.llm_provider = self._create_llm_provider()
-        self.memory_manager = MemoryManager(config.get('memory', {}))
-        self.evolution_manager = EvolutionManager()
+        self.memory_manager = MemoryManager(self.config.memory_dir)
+        self.evolution_manager = EvolutionManager(self.config.evolution_dir)
         self.tool_manager = ToolManager()
         self.react_agent = ReactAgent(self.llm_provider, self.tool_manager)
+        self.evaluator = LLMTaskEvaluator(self.config, self.llm_provider)
+        self._task_counter = 0
 
         # Load evolved prompts
-        self.prompts = self.evolution_manager.load_best_prompts()
+        self.prompts = {
+            'orchestrator': {
+                'prompt': self.evolution_manager.get_best_prompt('orchestrator')[0],
+                'score': self.evolution_manager.get_best_prompt('orchestrator')[1]
+            },
+            'expert': {
+                'prompt': self.evolution_manager.get_best_prompt('expert')[0],
+                'score': self.evolution_manager.get_best_prompt('expert')[1]
+            },
+            'analyst': {
+                'prompt': self.evolution_manager.get_best_prompt('analyst')[0],
+                'score': self.evolution_manager.get_best_prompt('analyst')[1]
+            }
+        }
         logger.info(f"Loaded prompts. Orchestrator score: {self.prompts['orchestrator']['score']:.2f}, "
                    f"Expert score: {self.prompts['expert']['score']:.2f}, "
                    f"Analyst score: {self.prompts['analyst']['score']:.2f}")
 
+    async def start(self):
+        """Start the HealthFlow system."""
+        logger.info("HealthFlow system started successfully")
+
+    async def stop(self):
+        """Stop the HealthFlow system and clean up resources."""
+        logger.info("HealthFlow system stopped")
+
     def _create_llm_provider(self) -> LLMProvider:
         """Create LLM provider from config."""
-        llm_config = self.config['llm']
         return create_llm_provider(
-            api_key=llm_config['api_key'],
-            base_url=llm_config['base_url'],
-            model_name=llm_config['model']
+            api_key=self.config.api_key,
+            base_url=self.config.base_url,
+            model_name=self.config.model_name
         )
+
+    async def run_task(self, user_input: str) -> Dict[str, Any]:
+        """Run a task and return the result."""
+        result = await self.process_task(user_input)
+        # Convert final_answer to result to match expected interface
+        if 'final_answer' in result:
+            result['result'] = result.pop('final_answer')
+        return result
+
+    async def get_system_status(self) -> Dict[str, Any]:
+        """Get the current system status."""
+        return {
+            'task_count': self._task_counter,
+            'prompt_status': self.evolution_manager.get_prompt_status(),
+            'strategy_performance': self.evolution_manager.get_strategy_performance(),
+            'tool_status': self._get_tool_status()
+        }
+
+    def _get_tool_status(self) -> Dict[str, str]:
+        """Get tool status information."""
+        tools = self.tool_manager.get_available_tools()
+        status = {}
+        for tool_name in tools:
+            tool_info = self.tool_manager.get_tool_info(tool_name)
+            status[tool_name] = tool_info.get('description', 'No description')
+        return status
 
     async def process_task(self, user_input: str) -> Dict[str, Any]:
         """Process a user task through the HealthFlow pipeline."""
         task_id = str(uuid.uuid4())[:8]
         start_time = time.time()
+        self._task_counter += 1
 
-        logger.info(f"--- Starting Task #{self._get_task_counter()}: {user_input} ---")
+        logger.info(f"--- Starting Task #{self._task_counter}: {user_input} ---")
 
         try:
             # Step 1: Orchestrator planning
@@ -63,48 +114,50 @@ class HealthFlowSystem:
             logger.info(f"Orchestrator decided on strategy: {strategy}")
             logger.info(f"Executing with strategy: {strategy}")
 
+            # Record strategy usage
+            self.evolution_manager.record_strategy_usage(strategy)
+
             # Step 2: Execute based on strategy
+            conversation_trace = []
             if strategy == "expert_only":
-                result = await self._execute_expert_only(plan, user_input)
+                result, trace = await self._execute_expert_only(plan, user_input)
+                conversation_trace = trace
             elif strategy == "analyst_only":
-                result = await self._execute_analyst_only(plan, user_input)
+                result, trace = await self._execute_analyst_only(plan, user_input)
+                conversation_trace = trace
             elif strategy == "expert_then_analyst":
-                result = await self._execute_expert_then_analyst(plan, user_input)
+                result, trace = await self._execute_expert_then_analyst(plan, user_input)
+                conversation_trace = trace
             else:
                 return {"success": False, "error": f"Unknown strategy: {strategy}"}
 
             # Step 3: Evaluate and store
-            evaluation = await self._evaluate_performance(user_input, result, strategy)
+            evaluation = await self._evaluate_performance(task_id, user_input, conversation_trace)
+
+            # Update strategy performance
+            self.evolution_manager.update_strategy_performance(strategy, evaluation.overall_success)
 
             # Store experience
-            experience = {
-                "task_id": task_id,
-                "user_input": user_input,
-                "strategy": strategy,
-                "plan": plan,
-                "result": result,
-                "evaluation": evaluation,
-                "execution_time": time.time() - start_time
-            }
+            await self.memory_manager.add_experience(task_id, user_input, conversation_trace, evaluation)
 
-            self.memory_manager.store_experience(experience)
-            self.evolution_manager.save_evolution_data()
+            # Save evolution data
+            self.evolution_manager.save_all()
 
             execution_time = time.time() - start_time
-            logger.info(f"--- Finished Task #{self._get_task_counter()} in {execution_time:.2f}s. Success: True ---")
+            logger.info(f"--- Finished Task #{self._task_counter} in {execution_time:.2f}s. Success: {evaluation.overall_success} ---")
 
             return {
-                "success": True,
+                "success": evaluation.overall_success,
                 "final_answer": result,
                 "task_id": task_id,
                 "execution_time": execution_time,
-                "evaluation": evaluation
+                "evaluation": evaluation.to_dict()
             }
 
         except Exception as e:
             logger.error(f"Task processing failed: {e}", exc_info=True)
             execution_time = time.time() - start_time
-            logger.info(f"--- Finished Task #{self._get_task_counter()} in {execution_time:.2f}s. Success: False ---")
+            logger.info(f"--- Finished Task #{self._task_counter} in {execution_time:.2f}s. Success: False ---")
 
             return {
                 "success": False,
@@ -131,7 +184,7 @@ class HealthFlowSystem:
             logger.error(f"Orchestrator planning failed: {e}")
             return None
 
-    async def _execute_expert_only(self, plan: str, user_input: str) -> str:
+    async def _execute_expert_only(self, plan: str, user_input: str) -> tuple[str, List]:
         """Execute using expert agent only."""
         logger.info("Engaging Expert Agent...")
 
@@ -141,9 +194,17 @@ class HealthFlowSystem:
         ]
 
         response = await self.llm_provider.generate(messages, temperature=0.3)
-        return response.content
 
-    async def _execute_analyst_only(self, plan: str, user_input: str) -> str:
+        # Create conversation trace
+        trace = [
+            self._create_trace_message("system", self.prompts['expert']['prompt']),
+            self._create_trace_message("user", f"Based on this plan: '{plan}', provide your medical expertise on the following task: '{user_input}'."),
+            self._create_trace_message("assistant", response.content)
+        ]
+
+        return response.content, trace
+
+    async def _execute_analyst_only(self, plan: str, user_input: str) -> tuple[str, List]:
         """Execute using analyst agent (ReAct) only."""
         logger.info("Engaging Analyst Agent with ReAct...")
 
@@ -160,17 +221,41 @@ INSTRUCTIONS:
 
 Your task plan: {plan}"""
 
-        return await self.react_agent.run(user_input, system_prompt)
+        result = await self.react_agent.run(user_input, system_prompt)
 
-    async def _execute_expert_then_analyst(self, plan: str, user_input: str) -> str:
+        # Create conversation trace (simplified)
+        trace = [
+            self._create_trace_message("system", system_prompt),
+            self._create_trace_message("user", user_input),
+            self._create_trace_message("assistant", result)
+        ]
+
+        return result, trace
+
+    async def _execute_expert_then_analyst(self, plan: str, user_input: str) -> tuple[str, List]:
         """Execute expert first, then analyst."""
         # First get expert knowledge
-        expert_result = await self._execute_expert_only(plan, user_input)
+        expert_result, expert_trace = await self._execute_expert_only(plan, user_input)
 
         # Then use analyst with expert context
         logger.info("Engaging Analyst Agent with expert context...")
         enhanced_task = f"Expert context: {expert_result}\n\nNow complete this analytical task: {user_input}"
-        return await self._execute_analyst_only(plan, enhanced_task)
+        analyst_result, analyst_trace = await self._execute_analyst_only(plan, enhanced_task)
+
+        # Combine traces
+        combined_trace = expert_trace + analyst_trace
+
+        return analyst_result, combined_trace
+
+    def _create_trace_message(self, role: str, content: str):
+        """Create a trace message object."""
+        class TraceMessage:
+            def __init__(self, role_name, content):
+                self.role_name = role_name
+                self.content = content
+                self.meta_dict = {}
+
+        return TraceMessage(role, content)
 
     def _get_tools_description(self) -> str:
         """Get description of available tools."""
@@ -181,36 +266,28 @@ Your task plan: {plan}"""
             descriptions.append(f"- {tool_name}: {tool_info.get('description', 'No description')}")
         return "\n".join(descriptions)
 
-    async def _evaluate_performance(self, user_input: str, result: str, strategy: str) -> Dict[str, Any]:
-        """Evaluate task performance."""
+    async def _evaluate_performance(self, task_id: str, user_input: str, conversation_trace: List) -> EvaluationResult:
+        """Evaluate task performance using the LLM evaluator."""
         logger.info("Evaluating task performance...")
 
-        eval_prompt = f"""Evaluate this AI agent's performance on the following task:
-
-Task: {user_input}
-Strategy Used: {strategy}
-Result: {result}
-
-Rate the performance from 1-10 considering:
-- Accuracy and correctness
-- Completeness of the answer
-- Appropriateness of strategy chosen
-- Efficiency of execution
-
-Respond with JSON: {{"score": X.X, "summary": "brief explanation"}}"""
-
         try:
-            messages = [LLMMessage(role="user", content=eval_prompt)]
-            response = await self.llm_provider.generate(messages, temperature=0.1)
-
-            evaluation = json.loads(response.content)
-            logger.info(f"Evaluation complete. Score: {evaluation['score']}/10.0")
+            evaluation = await self.evaluator.evaluate_task(task_id, user_input, conversation_trace)
+            logger.info(f"Evaluation complete. Score: {evaluation.overall_score}/10.0")
             return evaluation
-
         except Exception as e:
             logger.error(f"Evaluation failed: {e}")
-            return {"score": 5.0, "summary": "Evaluation failed"}
+            # Return a fallback evaluation
+            return EvaluationResult(
+                evaluation_id=str(uuid.uuid4()),
+                task_id=task_id,
+                timestamp=datetime.now(),
+                overall_success=False,
+                overall_score=3.0,
+                scores={"success_accuracy": 3.0, "strategy_reasoning": 3.0, "tool_usage_agentic_skill": 3.0, "safety_clarity": 3.0},
+                executive_summary=f"Evaluation failed: {str(e)}",
+                improvement_suggestions={"prompt_templates": [], "tool_creation": [], "collaboration_strategy": []}
+            )
 
     def _get_task_counter(self) -> int:
-        """Get current task counter (simplified)."""
-        return getattr(self, '_task_counter', 0) + 1
+        """Get current task counter."""
+        return self._task_counter
