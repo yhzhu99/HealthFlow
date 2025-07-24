@@ -336,24 +336,50 @@ Provide a clear, concise final answer that directly addresses the original task.
                                   final_result: str, success: bool):
         """Evaluate performance and evolve the system."""
         
-        # Simple scoring based on success and result quality
-        base_score = 8.0 if success else 3.0
-        
-        # Adjust based on result quality
-        if success:
-            if len(final_result) > 100 and "error" not in final_result.lower():
-                base_score += 1.0
-            if "```python" in final_result and "result" in final_result.lower():
-                base_score += 0.5
-        
-        score = min(base_score, 10.0)
+        # Use the proper LLM-based evaluator
+        try:
+            # Create conversation trace for evaluation
+            trace = []
+            if "trace" in execution_result.get("details", {}):
+                trace = execution_result["details"]["trace"]
+            
+            # Use the LLM evaluator
+            evaluation_result = await self.evaluator.evaluate_task(
+                task_id=task_id,
+                task_description=task_description,
+                conversation_trace=trace
+            )
+            
+            score = evaluation_result.overall_score
+            logger.info(f"📊 LLM Evaluation: Score {score:.1f}/10.0, Success: {evaluation_result.overall_success}")
+            
+            # Store detailed evaluation in memory
+            self.memory_manager.store_experience(
+                task_id=task_id,
+                task_description=task_description,
+                evaluation=evaluation_result,
+                trace=trace
+            )
+            
+        except Exception as e:
+            logger.warning(f"LLM evaluation failed, using fallback: {e}")
+            # Fallback to simple scoring if LLM evaluation fails
+            base_score = 8.0 if success else 3.0
+            
+            # Adjust based on result quality
+            if success:
+                if len(final_result) > 100 and "error" not in final_result.lower():
+                    base_score += 1.0
+                if "```python" in final_result and "result" in final_result.lower():
+                    base_score += 0.5
+            
+            score = min(base_score, 10.0)
+            logger.info(f"📊 Fallback evaluation: Score {score:.1f}/10.0, Success: {success}")
         
         # Check if we should evolve
         if self.evolution_config.should_evolve(self.task_count):
             logger.info("🧬 Evolution triggered - improving system...")
             await self._evolve_system(score, final_result, success)
-        
-        logger.info(f"📊 Task evaluation: Score {score:.1f}/10.0, Success: {success}")
     
     async def _evolve_system(self, score: float, result: str, success: bool):
         """Evolve system components based on performance."""

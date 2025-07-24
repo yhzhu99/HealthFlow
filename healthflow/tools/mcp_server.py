@@ -179,7 +179,158 @@ print("\nComparison framework ready for implementation.")
 
         self.mcp.tool()(compare_ml_models)
 
-        # 4. Tool Management Tool (for self-evolution)
+        # 4. Data Probing Tool
+        def probe_data_structure(file_path: str, file_type: str = "auto") -> str:
+            """
+            Probes and analyzes the structure of unknown data files.
+            Supports pickle files, CSV, JSON, Excel, and other common formats.
+            Automatically detects file type if not specified.
+            
+            Args:
+                file_path: Path to the data file to probe
+                file_type: File format hint ("pickle", "csv", "json", "excel", "auto")
+            """
+            try:
+                probe_code = f"""
+import pandas as pd
+import numpy as np
+import pickle
+import json
+import os
+from pathlib import Path
+
+file_path = "{file_path}"
+file_type = "{file_type}"
+
+print(f"Probing data file: {{file_path}}")
+print(f"File exists: {{os.path.exists(file_path)}}")
+
+if not os.path.exists(file_path):
+    print("ERROR: File does not exist")
+else:
+    file_size = os.path.getsize(file_path)
+    print(f"File size: {{file_size:,}} bytes")
+    
+    # Auto-detect file type if needed
+    if file_type == "auto":
+        if file_path.endswith('.pkl') or file_path.endswith('.pickle'):
+            file_type = "pickle"
+        elif file_path.endswith('.csv'):
+            file_type = "csv"
+        elif file_path.endswith('.json'):
+            file_type = "json"
+        elif file_path.endswith(('.xlsx', '.xls')):
+            file_type = "excel"
+        else:
+            print("Unknown file extension, trying multiple formats...")
+    
+    print(f"Detected/specified file type: {{file_type}}")
+    
+    try:
+        if file_type == "pickle":
+            print("\\n=== PICKLE FILE ANALYSIS ===")
+            with open(file_path, 'rb') as f:
+                data = pickle.load(f)
+            
+            print(f"Data type: {{type(data)}}")
+            
+            if isinstance(data, dict):
+                print(f"Dictionary with {{len(data)}} keys:")
+                for i, (key, value) in enumerate(list(data.items())[:5]):
+                    print(f"  {{key}}: {{type(value)}} - {{str(value)[:50]}}...")
+                    if i >= 4 and len(data) > 5:
+                        print(f"  ... and {{len(data)-5}} more keys")
+                        break
+                        
+            elif isinstance(data, (list, tuple)):
+                print(f"{{type(data).__name__}} with {{len(data)}} elements")
+                if len(data) > 0:
+                    print(f"First element type: {{type(data[0])}}")
+                    print(f"First element preview: {{str(data[0])[:100]}}...")
+                    
+            elif isinstance(data, np.ndarray):
+                print(f"NumPy array shape: {{data.shape}}")
+                print(f"Data type: {{data.dtype}}")
+                print(f"Min value: {{data.min()}}, Max value: {{data.max()}}")
+                print(f"Sample values: {{data.flat[:10]}}")
+                
+            elif hasattr(data, 'shape'):  # Tensor-like objects
+                print(f"Tensor-like object shape: {{data.shape}}")
+                print(f"Object type: {{type(data)}}")
+                
+            else:
+                print(f"Data content preview: {{str(data)[:200]}}...")
+                
+        elif file_type == "csv":
+            print("\\n=== CSV FILE ANALYSIS ===")
+            # Read first few rows to understand structure
+            df_preview = pd.read_csv(file_path, nrows=5)
+            df_info = pd.read_csv(file_path)
+            
+            print(f"DataFrame shape: {{df_info.shape}}")
+            print(f"Columns: {{list(df_info.columns)}}")
+            print(f"Data types:\\n{{df_info.dtypes}}")
+            print(f"\\nFirst 5 rows:\\n{{df_preview}}")
+            print(f"\\nMissing values:\\n{{df_info.isnull().sum()}}")
+            
+        elif file_type == "json":
+            print("\\n=== JSON FILE ANALYSIS ===")
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+            
+            print(f"JSON structure type: {{type(data)}}")
+            if isinstance(data, dict):
+                print(f"Top-level keys: {{list(data.keys())}}")
+                for key, value in list(data.items())[:3]:
+                    print(f"  {{key}}: {{type(value)}} - {{str(value)[:50]}}...")
+                    
+        elif file_type == "excel":
+            print("\\n=== EXCEL FILE ANALYSIS ===")
+            excel_file = pd.ExcelFile(file_path)
+            print(f"Sheet names: {{excel_file.sheet_names}}")
+            
+            for sheet in excel_file.sheet_names[:3]:  # First 3 sheets
+                df = pd.read_excel(file_path, sheet_name=sheet, nrows=5)
+                print(f"\\nSheet '{{sheet}}' shape: {{df.shape}}")
+                print(f"Columns: {{list(df.columns)}}")
+                
+    except Exception as probe_error:
+        print(f"Error probing as {{file_type}}: {{probe_error}}")
+        print("Trying alternative formats...")
+        
+        # Try alternative formats
+        formats_to_try = ["pickle", "csv", "json"]
+        for fmt in formats_to_try:
+            if fmt != file_type:
+                try:
+                    print(f"\\nTrying {{fmt}} format...")
+                    if fmt == "pickle":
+                        with open(file_path, 'rb') as f:
+                            data = pickle.load(f)
+                        print(f"SUCCESS: File is pickle format, type: {{type(data)}}")
+                        break
+                    elif fmt == "csv":
+                        df = pd.read_csv(file_path, nrows=3)
+                        print(f"SUCCESS: File is CSV format, shape: {{df.shape}}")
+                        break
+                    elif fmt == "json":
+                        with open(file_path, 'r') as f:
+                            data = json.load(f)
+                        print(f"SUCCESS: File is JSON format, type: {{type(data)}}")
+                        break
+                except:
+                    continue
+
+print("\\nData probing complete.")
+"""
+                result = interpreter.run(probe_code, "python")
+                return f"Data Structure Analysis:\n{result}"
+            except Exception as e:
+                return f"Data probing failed: {e}"
+
+        self.mcp.tool()(probe_data_structure)
+
+        # 5. Tool Management Tool (for self-evolution)
         def add_new_tool(name: str, code: str, description: str) -> str:
             """
             Dynamically creates and registers a new tool from Python code.
@@ -268,11 +419,13 @@ except ImportError:
         """
         Creates a Camel AI FunctionTool that acts as a client to this MCP server.
         """
+        from ..core.simple_interpreter import SimpleHealthcareInterpreter
         
         def execute_python_code(code: str) -> str:
             """
             Executes a given string of Python code and returns the output.
             This tool is powerful for data analysis, calculations, and dynamic tasks.
+            Uses the enhanced SimpleHealthcareInterpreter with pre-loaded ML libraries.
             
             Args:
                 code: The Python code to execute as a string.
@@ -281,7 +434,7 @@ except ImportError:
                 The result of the code execution or error message.
             """
             try:
-                interpreter = InternalPythonInterpreter()
+                interpreter = SimpleHealthcareInterpreter()
                 result = interpreter.run(code, "python")
                 return f"Execution successful.\nOutput:\n{result}"
             except Exception as e:

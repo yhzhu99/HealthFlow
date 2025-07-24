@@ -62,12 +62,35 @@ class OpenAICompatibleProvider(LLMProvider):
             )
             return LLMResponse(
                 content=response.choices[0].message.content or "",
-                usage=response.usage.model_dump() if response.usage else None,
+                usage=self._safe_usage_extract(response.usage) if response.usage else None,
                 model=response.model,
             )
         except Exception as e:
             # logger.error(f"LLM generation failed: {e}", exc_info=True)
             raise RuntimeError(f"LLM API error: {e}") from e
+
+    def _safe_usage_extract(self, usage) -> Dict[str, int]:
+        """Safely extract usage information handling different API response formats."""
+        try:
+            if hasattr(usage, 'model_dump'):
+                usage_dict = usage.model_dump()
+            else:
+                usage_dict = dict(usage)
+            
+            # Clean up the usage dict to ensure all values are integers
+            safe_usage = {}
+            for key, value in usage_dict.items():
+                if key.endswith('_details') or value is None:
+                    continue  # Skip detail fields and None values
+                try:
+                    safe_usage[key] = int(value) if value is not None else 0
+                except (ValueError, TypeError):
+                    safe_usage[key] = 0
+            
+            return safe_usage
+        except Exception:
+            # Return minimal safe usage if extraction fails
+            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
 def create_llm_provider(api_key: str, base_url: str, model_name: str) -> LLMProvider:
     """Factory function to create the appropriate LLM provider."""
