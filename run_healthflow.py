@@ -2,7 +2,7 @@
 """
 HealthFlow Runner
 
-Simple, self-evolving healthcare AI system with enhanced logging and clear workflow.
+A simple, effective, and self-evolving AI agent framework for healthcare.
 """
 import asyncio
 import logging
@@ -14,198 +14,139 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from healthflow.core.config import HealthFlowConfig
 from healthflow.system import HealthFlowSystem
-from healthflow.core.enhanced_logging import get_enhanced_logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.live import Live
+from rich.spinner import Spinner
+
+# Setup basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.FileHandler('healthflow.log'), logging.StreamHandler(sys.stdout)],
+    force=True
+)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
 
 async def main():
     """Main entry point for HealthFlow."""
     console = Console()
-    enhanced_logger = get_enhanced_logger()
-    
-    # Load configuration
+
+    console.print(Panel(
+        "[bold cyan]HealthFlow - A Simple, Effective, and Self-Evolving AI Agent Framework[/bold cyan]",
+        title="Welcome",
+        border_style="cyan"
+    ))
+
     try:
         config = HealthFlowConfig.from_toml("config.toml")
+        logger.info("Configuration loaded successfully.")
     except Exception as e:
-        console.print(f"[red]❌ Failed to load configuration: {e}[/red]")
-        console.print("[dim]Please ensure config.toml exists and is properly formatted.[/dim]")
+        console.print(f"[bold red]❌ Error loading configuration from 'config.toml': {e}[/bold red]")
+        console.print("[dim]Please ensure the file exists and is correctly formatted. You can copy it from `config.toml.example`.[/dim]")
         return 1
-    
-    # Initialize system
+
     system = HealthFlowSystem(config)
-    
+
     try:
-        # Start the system
         await system.start()
-        
-        # Display welcome message
-        console.print(Panel(
-            "[bold cyan]HealthFlow - Simple & Self-Evolving Healthcare AI[/bold cyan]\n\n"
-            "[white]Features:[/white]\n"
-            "🧠 LLM-driven reasoning with ReAct loops\n"
-            "🔄 Self-evolving prompts and strategies\n"
-            "📊 Transparent evolution tracking\n"
-            "🚀 Simple yet effective framework\n\n"
-            "[dim]Type 'exit' or 'quit' to end. Type 'status' for system metrics.[/dim]",
-            title="Welcome",
-            border_style="cyan"
-        ))
-        
-        # Interactive loop
+        console.print("[green]✅ System initialized and ready.[/green]")
+
         while True:
-            try:
-                console.print()
-                task_input = console.input("[bold green]HealthFlow>[/bold green] ").strip()
-                
-                if not task_input:
-                    continue
-                
-                if task_input.lower() in ['exit', 'quit']:
-                    break
-                
-                if task_input.lower() == 'status':
-                    display_system_status(console, system)
-                    continue
-                
-                if task_input.lower() == 'help':
-                    display_help(console)
-                    continue
-                
-                # Execute the task
-                console.print()
+            console.print()
+            task_input = console.input("[bold magenta]HealthFlow>[/bold magenta] ").strip()
+
+            if not task_input:
+                continue
+
+            if task_input.lower() in ['exit', 'quit']:
+                break
+
+            if task_input.lower() == 'status':
+                await display_system_status(console, system)
+                continue
+
+            console.print()
+            spinner = Spinner("dots", text="[cyan]HealthFlow is thinking...")
+            with Live(spinner, console=console, transient=True, refresh_per_second=20) as live:
                 result = await system.run_task(task_input)
-                
-                # Display result
-                display_task_result(console, result)
-                
-            except KeyboardInterrupt:
-                console.print("\n[yellow]⚠️  Task interrupted by user[/yellow]")
-                continue
-            except Exception as e:
-                enhanced_logger.error("Unexpected error during task execution", e)
-                continue
-        
-        # Shutdown
+
+            display_task_result(console, result)
+
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]User interruption detected.[/yellow]")
+    except Exception as e:
+        logger.error(f"A fatal error occurred in the main loop: {e}", exc_info=True)
+        console.print(f"[bold red]💥 An unexpected system error occurred: {e}[/bold red]")
+    finally:
         console.print("\n[dim]Shutting down HealthFlow...[/dim]")
         await system.stop()
-        
-        # Display final stats
-        status = system.get_system_status()
-        console.print(f"\n[green]✅ Completed {status['task_count']} tasks this session[/green]")
-        console.print("[cyan]Thank you for using HealthFlow![/cyan]")
-        
-        return 0
-        
-    except Exception as e:
-        enhanced_logger.error("System initialization failed", e)
-        return 1
+        console.print("[bold green]Goodbye![/bold green]")
+
+    return 0
+
+def display_task_result(console: Console, result: dict):
+    """Display the final result of a task in a formatted panel."""
+    success = result.get('success', False)
+    panel_color = "green" if success else "red"
+    title = f"[bold {panel_color}]✅ Task Succeeded[/bold {panel_color}]" if success else f"[bold {panel_color}]❌ Task Failed[/bold {panel_color}]"
+
+    content = f"[bold]Final Answer:[/]\n{result.get('result', 'No result was generated.')}\n\n"
+    content += f"[dim]Execution Time: {result.get('execution_time', 0):.2f}s | "
+    content += f"Task ID: {result.get('task_id', 'N/A')[:8]}[/dim]\n"
+
+    if "evaluation" in result and result["evaluation"]:
+        eval_data = result["evaluation"]
+        content += "\n--- [bold]Evaluation[/bold] ---\n"
+        content += f"[bold]Score:[/] {eval_data.get('overall_score', 'N/A'):.1f}/10.0\n"
+        content += f"[bold]Summary:[/] {eval_data.get('executive_summary', 'No summary.')}"
+
+    console.print(Panel(content, title=title, border_style=panel_color, expand=False))
 
 
-def display_system_status(console: Console, system: HealthFlowSystem):
-    """Display current system status and metrics."""
-    status = system.get_system_status()
-    
-    # Main status table
-    status_table = Table(title="🔍 System Status", show_header=True, header_style="bold blue")
-    status_table.add_column("Metric", style="cyan", no_wrap=True)
-    status_table.add_column("Value", style="white")
-    
-    status_table.add_row("Tasks Completed", str(status['task_count']))
-    status_table.add_row("System Running", "✅ Yes" if status['is_running'] else "❌ No")
-    
-    # Prompt evolution table
+async def display_system_status(console: Console, system: HealthFlowSystem):
+    """Display the current status and evolution metrics of the system."""
+    status = await system.get_system_status()
+
+    console.print(Panel(f"[bold blue]System Status[/bold blue] | Tasks Completed: {status['task_count']}", expand=False))
+
+    # Prompt Evolution Table
     prompt_table = Table(title="📝 Prompt Evolution", show_header=True, header_style="bold magenta")
     prompt_table.add_column("Role", style="cyan")
     prompt_table.add_column("Versions", style="white")
     prompt_table.add_column("Best Score", style="green")
-    
-    for role in ["orchestrator", "expert", "analyst"]:
-        versions = status['prompt_versions'].get(role, 0)
-        score = status['best_prompt_scores'].get(role, 0.0)
-        prompt_table.add_row(role.title(), str(versions), f"{score:.2f}")
-    
-    # Strategy performance table
-    strategy_table = Table(title="🤝 Strategy Performance", show_header=True, header_style="bold yellow")
+
+    for role, data in status['prompt_status'].items():
+        prompt_table.add_row(role.title(), str(data['versions']), f"{data['best_score']:.2f}")
+
+    # Strategy Performance Table
+    strategy_table = Table(title="🧠 Strategy Performance", show_header=True, header_style="bold yellow")
     strategy_table.add_column("Strategy", style="cyan")
     strategy_table.add_column("Success Rate", style="green")
-    
-    for strategy, rate in status['strategy_performance'].items():
-        strategy_table.add_row(strategy.replace("_", " ").title(), f"{rate:.1%}")
-    
-    console.print(status_table)
-    console.print()
+    strategy_table.add_column("Usage Count", style="white")
+
+    for name, stats in status['strategy_performance'].items():
+        strategy_table.add_row(name.replace("_", " ").title(), f"{stats['success_rate']:.1%}", str(stats['usage_count']))
+
+    # ToolBank Status Table
+    tool_table = Table(title="🛠️ ToolBank Status", show_header=True, header_style="bold green")
+    tool_table.add_column("Tool Name", style="cyan")
+    tool_table.add_column("Description", style="white")
+
+    for tool_name, doc in status['tool_status'].items():
+        tool_table.add_row(tool_name, doc.split('\n')[0]) # Show first line of docstring
+
     console.print(prompt_table)
-    console.print()
     console.print(strategy_table)
-
-
-def display_help(console: Console):
-    """Display help information."""
-    help_text = """
-[bold cyan]HealthFlow Commands:[/bold cyan]
-
-[white]Task Execution:[/white]
-• Simply type your question or task to get started
-• Examples:
-  - "Calculate BMI for height 175cm, weight 70kg"
-  - "Create a transformer model for EHR time series analysis"
-  - "Explain hypertension treatment guidelines"
-
-[white]System Commands:[/white]
-• [green]status[/green]  - Show system metrics and evolution progress
-• [green]help[/green]    - Show this help message
-• [green]exit[/green]    - Exit HealthFlow
-
-[white]Features:[/white]
-• 🧠 Intelligent task routing between medical expert and data analyst
-• 🔄 ReAct loops for iterative problem solving (max 3 rounds)
-• 🧬 Self-evolving prompts that improve over time
-• 📊 Transparent performance tracking
-    """
-    
-    console.print(Panel(help_text, title="Help", border_style="blue"))
-
-
-def display_task_result(console: Console, result: dict):
-    """Display task execution result."""
-    success_icon = "✅" if result['success'] else "❌"
-    color = "green" if result['success'] else "red"
-    
-    # Create result panel
-    result_text = f"[bold {color}]{success_icon} Task Result[/bold {color}]\n\n"
-    result_text += f"[white]{result['result']}[/white]\n\n"
-    result_text += f"[dim]Execution Time: {result['execution_time']:.1f}s | "
-    result_text += f"Task #{result['task_count']}[/dim]"
-    
-    console.print(Panel(
-        result_text,
-        title="🏁 Result",
-        border_style=color,
-        expand=False
-    ))
+    console.print(tool_table)
 
 
 if __name__ == "__main__":
     try:
-        # Set up basic logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('healthflow.log'),
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
-        
-        # Run the main function
-        exit_code = asyncio.run(main())
-        sys.exit(exit_code)
-        
-    except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
-        sys.exit(0)
+        asyncio.run(main())
     except Exception as e:
-        print(f"❌ Fatal error: {e}")
+        logger.critical(f"Application failed to run: {e}", exc_info=True)
         sys.exit(1)

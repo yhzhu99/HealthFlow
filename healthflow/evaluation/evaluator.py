@@ -4,13 +4,12 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+import re
 
 from camel.messages import BaseMessage
 
-from healthflow.core.prompts import get_prompt_template
 from healthflow.core.config import HealthFlowConfig
-from healthflow.core.llm_provider import (LLMMessage, LLMProvider,
-                                           create_llm_provider)
+from healthflow.core.prompts import get_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +32,19 @@ class EvaluationResult:
 
 class LLMTaskEvaluator:
     """
-    The core of HealthFlow's self-improvement loop. It analyzes a task's
-    execution trace and provides structured, multi-dimensional feedback.
+    Analyzes a task's execution trace to provide structured feedback for self-evolution.
     """
-
     def __init__(self, config: HealthFlowConfig):
+        from camel.models import ModelFactory
+        from camel.types import ModelPlatformType
         self.config = config
-        self.llm_provider = create_llm_provider(
+        self.evaluator_llm = ModelFactory.create(
+            model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,
+            model_type=config.model_name,
             api_key=config.api_key,
-            base_url=config.base_url,
-            model_name=config.model_name,
+            url=config.base_url
         )
-        self.evaluation_prompt = get_prompt_template("evaluator")
+        self.evaluation_prompt_template = get_prompt("evaluator")
 
     async def evaluate_task(
         self,
@@ -52,30 +52,29 @@ class LLMTaskEvaluator:
         task_description: str,
         conversation_trace: List[BaseMessage],
     ) -> EvaluationResult:
-        """
-        Evaluates a completed task by analyzing its conversation trace.
-        """
+        """Evaluates a completed task by analyzing its conversation trace."""
         trace_str = self._format_trace(task_description, conversation_trace)
-        prompt = f"TASK & TRACE:\n{trace_str}\n\nEVALUATION_REQUEST:\n{self.evaluation_prompt}"
+        full_prompt = f"Task:\n{task_description}\n\nTrace:\n{trace_str}\n\nEvaluation Instructions:\n{self.evaluation_prompt_template}"
 
         try:
-            response = await self.llm_provider.generate(
-                messages=[LLMMessage(role="user", content=prompt)],
-                max_tokens=2048,
-                temperature=0.1,
-                timeout=self.config.evaluation_timeout,
-            )
-            eval_data = self._parse_evaluation_response(response.content)
+            response = await self.evaluator_llm.run(full_prompt)
+            eval_data = self._parse_evaluation_response(response)
 
-            overall_score = eval_data.get("overall_score", 0.0)
+            # Calculate weighted score
+            scores = eval_data.get("scores", {})
+            weights = {"success_accuracy": 3, "strategy_reasoning": 2, "tool_usage_agentic_skill": 2, "safety_clarity": 1}
+            total_score = sum(scores.get(k, 0) * w for k, w in weights.items())
+            total_weight = sum(weights.values())
+            overall_score = (total_score / total_weight) if total_weight > 0 else 0.0
+
             return EvaluationResult(
                 evaluation_id=str(uuid.uuid4()),
                 task_id=task_id,
                 timestamp=datetime.now(),
                 overall_success=overall_score >= self.config.success_threshold,
                 overall_score=overall_score,
-                scores=eval_data.get("scores", {}),
-                executive_summary=eval_data.get("executive_summary", "Evaluation failed."),
+                scores=scores,
+                executive_summary=eval_data.get("executive_summary", "Evaluation failed to produce a summary."),
                 improvement_suggestions=eval_data.get("improvement_suggestions", {}),
             )
         except Exception as e:
@@ -83,27 +82,19 @@ class LLMTaskEvaluator:
             return self._create_fallback_evaluation(task_id, str(e))
 
     def _format_trace(self, task_desc: str, trace: List[BaseMessage]) -> str:
-        """Formats the conversation trace into a readable string for the evaluator."""
-        formatted = f"User Query: {task_desc}\n\n--- Conversation Trace ---\n"
+        formatted = ""
         for msg in trace:
-            role = msg.role
+            role = msg.role_name
             content = msg.content.strip()
-            tool_calls = msg.meta_dict.get('tool_calls')
-
-            formatted += f"\n[{role.upper()}]:\n{content}\n"
-            if tool_calls:
-                formatted += "[TOOL CALLS]:\n"
-                for tc in tool_calls:
-                    formatted += f"  - Function: {tc.function}\n"
-                    formatted += f"    Args: {tc.params}\n"
-        formatted += "\n--- End of Trace ---"
+            formatted += f"\n> {role}:\n{content}\n"
+            if msg.meta_dict and 'tool_calls' in msg.meta_dict:
+                formatted += f"  [TOOL CALLS]: {str(msg.meta_dict['tool_calls'])}\n"
         return formatted
 
     def _parse_evaluation_response(self, response_content: str) -> Dict[str, Any]:
         """Parses the JSON output from the evaluator LLM."""
         try:
-            # Clean the response to extract only the JSON part
-            json_match = __import__("re").search(r"\{.*\}", response_content, __import__("re").DOTALL)
+            json_match = re.search(r"\{.*\}", response_content, re.DOTALL)
             if json_match:
                 json_str = json_match.group(0)
                 return json.loads(json_str)

@@ -9,12 +9,17 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
+# Assuming run_healthflow.py is in the parent directory
+# This allows the CLI to call the interactive runner
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import run_healthflow
+
 from healthflow.core.config import HealthFlowConfig
 from healthflow.system import HealthFlowSystem
 
 app = typer.Typer(
     name="healthflow",
-    help="A Self-Evolving, Multi-Agent AI System for Healthcare.",
+    help="A Simple, Effective, and Self-Evolving LLM Agent Framework for Healthcare.",
     add_completion=False,
 )
 console = Console()
@@ -38,7 +43,7 @@ def setup_logging(config: HealthFlowConfig):
 def main(
     ctx: typer.Context,
     task: Optional[str] = typer.Option(
-        None, "--task", "-t", help="A single task to execute."
+        None, "--task", "-t", help="A single task to execute in non-interactive mode."
     ),
     file: Optional[Path] = typer.Option(
         None, "--file", "-f", help="Path to a JSONL file with tasks to execute."
@@ -49,10 +54,17 @@ def main(
 ):
     """
     Initializes and runs the HealthFlow system.
+    If no task or file is provided, it enters interactive mode.
     """
     if ctx.invoked_subcommand is not None:
         return
 
+    # If no specific task or file, run the interactive main loop
+    if not task and not file:
+        asyncio.run(run_healthflow.main())
+        return
+
+    # Otherwise, run in batch mode
     try:
         config = HealthFlowConfig.from_toml(config_path)
         setup_logging(config)
@@ -62,27 +74,24 @@ def main(
 
     system = HealthFlowSystem(config)
 
-    async def run_async():
+    async def run_batch():
         try:
             await system.start()
-
             if task:
                 await execute_single_task(system, task)
             elif file:
                 await execute_task_file(system, file)
-            else:
-                await interactive_mode(system)
         finally:
             await system.stop()
 
-    asyncio.run(run_async())
+    asyncio.run(run_batch())
 
 
 async def execute_single_task(system: HealthFlowSystem, task_description: str):
     console.print(f"\n[bold cyan]Executing task:[/] {task_description}")
     with console.status("[bold green]Processing...", spinner="dots"):
         result = await system.run_task(task_description)
-    print_result(result)
+    run_healthflow.display_task_result(console, result)
 
 
 async def execute_task_file(system: HealthFlowSystem, file_path: Path):
@@ -94,60 +103,16 @@ async def execute_task_file(system: HealthFlowSystem, file_path: Path):
         tasks = [json.loads(line) for line in f if line.strip()]
 
     console.print(f"\n[bold cyan]Executing {len(tasks)} tasks from {file_path}...[/]")
-    results = []
     for i, task_data in enumerate(tasks):
         desc = task_data.get("task")
+        if not desc:
+            continue
         console.print(f"\n--- Task {i+1}/{len(tasks)} ---")
         console.print(f"[bold]Task:[/] {desc}")
         with console.status("[bold green]Processing...", spinner="dots"):
             result = await system.run_task(desc)
-        print_result(result)
-        results.append(result)
+        run_healthflow.display_task_result(console, result)
 
-    # Optionally save results
-    output_path = file_path.parent / f"{file_path.stem}_results.jsonl"
-    with output_path.open("w") as f:
-        for res in results:
-            f.write(json.dumps(res, default=str) + "\n")
-    console.print(f"\n[bold green]All tasks complete. Results saved to {output_path}[/]")
-
-
-async def interactive_mode(system: HealthFlowSystem):
-    console.print(Panel("[bold green]Welcome to HealthFlow Interactive Mode[/]",
-                        title="HealthFlow", subtitle="Type 'exit' or 'quit' to end."))
-    while True:
-        try:
-            task_description = console.input("[bold magenta]HealthFlow> [/]")
-            if task_description.lower() in ["exit", "quit"]:
-                break
-            if not task_description.strip():
-                continue
-            await execute_single_task(system, task_description)
-        except (KeyboardInterrupt, EOFError):
-            break
-    console.print("\n[bold yellow]Exiting HealthFlow. Goodbye![/]")
-
-
-def print_result(result: dict):
-    """Prints a formatted result to the console."""
-    success_emoji = "✅" if result["success"] else "❌"
-    title = f"{success_emoji} Task Result"
-    panel_color = "green" if result["success"] else "red"
-
-    content = f"[bold]Final Answer:[/]\n{result['result']}\n\n"
-    content += f"[bold]Execution Time:[/] {result['execution_time']:.2f}s\n"
-    if result.get('tools_used'):
-        content += f"[bold]Tools Used:[/] {', '.join(result['tools_used'])}\n"
-
-    if result.get("evaluation"):
-        eval_data = result["evaluation"]
-        score = eval_data.get('overall_score', 'N/A')
-        summary = eval_data.get('executive_summary', 'No summary.')
-        content += f"\n[bold]--- Evaluation ---[/]\n"
-        content += f"[bold]Score:[/] {score:.1f}/10.0\n"
-        content += f"[bold]Summary:[/] {summary}\n"
-
-    console.print(Panel(content, title=title, border_style=panel_color, expand=False))
 
 if __name__ == "__main__":
     app()

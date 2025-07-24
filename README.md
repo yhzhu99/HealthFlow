@@ -1,37 +1,35 @@
-# HealthFlow: A Self-Evolving AI Agent System for Healthcare
+# HealthFlow: A Self-Evolving AI Agent Framework for Healthcare
 
-HealthFlow is a streamlined, multi-agent AI system designed for complex medical reasoning and research. Its core innovation is a **self-evolving loop** driven by a comprehensive, process-oriented evaluator. By learning from a deep critique of its entire reasoning process—not just the final outcome—HealthFlow continuously refines its strategies, enhances its collaborative capabilities, and dynamically expands its own toolset.
+HealthFlow is a streamlined, multi-agent AI framework designed for complex, general-purpose healthcare tasks. Its core innovation is a **self-evolving loop** driven by a comprehensive, process-oriented evaluator. By learning from a deep critique of its entire reasoning process—not just the final outcome—HealthFlow continuously refines its strategies, enhances its collaborative capabilities, and dynamically expands its own toolset via **agentic tool creation**.
 
-Built on the **Camel AI framework** and using the **Model Context Protocol (MCP)** for tool management, its simple and modular architecture makes it an ideal framework for academic exploration and publication in agent-based healthcare AI.
+Built on the **Camel AI framework** for its agent components, but with a custom, flexible orchestration and tool management system, its simple and modular architecture makes it an ideal framework for academic exploration and publication in agent-based AI.
 
 ## 🌟 Core Innovation: Evaluation-Driven Self-Evolution
 
 HealthFlow's ability to learn is powered by a unique cycle of **action, evaluation, and evolution**:
 
-1.  **Plan & Act**: An agent society (a Camel AI `Workforce`) collaborates to solve a task, creating a detailed **conversation trace** that logs every reasoning step, tool call, and message.
+1.  **Plan & Act**: An agent society, dynamically orchestrated, collaborates to solve a task. For computational tasks, a **ReactAgent** engages in an iterative **code-execute-debug** loop. This entire process creates a detailed execution trace.
 2.  **Evaluate**: A dedicated **LLM-based Evaluator** analyzes the entire trace. It provides a multi-dimensional critique, assessing not just the outcome's accuracy but also the quality of the reasoning, the efficiency of tool usage, and the effectiveness of collaboration.
 3.  **Reflect & Evolve**: The rich, structured feedback from the evaluator is stored as an **Experience**. This becomes a powerful supervision signal that drives the autonomous evolution of:
     *   **Prompt Templates**: Prompts are refined based on feedback to improve agent performance.
     *   **ToolBank**: The system can identify a missing capability and task an agent to write, test, and integrate a new tool on-the-fly.
-    *   **Collaborative Strategies**: The logic guiding agent planning and delegation is improved through prompt evolution.
+    *   **Collaborative Strategies**: The logic guiding agent planning and delegation is improved through performance tracking.
 
 ## 🏗️ Simplified and Effective Architecture
 
-Designed for clarity and research focus, HealthFlow's architecture leverages modern frameworks for simplicity and power.
+Designed for clarity and research focus, HealthFlow's architecture is simple yet powerful.
 
--   **Core Agent System (`healthflow/agents/`)**: Built on **Camel AI**, using a `Workforce` society to manage collaboration between an Orchestrator, an Expert, and an Analyst.
--   **MCP-Powered ToolBank (`healthflow/tools/`)**: A dynamic tool server built with **`fastmcp`**. It's simple, extensible, and can be updated live by the agents themselves.
+-   **Core Agent System (`healthflow/system.py`)**: A custom orchestration logic that dynamically manages collaboration between an Orchestrator, an Expert, and a powerful Analyst.
+-   **Agentic Coding with ReAct (`healthflow/core/react_agent.py`)**: A specialized agent wrapper that enables iterative problem-solving for coding and data analysis tasks.
+-   **Dynamic ToolBank (`healthflow/tools/tool_manager.py`)**: A simple, in-process tool manager that is extensible and can be updated live by the agents themselves. No external dependencies.
 -   **LLM-Based Evaluator (`healthflow/evaluation/`)**: The engine of self-improvement, providing deep, process-oriented feedback.
--   **Self-Evolving Memory (`healthflow/core/memory.py`)**: The persistent knowledge layer that stores experiences and evolving prompts.
--   **CLI Interface (`run_healthflow.py`)**: The main entry point for user interaction.
+-   **Evolution & Memory (`healthflow/core/evolution.py`)**: The persistent knowledge layer that stores and manages evolving prompts and strategies.
 
-## 🤖 Streamlined Agent Roles
+## 🤖 Flexible Agent Roles
 
-HealthFlow uses a Camel AI `Workforce` to manage three essential agent roles:
-
--   **Orchestrator (Coordinator)**: The central coordinator that receives user tasks, creates a plan, and delegates sub-tasks to specialists.
--   **Expert (Worker)**: The medical reasoning engine that handles tasks requiring deep clinical expertise.
--   **Analyst (Worker)**: The data and tool specialist that executes all tool-heavy operations by communicating with the MCP ToolBank, including creating new tools.
+-   **Orchestrator**: The central coordinator that analyzes user tasks, creates a flexible plan, and dynamically delegates to the best-suited specialist(s).
+-   **Expert**: The medical reasoning engine that handles tasks requiring deep clinical expertise.
+-   **Analyst**: The data and tool specialist, capable of **agentic coding**. It handles all computational tasks, including data probing, analysis, modeling, and **creating new tools for itself**.
 
 ## 🚀 Quick Start
 
@@ -54,17 +52,7 @@ Copy the example configuration file and add your LLM provider API key.
 cp config.toml.example config.toml
 ```
 
-Edit `config.toml` to add your credentials. For example:
-
-```toml
-# config.toml
-active_llm = "deepseek-v3"
-
-[llm.deepseek-v3]
-base_url = "https://api.deepseek.com"
-api_key = "YOUR_API_KEY_HERE" # Replace with your key
-model_name = "deepseek-chat"
-```
+Edit `config.toml` to add your credentials.
 
 ### 3. Run HealthFlow
 
@@ -72,21 +60,11 @@ model_name = "deepseek-chat"
 ```bash
 python run_healthflow.py
 ```
-This will start an interactive shell.
-```
-HealthFlow> What are the key considerations for prescribing statins to a 75-year-old female with a history of liver disease?
-```
+This will start an interactive shell where you can provide tasks.
 
 #### Single Task Execution
 ```bash
-python run_healthflow.py --task "Analyze the symptoms: fever, cough, shortness of breath"
-```
-
-#### Process a Task File
-Create a `tasks.jsonl` file with one JSON object per line, e.g., `{"task": "Explain the mechanism of action of ACE inhibitors"}`.
-
-```bash
-python run_healthflow.py --file path/to/tasks.jsonl
+python run_healthflow.py --task "Analyze the provided EHR data file 'data/sample_ehr.csv' and build a simple predictive model for patient readmission."
 ```
 
 ## 🏥 Medical AI Safety
