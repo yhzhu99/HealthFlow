@@ -206,8 +206,11 @@ def run(
             workspace_pattern = "Workspace: "
             for line in execution_info['stdout'].split('\n'):
                 if workspace_pattern in line:
-                    workspace_path = line.split(workspace_pattern)[-1].strip()
-                    copy_workspace_files(workspace_path, output_dir)
+                    path_text = line.split(workspace_pattern)[-1].strip()
+                    path_parts = path_text.split()
+                    if path_parts:
+                        workspace_path = path_parts[0]
+                        copy_workspace_files(workspace_path, output_dir)
                     break
 
             # Create result entry
@@ -217,7 +220,7 @@ def run(
                 "reference_answer": reference_answer,
                 "generated_answer": generated_answer,
                 "success": execution_info['success'],
-                "output_directory": str(output_dir.relative_to(Path.cwd()))
+                "output_directory": str(output_dir)
             }
 
             results.append(result_entry)
@@ -241,8 +244,8 @@ def run(
         "total_tasks": len(tasks),
         "successful_tasks": successful_tasks,
         "success_rate": successful_tasks / len(tasks) if tasks else 0,
-        "results_file": str(results_file.relative_to(Path.cwd())),
-        "output_directory": str(results_dir.relative_to(Path.cwd()))
+        "results_file": str(results_file),
+        "output_directory": str(results_dir)
     }
 
     with open(results_dir / "summary.json", "w", encoding="utf-8") as f:
