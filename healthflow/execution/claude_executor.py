@@ -23,7 +23,7 @@ class ClaudeCodeExecutor:
         # The `--dangerously-skip-permissions` flag is used as requested to enable
         # non-interactive execution for automated workflows. This is a powerful
         # setting and should be used in controlled environments.
-        command = f'claude --dangerously-skip-permissions -p "Carefully execute the tasks outlined in the file @{task_list_path.name}. Adhere strictly to the plan."'
+        command = f'claude --dangerously-skip-permissions --print "Carefully execute the tasks outlined in the file @{task_list_path.name}. Adhere strictly to the plan."'
 
         log_file_path = working_dir / "execution.log"
         logger.info(f"Executing command in '{working_dir}': {command}")
@@ -58,7 +58,19 @@ class ClaudeCodeExecutor:
                     read_stream(process.stderr, "STDERR: ")
                 )
 
-            await process.wait()
+            # Wait for process with a 10-minute timeout
+            try:
+                await asyncio.wait_for(process.wait(), timeout=600)
+            except asyncio.TimeoutError:
+                logger.error("Claude process timed out after 600 seconds")
+                process.terminate()
+                await process.wait()
+                return {
+                    "success": False,
+                    "return_code": -1,
+                    "log": f"Process timed out after 600 seconds\n\n--- Captured Log Before Timeout ---\n{log_content}",
+                    "log_path": str(log_file_path)
+                }
 
             logger.info(f"Claude process finished with return code: {process.returncode}")
 

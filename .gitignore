@@ -12,6 +12,7 @@ config.toml
 tmp/
 prompt.md
 data/
+workspace/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

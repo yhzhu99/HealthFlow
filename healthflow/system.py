@@ -4,10 +4,18 @@ import uuid
 from pathlib import Path
 from loguru import logger
 import json
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from rich.live import Live
 from rich.spinner import Spinner
+
+class DateTimeEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle datetime objects."""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
 from .core.config import HealthFlowConfig
 from .core.llm_provider import create_llm_provider
@@ -99,7 +107,7 @@ class HealthFlowSystem:
 
         history_path = task_workspace / "full_history.json"
         with open(history_path, "w", encoding="utf-8") as f:
-            json.dump(full_history, f, indent=2)
+            json.dump(full_history, f, indent=2, cls=DateTimeEncoder)
 
         return {"success": is_success, "final_summary": final_summary}
 
@@ -159,6 +167,6 @@ class HealthFlowSystem:
 
         history_path = task_workspace / "full_history.json"
         with open(history_path, "w", encoding="utf-8") as f:
-            json.dump(full_history, f, indent=2)
+            json.dump(full_history, f, indent=2, cls=DateTimeEncoder)
 
         return {"success": is_success, "final_summary": final_summary}

@@ -84,14 +84,14 @@ def analyze_data(file_path='data/patients.csv', output_path='results/correlation
             print("\\nTop 5 factors correlated with readmission:\\n", correlation.head(6))
 
             correlation.to_csv(output_path, header=True)
-            print("\\nFull correlation data saved to {}".format(output_path))
+            print("\\nFull correlation data saved to {{}}".format(output_path))
         else:
             print("\\n'readmitted' column not found or not numeric, skipping correlation analysis.")
 
     except FileNotFoundError:
-        print("Error: The file {} was not found.".format(file_path))
+        print("Error: The file {{}} was not found.".format(file_path))
     except Exception as e:
-        print("An error occurred: {}".format(e))
+        print("An error occurred: {{}}".format(e))
 
 if __name__ == "__main__":
     analyze_data()
