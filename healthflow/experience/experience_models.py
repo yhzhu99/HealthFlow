@@ -1,29 +1,22 @@
 from pydantic import BaseModel, Field
 from enum import Enum
 from datetime import datetime
-from typing import Tuple
+from uuid import UUID
 
 class ExperienceType(str, Enum):
+    """Enumeration for the types of experiences the system can learn."""
     HEURISTIC = "heuristic"
     CODE_SNIPPET = "code_snippet"
     WORKFLOW_PATTERN = "workflow_pattern"
     WARNING = "warning"
 
 class Experience(BaseModel):
-    id: int = None
-    type: ExperienceType
-    category: str = Field(..., description="A category for the experience, e.g., 'data_cleaning', 'debugging'.")
-    content: str = Field(..., description="The actual content of the experience.")
-    source_task_id: str
-    created_at: datetime = None
-
-    @classmethod
-    def from_db_row(cls, row: Tuple):
-        return cls(
-            id=row[0],
-            type=ExperienceType(row[1]),
-            category=row[2],
-            content=row[3],
-            source_task_id=row[4],
-            created_at=datetime.fromisoformat(row[5])
-        )
+    """
+    Pydantic model representing a single piece of learned knowledge.
+    This structure is used for storing and retrieving experiences.
+    """
+    type: ExperienceType = Field(..., description="The type of the experience.")
+    category: str = Field(..., description="A classification for the experience, e.g., 'medical_data_cleaning', 'hipaa_compliance', 'model_evaluation'.")
+    content: str = Field(..., description="The actual content of the experience, e.g., a rule, a piece of code, or a warning message.")
+    source_task_id: str = Field(..., description="The ID of the task from which this experience was synthesized.")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of when the experience was created.")

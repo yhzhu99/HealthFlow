@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Self-Evolving LLM Agent for Healthcare with Experience Accumulation and Tool Creation"
 readme = "README.md"
 requires-python = ">=3.12"
-keywords = ["healthcare", "ai", "llm", "agents", "self-evolving", "medical"]
+keywords = ["healthcare", "ai", "llm", "agents", "self-evolving", "medical", "agentic"]
 
 dependencies = [
     "aiofiles>=24.1.0",
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-healthflow = "healthflow.cli:app"
+healthflow = "run_healthflow:app"
 
 [build-system]
 requires = ["hatchling"]

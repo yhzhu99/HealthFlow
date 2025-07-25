@@ -21,21 +21,16 @@ base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-reasoner"
 
-# Data Storage Configuration for Self-Evolution
-[data]
-data_dir = "./data"
-experience_dir = "./data/experience" # Stores the experience bank
-evolution_dir = "./data/evolution"   # Stores evolving prompts for meta-agents
-tasks_dir = "./data/tasks"           # Directory for temporary task files
-
-# Meta-System Configuration
+# --- System Configuration ---
 [system]
-max_feedback_rounds = 3      # Max refinement iterations per task
-success_threshold = 8.0      # Score (out of 10) to consider a task successful
-retrieve_top_k_experiences = 5 # Number of experiences to retrieve for context
+max_retries = 2 # Maximum number of retries for a failing task
+workspace_dir = "workspace" # The directory to store all task-related artifacts and the experience knowledge base
 
-# Logging Configuration
+# --- Evaluation Configuration ---
+[evaluation]
+success_threshold = 8.0 # Score threshold (out of 10) to consider a task successful
+
+# --- Logging Configuration ---
 [logging]
-log_level = "INFO" # INFO, DEBUG, WARNING, ERROR
-log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-log_file = "healthflow.log"
+log_level = "INFO" # Log level: DEBUG, INFO, WARNING, ERROR
+log_file = "healthflow.log" # Path to the log file

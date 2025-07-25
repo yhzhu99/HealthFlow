@@ -4,25 +4,28 @@ from loguru import logger
 
 class ClaudeCodeExecutor:
     """
-    A wrapper for executing tasks using the external Claude Code CLI tool.
+    A robust wrapper for executing tasks using the external Claude Code CLI tool.
+    It captures stdout, stderr, and the return code of the execution.
     """
     async def execute(self, task_list_path: Path, working_dir: Path) -> dict:
         """
-        Runs `claude` in a subprocess with the given task list.
+        Runs `claude` in a subprocess with the given task list markdown file.
 
         Args:
-            task_list_path: Path to the markdown file with instructions.
-            working_dir: The directory where the command should be executed.
+            task_list_path: Path to the markdown file with step-by-step instructions.
+            working_dir: The directory where the command should be executed and artifacts stored.
 
         Returns:
-            A dictionary with success status, log, and any created artifacts.
+            A dictionary containing the success status, return code, a combined log,
+            and the path to the log file.
         """
-        # Command to execute. We use `@` to import the task list.
-        # --dangerously-skip-permissions is used as requested for non-interactive execution.
-        command = f'claude --dangerously-skip-permissions -p "Execute the tasks outlined in the file @{task_list_path.name}"'
+        # The command to execute. We use `@` to let Claude Code read the plan from a file.
+        # The `--dangerously-skip-permissions` flag is used as requested to enable
+        # non-interactive execution for automated workflows. This is a powerful
+        # setting and should be used in controlled environments.
+        command = f'claude --dangerously-skip-permissions -p "Carefully execute the tasks outlined in the file @{task_list_path.name}. Adhere strictly to the plan."'
 
         log_file_path = working_dir / "execution.log"
-
         logger.info(f"Executing command in '{working_dir}': {command}")
 
         process = await asyncio.create_subprocess_shell(
@@ -33,21 +36,27 @@ class ClaudeCodeExecutor:
         )
 
         log_content = ""
-
         try:
-            with open(log_file_path, "w") as log_file:
-                # Asynchronously read stdout and stderr
-                async for line in process.stdout:
-                    decoded_line = line.decode('utf-8', errors='replace').strip()
-                    log_file.write(decoded_line + '\n')
-                    log_content += decoded_line + '\n'
-                    print(f"[Claude Output] {decoded_line}") # Also print to console for real-time feedback
+            # Open the log file once and stream output to it
+            with open(log_file_path, "w", encoding="utf-8") as log_file:
 
-                async for line in process.stderr:
-                    decoded_line = line.decode('utf-8', errors='replace').strip()
-                    log_file.write(f"ERROR: {decoded_line}\n")
-                    log_content += f"ERROR: {decoded_line}\n"
-                    print(f"[Claude Error] {decoded_line}")
+                async def read_stream(stream, prefix):
+                    nonlocal log_content
+                    while True:
+                        line_bytes = await stream.readline()
+                        if not line_bytes:
+                            break
+                        line = line_bytes.decode('utf-8', errors='replace')
+                        log_file.write(f"{prefix}{line}")
+                        log_content += f"{prefix}{line}"
+                        # Optional: print to console for real-time user feedback
+                        # print(f"[{prefix.strip()}] {line.strip()}", flush=True)
+
+                # Concurrently read and log stdout and stderr
+                await asyncio.gather(
+                    read_stream(process.stdout, "STDOUT: "),
+                    read_stream(process.stderr, "STDERR: ")
+                )
 
             await process.wait()
 
@@ -60,10 +69,14 @@ class ClaudeCodeExecutor:
                 "log_path": str(log_file_path)
             }
         except Exception as e:
-            logger.error(f"Failed to execute Claude Code command: {e}")
+            logger.error(f"A critical error occurred while executing the Claude Code command: {e}")
+            # Ensure process is terminated if it's still running
+            if process.returncode is None:
+                process.terminate()
+
             return {
                 "success": False,
                 "return_code": -1,
-                "log": f"HealthFlow Executor Error: {e}\n\n{log_content}",
+                "log": f"HealthFlow Executor Error: {e}\n\n--- Captured Log Before Error ---\n{log_content}",
                 "log_path": str(log_file_path)
             }

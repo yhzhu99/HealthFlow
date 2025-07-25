@@ -1,82 +1,87 @@
-import sqlite3
+import json
+import aiofiles
 from pathlib import Path
 from typing import List
 from loguru import logger
+import re
 
 from .experience_models import Experience
 
 class ExperienceManager:
     """
     Manages the persistent storage and retrieval of structured experiences
-    in a SQLite database. This forms the system's long-term memory.
+    using a JSONL file. This forms the system's long-term, evolving memory.
     """
     def __init__(self, workspace_dir: str):
-        db_path = Path(workspace_dir) / "experience.db"
-        self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
-        self._create_table()
-        logger.info(f"ExperienceManager initialized. Database at: {db_path}")
-
-    def _create_table(self):
-        with self.conn:
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS experiences (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    type TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    source_task_id TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            # For future FTS (Full-Text Search)
-            self.conn.execute("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS experiences_fts
-                USING fts5(content, tokenize = 'porter unicode61');
-            """)
+        self.experience_path = Path(workspace_dir) / "experience.jsonl"
+        # Ensure the workspace directory exists
+        self.experience_path.parent.mkdir(exist_ok=True)
+        # Ensure the file exists
+        if not self.experience_path.exists():
+            self.experience_path.touch()
+        logger.info(f"ExperienceManager initialized. Knowledge base at: {self.experience_path}")
 
     async def save_experiences(self, experiences: List[Experience]):
-        """Saves a list of new experiences to the database."""
+        """
+        Appends a list of new Experience objects to the experience.jsonl file.
+        Each experience is saved as a single JSON line.
+        """
         if not experiences:
             return
 
-        values = [(exp.type.value, exp.category, exp.content, exp.source_task_id) for exp in experiences]
-
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.executemany(
-                "INSERT INTO experiences (type, category, content, source_task_id) VALUES (?, ?, ?, ?)",
-                values
-            )
-            # Add to FTS table
+        async with aiofiles.open(self.experience_path, mode='a', encoding='utf-8') as f:
             for exp in experiences:
-                cursor.execute(
-                    "INSERT INTO experiences_fts (rowid, content) VALUES (?, ?)",
-                    (cursor.lastrowid, exp.content)
-                )
-        logger.info(f"Saved {len(experiences)} new experiences to the database.")
+                await f.write(exp.model_dump_json() + '\n')
+
+        logger.info(f"Saved {len(experiences)} new experiences to the knowledge base.")
 
     async def retrieve_experiences(self, query: str, k: int = 5) -> List[Experience]:
         """
-        Retrieves the top k most relevant experiences using simple keyword matching.
-        NOTE: This is a placeholder for a more advanced vector search / RAG implementation.
+        Retrieves the top k most relevant experiences using a simple keyword matching algorithm.
+
+        This is a basic RAG implementation. For production systems, this could be
+        upgraded to use vector embeddings and a vector database for semantic search.
+
+        Args:
+            query: The user request string to find relevant experiences for.
+            k: The maximum number of experiences to return.
+
+        Returns:
+            A list of the most relevant Experience objects.
         """
-        # Simple FTS5-based search
-        with self.conn:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT e.* FROM experiences e
-                JOIN experiences_fts fts ON e.id = fts.rowid
-                WHERE fts.content MATCH ?
-                ORDER BY rank
-                LIMIT ?
-            """, (query, k))
+        if not self.experience_path.exists() or self.experience_path.stat().st_size == 0:
+            return []
 
-            rows = cursor.fetchall()
+        all_experiences: List[Experience] = []
+        async with aiofiles.open(self.experience_path, mode='r', encoding='utf-8') as f:
+            async for line in f:
+                if line.strip():
+                    try:
+                        data = json.loads(line)
+                        all_experiences.append(Experience(**data))
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Skipping corrupted line in experience.jsonl: {e}")
 
-        experiences = [Experience.from_db_row(row) for row in rows]
-        return experiences
+        if not all_experiences:
+            return []
 
-    def __del__(self):
-        if self.conn:
-            self.conn.close()
+        # Simple keyword-based scoring
+        query_words = set(re.findall(r'\b\w+\b', query.lower()))
+        scored_experiences = []
+        for exp in all_experiences:
+            score = 0
+            content_words = set(re.findall(r'\b\w+\b', (exp.content + " " + exp.category).lower()))
+            matching_words = query_words.intersection(content_words)
+            score = len(matching_words)
+
+            if score > 0:
+                scored_experiences.append((score, exp))
+
+        # Sort by score in descending order
+        scored_experiences.sort(key=lambda x: x[0], reverse=True)
+
+        # Return the top k experiences (just the Experience object)
+        top_k_experiences = [exp for score, exp in scored_experiences[:k]]
+
+        logger.debug(f"Retrieved {len(top_k_experiences)} experiences for query: '{query}'")
+        return top_k_experiences
