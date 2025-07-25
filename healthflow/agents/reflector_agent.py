@@ -9,30 +9,39 @@ from ..experience.experience_models import Experience, ExperienceType
 class ReflectorAgent:
     """
     This agent analyzes a successful task execution to synthesize generalizable knowledge.
-    It distills heuristics, code snippets, and workflow patterns into structured Experience objects.
+    It can reflect on both code executions and simple QA interactions.
     """
     def __init__(self, llm_provider: LLMProvider):
         self.llm_provider = llm_provider
 
+    async def synthesize_qa_experience(self, user_request: str, answer: str, task_id: str) -> List[Experience]:
+        """
+        Synthesizes experience from a successful QA interaction.
+        """
+        system_prompt = get_prompt("reflector_system")
+        user_prompt = get_prompt("reflector_qa_user").format(
+            user_request=user_request,
+            answer=answer
+        )
+        messages = [
+            LLMMessage(role="system", content=system_prompt),
+            LLMMessage(role="user", content=user_prompt)
+        ]
+        logger.info("Requesting QA experience synthesis from LLM...")
+        return await self._get_experiences(messages, task_id)
+
+
     async def synthesize_experience(self, full_history: Dict[str, Any]) -> List[Experience]:
         """
-        Analyzes a successful task run and synthesizes reusable experiences.
-
-        Args:
-            full_history: A dictionary containing the complete history of the task execution.
-
-        Returns:
-            A list of Experience objects to be saved to the knowledge base.
+        Analyzes a successful code execution and synthesizes reusable experiences.
         """
         system_prompt = get_prompt("reflector_system")
 
-        # Prepare a condensed version of the history for the prompt to save tokens
-        # We take the final, successful attempt for reflection.
         successful_attempt = full_history["attempts"][-1]
         history_for_prompt = {
             "user_request": full_history["user_request"],
             "final_plan": successful_attempt["task_list"],
-            "final_log": successful_attempt["execution"]["log"][:8000] # Truncate log to avoid excessive length
+            "final_log": successful_attempt["execution"]["log"][:8000] # Truncate log
         }
         history_str = json.dumps(history_for_prompt, indent=2)
 
@@ -43,7 +52,11 @@ class ReflectorAgent:
             LLMMessage(role="user", content=user_prompt)
         ]
 
-        logger.info("Requesting experience synthesis from LLM...")
+        logger.info("Requesting code execution experience synthesis from LLM...")
+        return await self._get_experiences(messages, full_history["task_id"])
+
+    async def _get_experiences(self, messages: list[LLMMessage], task_id: str) -> List[Experience]:
+        """Helper to call LLM and parse experience JSON."""
         response = await self.llm_provider.generate(messages, json_mode=True)
 
         experiences: List[Experience] = []
@@ -52,12 +65,11 @@ class ReflectorAgent:
             raw_experiences = data.get("experiences", [])
             for item in raw_experiences:
                 try:
-                    # Validate and create Experience objects using Pydantic
                     exp = Experience(
                         type=ExperienceType(item["type"]),
                         category=item["category"],
                         content=item["content"],
-                        source_task_id=full_history["task_id"]
+                        source_task_id=task_id
                     )
                     experiences.append(exp)
                 except (ValueError, KeyError) as e:
