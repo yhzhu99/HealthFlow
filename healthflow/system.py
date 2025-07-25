@@ -59,7 +59,7 @@ class HealthFlowSystem:
 
         start_time = time.time()
 
-        if spinner and live: spinner.text = "[cyan]Retrieving experiences and triaging task...[/cyan]"
+        if spinner and live: spinner.text = "Retrieving experiences and triaging task..."
         retrieved_experiences = await self.experience_manager.retrieve_experiences(user_request, k=5)
         logger.info(f"[{task_id}] Retrieved {len(retrieved_experiences)} relevant experiences for triage.")
 
@@ -79,10 +79,10 @@ class HealthFlowSystem:
 
     async def _run_simple_qa_flow(self, task_id: str, task_workspace: Path, user_request: str, triage_result: Dict[str, Any], live: Optional[Live], spinner: Optional[Spinner]) -> Dict[str, Any]:
         """Handles the workflow for a simple question-answering task."""
-        if spinner and live: spinner.text = "[cyan]Answering question...[/cyan]"
+        if spinner and live: spinner.text = "Answering question..."
         answer = triage_result.get("answer", "I could not generate an answer for this question.")
 
-        if spinner and live: spinner.text = "[cyan]Evaluating answer...[/cyan]"
+        if spinner and live: spinner.text = "Evaluating answer..."
         evaluation = await self.evaluator.evaluate_qa(user_request, answer)
 
         is_success = evaluation["score"] >= self.config.evaluation.success_threshold
@@ -96,7 +96,7 @@ class HealthFlowSystem:
         }
 
         if is_success:
-            if spinner and live: spinner.text = "[cyan]Reflecting on answer...[/cyan]"
+            if spinner and live: spinner.text = "Reflecting on answer..."
             new_experiences = await self.reflector.synthesize_qa_experience(user_request, answer, task_id)
             if new_experiences:
                 await self.experience_manager.save_experiences(new_experiences)
@@ -109,24 +109,25 @@ class HealthFlowSystem:
         with open(history_path, "w", encoding="utf-8") as f:
             json.dump(full_history, f, indent=2, cls=DateTimeEncoder)
 
-        return {"success": is_success, "final_summary": final_summary}
+        return {"success": is_success, "final_summary": final_summary, "answer": answer}
 
     async def _run_code_execution_flow(self, task_id: str, task_workspace: Path, user_request: str, triage_result: Dict[str, Any], retrieved_experiences: List[Experience], live: Optional[Live], spinner: Optional[Spinner]) -> Dict[str, Any]:
         """Handles the iterative workflow for a task requiring code execution."""
         full_history = {"task_id": task_id, "user_request": user_request, "task_type": "code_execution", "attempts": []}
         is_success = False
         final_summary = "Task failed to complete within the allowed attempts."
+        final_answer = "No answer generated."
         task_list_md = triage_result.get("plan", "# Fallback Plan\n\nNo plan was generated.")
 
         for attempt in range(self.config.system.max_retries + 1):
             attempt_num = attempt + 1
-            if spinner and live: spinner.text = f"[cyan]Starting attempt {attempt_num}/{self.config.system.max_retries + 1}...[/cyan]"
+            if spinner and live: spinner.text = f"Starting attempt {attempt_num}/{self.config.system.max_retries + 1}..."
             logger.info(f"[{task_id}] Starting attempt {attempt_num}/{self.config.system.max_retries + 1}")
 
             attempt_history = {"attempt": attempt_num, "feedback": None}
 
             if attempt > 0: # For retries, generate a new plan with feedback
-                if spinner and live: spinner.text = "[cyan]Retrieving experiences and creating a new plan...[/cyan]"
+                if spinner and live: spinner.text = "Retrieving experiences and creating a new plan..."
                 previous_feedback = full_history["attempts"][-1]["evaluation"]["feedback"]
                 triage_with_feedback = await self.decomposer.triage_task(user_request, retrieved_experiences, previous_feedback)
                 task_list_md = triage_with_feedback.get("plan", task_list_md) # Fallback to old plan
@@ -136,12 +137,12 @@ class HealthFlowSystem:
             attempt_history["task_list"] = task_list_md
             logger.info(f"[{task_id}] Using task list for attempt {attempt_num}.")
 
-            if spinner and live: spinner.text = "[cyan]Delegating to Claude Code for execution...[/cyan]"
+            if spinner and live: spinner.text = "Delegating to Claude Code for execution..."
             execution_result = await self.executor.execute(task_list_path, task_workspace)
             attempt_history["execution"] = execution_result
             logger.info(f"[{task_id}] Execution completed for attempt {attempt_num}. Success: {execution_result['success']}")
 
-            if spinner and live: spinner.text = "[cyan]Evaluating the execution outcome...[/cyan]"
+            if spinner and live: spinner.text = "Evaluating the execution outcome..."
             evaluation = await self.evaluator.evaluate(user_request, task_list_md, execution_result["log"])
             attempt_history["evaluation"] = evaluation
             logger.info(f"[{task_id}] Evaluation completed. Score: {evaluation['score']}/10.")
@@ -151,6 +152,7 @@ class HealthFlowSystem:
             if evaluation["score"] >= self.config.evaluation.success_threshold:
                 logger.info(f"[{task_id}] Task succeeded on attempt {attempt_num}.")
                 is_success = True
+                final_answer = self._extract_answer_from_execution(execution_result["log"])
                 final_summary = f"Task completed successfully. Evaluation: {evaluation.get('reasoning', 'N/A')}"
                 break
             else:
@@ -158,7 +160,7 @@ class HealthFlowSystem:
                 final_summary = f"Task failed after {attempt_num} attempts. Final feedback: {evaluation['feedback']}"
 
         if is_success:
-            if spinner and live: spinner.text = "[cyan]Reflecting on success and saving new experiences...[/cyan]"
+            if spinner and live: spinner.text = "Reflecting on success and saving new experiences..."
             logger.info(f"[{task_id}] Reflecting on successful execution to generate new experiences.")
             new_experiences = await self.reflector.synthesize_experience(full_history)
             if new_experiences:
@@ -169,4 +171,30 @@ class HealthFlowSystem:
         with open(history_path, "w", encoding="utf-8") as f:
             json.dump(full_history, f, indent=2, cls=DateTimeEncoder)
 
-        return {"success": is_success, "final_summary": final_summary}
+        return {"success": is_success, "final_summary": final_summary, "answer": final_answer}
+
+    def _extract_answer_from_execution(self, execution_log: str) -> str:
+        """Extract the final answer from Claude Code execution log."""
+        # Look for common patterns that indicate a final answer
+        lines = execution_log.split('\n')
+
+        # Look for lines that might contain the final answer
+        answer_indicators = [
+            "final answer:", "answer:", "result:", "conclusion:",
+            "output:", "solution:", "the answer is", "priority:"
+        ]
+
+        # Start from the end of the log and work backwards
+        for i in range(len(lines) - 1, -1, -1):
+            line = lines[i].strip().lower()
+            if any(indicator in line for indicator in answer_indicators):
+                # Return the original case line
+                return lines[i].strip()
+
+        # If no specific answer pattern found, return the last meaningful output
+        for i in range(len(lines) - 1, -1, -1):
+            line = lines[i].strip()
+            if line and not line.startswith('[') and len(line) > 10:
+                return line
+
+        return "Answer extracted from execution output"

@@ -31,7 +31,13 @@ def _display_task_result(result: dict):
         panel_title = "[bold red]❌ Task Failed[/bold red]"
         panel_border_style = "red"
 
+    answer = result.get('answer', 'No answer available.')
+
     final_report = f"""
+[bold cyan]ANSWER:[/bold cyan]
+{answer}
+
+---
 [bold]Final Outcome:[/bold]
 {result.get('final_summary', 'No summary available.')}
 
@@ -45,7 +51,7 @@ async def run_single_task_flow(system: HealthFlowSystem, task: str):
     """Runs a single task and displays the result with a live spinner."""
     console.print(Panel(f"[bold cyan]Starting HealthFlow Task[/bold cyan]\n\n[dim]Task:[/dim] {task}", border_style="cyan"))
 
-    spinner = Spinner("dots", text="[cyan]HealthFlow is orchestrating...[/cyan]")
+    spinner = Spinner("dots", text="HealthFlow is orchestrating...")
     with Live(spinner, console=console, transient=True, refresh_per_second=20) as live:
         result = await system.run_task(task, live, spinner)
 
