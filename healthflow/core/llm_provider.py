@@ -1,14 +1,11 @@
-"""
-LLM Provider Abstraction to support various OpenAI-compatible APIs.
-This is a simplified version for HealthFlow's needs.
-"""
-from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
-
 import httpx
 from openai import AsyncOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from typing import List, Optional
+from tenacity import retry, stop_after_attempt, wait_exponential
+from loguru import logger
 
+from .config import LLMProviderConfig
 
 class LLMMessage(BaseModel):
     role: str
@@ -16,82 +13,44 @@ class LLMMessage(BaseModel):
 
 class LLMResponse(BaseModel):
     content: str
-    usage: Optional[Dict[str, int]] = None
-    model: Optional[str] = None
 
-class LLMProvider(ABC):
-    @abstractmethod
-    async def generate(
-        self,
-        messages: List[LLMMessage],
-        max_tokens: int = 4096,
-        temperature: float = 0.7,
-        timeout: int = 120,
-    ) -> LLMResponse:
-        pass
-
-class OpenAICompatibleProvider(LLMProvider):
-    """A provider for any OpenAI-compatible API."""
-
-    def __init__(self, api_key: str, base_url: str, model_name: str):
+class LLMProvider:
+    def __init__(self, config: LLMProviderConfig):
+        """Initializes the provider with a specific LLM's configuration."""
         self.client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            http_client=httpx.AsyncClient(
-                proxies=None,
-                transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"),
-            ),
+            api_key=config.api_key,
+            base_url=config.base_url,
+            http_client=httpx.AsyncClient(timeout=config.timeout),
         )
-        self.model_name = model_name
+        self.model_name = config.model_name
+        logger.info(f"LLMProvider initialized for model: {self.model_name} at {config.base_url}")
 
+    @retry(wait=wait_exponential(multiplier=1, min=4, max=10), stop=stop_after_attempt(3))
     async def generate(
         self,
         messages: List[LLMMessage],
+        temperature: float = 0.2,
         max_tokens: int = 4096,
-        temperature: float = 0.7,
-        timeout: int = 120,
+        json_mode: bool = False,
     ) -> LLMResponse:
-        """Generates a response from the LLM."""
+        logger.debug(f"Generating LLM response with model {self.model_name}. JSON mode: {json_mode}")
         try:
+            response_format = {"type": "json_object"} if json_mode else {"type": "text"}
+
             response = await self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[msg.model_dump() for msg in messages],
-                max_tokens=max_tokens,
                 temperature=temperature,
-                timeout=timeout,
+                max_tokens=max_tokens,
+                response_format=response_format,
             )
-            return LLMResponse(
-                content=response.choices[0].message.content or "",
-                usage=self._safe_usage_extract(response.usage) if response.usage else None,
-                model=response.model,
-            )
+            content = response.choices[0].message.content or ""
+            logger.debug(f"LLM response received. Length: {len(content)}")
+            return LLMResponse(content=content)
         except Exception as e:
-            # logger.error(f"LLM generation failed: {e}", exc_info=True)
-            raise RuntimeError(f"LLM API error: {e}") from e
+            logger.error(f"LLM API call failed: {e}")
+            raise
 
-    def _safe_usage_extract(self, usage) -> Dict[str, int]:
-        """Safely extract usage information handling different API response formats."""
-        try:
-            if hasattr(usage, 'model_dump'):
-                usage_dict = usage.model_dump()
-            else:
-                usage_dict = dict(usage)
-            
-            # Clean up the usage dict to ensure all values are integers
-            safe_usage = {}
-            for key, value in usage_dict.items():
-                if key.endswith('_details') or value is None:
-                    continue  # Skip detail fields and None values
-                try:
-                    safe_usage[key] = int(value) if value is not None else 0
-                except (ValueError, TypeError):
-                    safe_usage[key] = 0
-            
-            return safe_usage
-        except Exception:
-            # Return minimal safe usage if extraction fails
-            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-
-def create_llm_provider(api_key: str, base_url: str, model_name: str) -> LLMProvider:
-    """Factory function to create the appropriate LLM provider."""
-    return OpenAICompatibleProvider(api_key, base_url, model_name)
+def create_llm_provider(config: LLMProviderConfig) -> LLMProvider:
+    """Factory function to create the LLM provider from its specific config."""
+    return LLMProvider(config)
