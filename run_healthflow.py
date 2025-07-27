@@ -100,7 +100,7 @@ def run(
     task: str = typer.Argument(..., help="The high-level healthcare task for HealthFlow to accomplish."),
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
-    shell: str = typer.Option("/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /bin/bash)."),
+    shell: str = typer.Option("/usr/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /usr/bin/bash)."),
     instructions_path: Path = typer.Option("CLAUDE.md", "--instructions-path", help="Path to the markdown instructions file for Claude Code."),
 ):
     """
@@ -113,7 +113,7 @@ def run(
 def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
-    shell: str = typer.Option("/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /bin/bash)."),
+    shell: str = typer.Option("/usr/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /usr/bin/bash)."),
     instructions_path: Path = typer.Option("CLAUDE.md", "--instructions-path", help="Path to the markdown instructions file for Claude Code."),
 ):
     """
