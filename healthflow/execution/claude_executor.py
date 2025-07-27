@@ -6,7 +6,13 @@ class ClaudeCodeExecutor:
     """
     A robust wrapper for executing tasks using the external Claude Code CLI tool.
     It captures stdout, stderr, and the return code of the execution.
+    It can be configured with a specific shell and instructions file.
     """
+    def __init__(self, shell: str, instructions_path: Path):
+        self.shell = shell
+        self.instructions_path = instructions_path
+        logger.info(f"ClaudeCodeExecutor initialized with shell: '{self.shell}' and instructions: '{self.instructions_path}'")
+
     async def execute(self, task_list_path: Path, working_dir: Path) -> dict:
         """
         Runs `claude` in a subprocess with the given task list markdown file.
@@ -19,20 +25,26 @@ class ClaudeCodeExecutor:
             A dictionary containing the success status, return code, a combined log,
             and the path to the log file.
         """
-        # The command to execute. We use `@` to let Claude Code read the plan from a file.
-        # The `--dangerously-skip-permissions` flag is used as requested to enable
-        # non-interactive execution for automated workflows. This is a powerful
-        # setting and should be used in controlled environments.
-        command = f'claude --dangerously-skip-permissions --print "Carefully execute the tasks outlined in the file @{task_list_path.name}. Adhere strictly to the plan."'
+        try:
+            with open(self.instructions_path, 'r', encoding='utf-8') as f:
+                instructions = f.read().strip().replace('"', '\\"')
+        except FileNotFoundError:
+            logger.warning(f"Instructions file not found: {self.instructions_path}. Using a default instruction for Claude Code.")
+            instructions = "You are an expert AI assistant. Carefully execute the plan provided to you."
+
+        # The prompt to Claude includes the instructions and a reference to the plan file via the '@' syntax.
+        full_prompt = f'{instructions} The detailed plan to execute is in the file @{task_list_path.name}.'
+        command = f'claude --dangerously-skip-permissions --print "{full_prompt}"'
 
         log_file_path = working_dir / "execution.log"
-        logger.info(f"Executing command in '{working_dir}': {command}")
+        logger.info(f"Executing command in '{working_dir}' with shell '{self.shell}': {command}")
 
         process = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=working_dir
+            cwd=working_dir,
+            executable=self.shell
         )
 
         log_content = ""
@@ -49,8 +61,6 @@ class ClaudeCodeExecutor:
                         line = line_bytes.decode('utf-8', errors='replace')
                         log_file.write(f"{prefix}{line}")
                         log_content += f"{prefix}{line}"
-                        # Optional: print to console for real-time user feedback
-                        # print(f"[{prefix.strip()}] {line.strip()}", flush=True)
 
                 # Concurrently read and log stdout and stderr
                 await asyncio.gather(

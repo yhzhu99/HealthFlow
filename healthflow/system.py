@@ -19,7 +19,7 @@ class DateTimeEncoder(json.JSONEncoder):
 
 from .core.config import HealthFlowConfig
 from .core.llm_provider import create_llm_provider
-from .agents.task_decomposer_agent import TaskDecomposerAgent
+from .agents.meta_agent import MetaAgent
 from .agents.evaluator_agent import EvaluatorAgent
 from .agents.reflector_agent import ReflectorAgent
 from .execution.claude_executor import ClaudeCodeExecutor
@@ -28,28 +28,28 @@ from .experience.experience_models import Experience
 
 class HealthFlowSystem:
     """
-    The main orchestrator for the Plan -> Delegate -> Evaluate -> Reflect -> Evolve cycle.
+    The main orchestrator for the unified Plan -> Delegate -> Evaluate -> Reflect -> Evolve cycle.
     This class manages the entire lifecycle of a task from user request to completion.
     """
-    def __init__(self, config: HealthFlowConfig):
+    def __init__(self, config: HealthFlowConfig, experience_path: Path, shell: str, instructions_path: Path):
         self.config = config
         self.llm_provider = create_llm_provider(config.llm)
-        self.experience_manager = ExperienceManager(config.system.workspace_dir)
+        self.experience_manager = ExperienceManager(experience_path)
 
         # Initialize agents with the shared LLM provider
-        self.decomposer = TaskDecomposerAgent(self.llm_provider)
+        self.meta_agent = MetaAgent(self.llm_provider)
         self.evaluator = EvaluatorAgent(self.llm_provider)
         self.reflector = ReflectorAgent(self.llm_provider)
 
-        self.executor = ClaudeCodeExecutor()
+        self.executor = ClaudeCodeExecutor(shell=shell, instructions_path=instructions_path)
 
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(exist_ok=True)
 
     async def run_task(self, user_request: str, live: Optional[Live] = None, spinner: Optional[Spinner] = None) -> dict:
         """
-        Executes a single task through the full HealthFlow lifecycle.
-        This is the main entry point for processing a user request.
+        Executes a single task through the full, unified HealthFlow lifecycle.
+        This is the main entry point for processing any user request.
         """
         task_id = str(uuid.uuid4())
         task_workspace = self.workspace_dir / task_id
@@ -58,91 +58,47 @@ class HealthFlowSystem:
         logger.info(f"[{task_id}] Workspace created at: {task_workspace}")
 
         start_time = time.time()
-
-        if spinner and live: spinner.text = "Retrieving experiences and triaging task..."
-        retrieved_experiences = await self.experience_manager.retrieve_experiences(user_request, k=5)
-        logger.info(f"[{task_id}] Retrieved {len(retrieved_experiences)} relevant experiences for triage.")
-
-        triage_result = await self.decomposer.triage_task(user_request, retrieved_experiences)
-        task_type = triage_result.get("task_type")
-
-        if task_type == "simple_qa":
-            result = await self._run_simple_qa_flow(task_id, task_workspace, user_request, triage_result, live, spinner)
-        else:
-            result = await self._run_code_execution_flow(task_id, task_workspace, user_request, triage_result, retrieved_experiences, live, spinner)
-
+        result = await self._run_unified_flow(task_id, task_workspace, user_request, live, spinner)
         execution_time = time.time() - start_time
+
         result["execution_time"] = execution_time
         result["workspace_path"] = str(task_workspace)
-
         return result
 
-    async def _run_simple_qa_flow(self, task_id: str, task_workspace: Path, user_request: str, triage_result: Dict[str, Any], live: Optional[Live], spinner: Optional[Spinner]) -> Dict[str, Any]:
-        """Handles the workflow for a simple question-answering task."""
-        if spinner and live: spinner.text = "Answering question..."
-        answer = triage_result.get("answer", "I could not generate an answer for this question.")
+    async def _run_unified_flow(self, task_id: str, task_workspace: Path, user_request: str, live: Optional[Live], spinner: Optional[Spinner]) -> Dict[str, Any]:
+        """Handles the iterative workflow for any task, from planning to reflection."""
+        if spinner and live: spinner.text = "Retrieving relevant experiences..."
+        retrieved_experiences = await self.experience_manager.retrieve_experiences(user_request, k=5)
+        logger.info(f"[{task_id}] Retrieved {len(retrieved_experiences)} relevant experiences.")
 
-        if spinner and live: spinner.text = "Evaluating answer..."
-        evaluation = await self.evaluator.evaluate_qa(user_request, answer)
-
-        is_success = evaluation["score"] >= self.config.evaluation.success_threshold
-
-        full_history = {
-            "task_id": task_id,
-            "user_request": user_request,
-            "task_type": "simple_qa",
-            "answer": answer,
-            "evaluation": evaluation
-        }
-
-        if is_success:
-            if spinner and live: spinner.text = "Reflecting on answer..."
-            new_experiences = await self.reflector.synthesize_qa_experience(user_request, answer, task_id)
-            if new_experiences:
-                await self.experience_manager.save_experiences(new_experiences)
-                logger.info(f"[{task_id}] Saved {len(new_experiences)} new experiences from QA.")
-            full_history["experiences"] = [exp.model_dump() for exp in new_experiences]
-
-        final_summary = f"Answer: {answer}\n\nEvaluation: {evaluation.get('reasoning', 'N/A')}"
-
-        history_path = task_workspace / "full_history.json"
-        with open(history_path, "w", encoding="utf-8") as f:
-            json.dump(full_history, f, indent=2, cls=DateTimeEncoder)
-
-        return {"success": is_success, "final_summary": final_summary, "answer": answer}
-
-    async def _run_code_execution_flow(self, task_id: str, task_workspace: Path, user_request: str, triage_result: Dict[str, Any], retrieved_experiences: List[Experience], live: Optional[Live], spinner: Optional[Spinner]) -> Dict[str, Any]:
-        """Handles the iterative workflow for a task requiring code execution."""
-        full_history = {"task_id": task_id, "user_request": user_request, "task_type": "code_execution", "attempts": []}
+        full_history = {"task_id": task_id, "user_request": user_request, "retrieved_experiences": [exp.model_dump() for exp in retrieved_experiences], "attempts": []}
         is_success = False
         final_summary = "Task failed to complete within the allowed attempts."
         final_answer = "No answer generated."
-        task_list_md = triage_result.get("plan", "# Fallback Plan\n\nNo plan was generated.")
 
         for attempt in range(self.config.system.max_retries + 1):
             attempt_num = attempt + 1
-            if spinner and live: spinner.text = f"Starting attempt {attempt_num}/{self.config.system.max_retries + 1}..."
             logger.info(f"[{task_id}] Starting attempt {attempt_num}/{self.config.system.max_retries + 1}")
 
-            attempt_history = {"attempt": attempt_num, "feedback": None}
+            attempt_history = {"attempt": attempt_num}
+            previous_feedback = full_history["attempts"][-1]["evaluation"]["feedback"] if attempt > 0 else None
 
-            if attempt > 0: # For retries, generate a new plan with feedback
-                if spinner and live: spinner.text = "Retrieving experiences and creating a new plan..."
-                previous_feedback = full_history["attempts"][-1]["evaluation"]["feedback"]
-                triage_with_feedback = await self.decomposer.triage_task(user_request, retrieved_experiences, previous_feedback)
-                task_list_md = triage_with_feedback.get("plan", task_list_md) # Fallback to old plan
-
+            # 1. Plan
+            if spinner and live: spinner.text = f"Attempt {attempt_num}: Generating plan..."
+            task_list_md = await self.meta_agent.generate_plan(user_request, retrieved_experiences, previous_feedback)
             task_list_path = task_workspace / f"task_list_v{attempt_num}.md"
             with open(task_list_path, "w", encoding="utf-8") as f: f.write(task_list_md)
             attempt_history["task_list"] = task_list_md
-            logger.info(f"[{task_id}] Using task list for attempt {attempt_num}.")
+            logger.info(f"[{task_id}] Plan generated for attempt {attempt_num}.")
 
-            if spinner and live: spinner.text = "Delegating to Claude Code for execution..."
+            # 2. Delegate & Execute
+            if spinner and live: spinner.text = f"Attempt {attempt_num}: Delegating to executor..."
             execution_result = await self.executor.execute(task_list_path, task_workspace)
             attempt_history["execution"] = execution_result
             logger.info(f"[{task_id}] Execution completed for attempt {attempt_num}. Success: {execution_result['success']}")
 
-            if spinner and live: spinner.text = "Evaluating the execution outcome..."
+            # 3. Evaluate
+            if spinner and live: spinner.text = f"Attempt {attempt_num}: Evaluating outcome..."
             evaluation = await self.evaluator.evaluate(user_request, task_list_md, execution_result["log"])
             attempt_history["evaluation"] = evaluation
             logger.info(f"[{task_id}] Evaluation completed. Score: {evaluation['score']}/10.")
@@ -152,13 +108,14 @@ class HealthFlowSystem:
             if evaluation["score"] >= self.config.evaluation.success_threshold:
                 logger.info(f"[{task_id}] Task succeeded on attempt {attempt_num}.")
                 is_success = True
-                final_answer = self._extract_answer_from_execution(execution_result["log"])
+                final_answer = self._extract_answer_from_execution(execution_result["log"], user_request)
                 final_summary = f"Task completed successfully. Evaluation: {evaluation.get('reasoning', 'N/A')}"
                 break
             else:
                 logger.warning(f"[{task_id}] Attempt {attempt_num} failed with score {evaluation['score']}. Retrying if possible.")
                 final_summary = f"Task failed after {attempt_num} attempts. Final feedback: {evaluation['feedback']}"
 
+        # 4. Reflect & Evolve
         if is_success:
             if spinner and live: spinner.text = "Reflecting on success and saving new experiences..."
             logger.info(f"[{task_id}] Reflecting on successful execution to generate new experiences.")
@@ -166,6 +123,8 @@ class HealthFlowSystem:
             if new_experiences:
                 await self.experience_manager.save_experiences(new_experiences)
                 logger.info(f"[{task_id}] Saved {len(new_experiences)} new experiences to the knowledge base.")
+            full_history["new_experiences"] = [exp.model_dump() for exp in new_experiences]
+
 
         history_path = task_workspace / "full_history.json"
         with open(history_path, "w", encoding="utf-8") as f:
@@ -173,28 +132,36 @@ class HealthFlowSystem:
 
         return {"success": is_success, "final_summary": final_summary, "answer": final_answer}
 
-    def _extract_answer_from_execution(self, execution_log: str) -> str:
-        """Extract the final answer from Claude Code execution log."""
-        # Look for common patterns that indicate a final answer
+    def _extract_answer_from_execution(self, execution_log: str, user_request: str) -> str:
+        """Extract the final answer from the execution log."""
         lines = execution_log.split('\n')
 
-        # Look for lines that might contain the final answer
+        # Priority 1: Simple echo output for simple questions
+        # This handles cases like `echo "I am HealthFlow"`
+        if len(lines) < 5: # Likely a very simple command
+            for line in lines:
+                if line.startswith("STDOUT: "):
+                    content = line.replace("STDOUT: ", "").strip()
+                    if content: return content # Return the first piece of stdout
+
+        # Priority 2: Look for explicit answer indicators from the end of the log
         answer_indicators = [
             "final answer:", "answer:", "result:", "conclusion:",
             "output:", "solution:", "the answer is", "priority:"
         ]
-
-        # Start from the end of the log and work backwards
         for i in range(len(lines) - 1, -1, -1):
-            line = lines[i].strip().lower()
-            if any(indicator in line for indicator in answer_indicators):
-                # Return the original case line
-                return lines[i].strip()
+            line_content = lines[i].replace("STDOUT: ", "").replace("STDERR: ", "").strip()
+            line_lower = line_content.lower()
+            if any(indicator in line_lower for indicator in answer_indicators):
+                return line_content
 
-        # If no specific answer pattern found, return the last meaningful output
+        # Priority 3: Return the last meaningful line of stdout
         for i in range(len(lines) - 1, -1, -1):
-            line = lines[i].strip()
-            if line and not line.startswith('[') and len(line) > 10:
-                return line
+            line = lines[i]
+            if line.startswith("STDOUT: "):
+                content = line.replace("STDOUT: ", "").strip()
+                if content and len(content) > 10:
+                    return content
 
-        return "Answer extracted from execution output"
+        # Fallback if no clear answer is found
+        return f"Execution completed. Please review the log in the workspace for details. The original request was: '{user_request}'"

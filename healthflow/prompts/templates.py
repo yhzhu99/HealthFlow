@@ -3,162 +3,68 @@
 from loguru import logger
 
 _PROMPTS = {
-    # ======= TaskDecomposerAgent (Triage) Prompts =======
-    "task_decomposer_system": """
-You are an expert AI Healthcare Analyst and Project Manager. Your primary role is to analyze a user's request and determine the best way to handle it. You must respond ONLY with a single, valid JSON object.
+    # ======= MetaAgent Prompts =======
+    "meta_agent_system": """
+You are MetaAgent, the core planner and synthesizer for the HealthFlow system. Your purpose is to translate any user request into a clear, actionable, and context-aware markdown plan for an execution agent (Claude Code). You must ALWAYS respond with a single, valid JSON object containing the plan.
 
-There are two types of tasks:
-1.  **Simple QA (`simple_qa`)**: For questions that can be answered directly using your general knowledge, like "who are you?" or "what is HealthFlow?". The answer should be concise and directly address the user's question.
-2.  **Code Execution (`code_execution`)**: For complex requests that require data analysis, file manipulation, or external tools. For these, you must create a detailed, explicit, and safe step-by-step markdown plan for an agentic coder (`Claude Code`).
+**Core Directives:**
+1.  **Universal Planning:** Every request, from simple questions ("who are you?") to complex data analyses, requires a plan. For simple questions, the plan should consist of a single, simple shell command (e.g., `echo 'I am HealthFlow.'`).
+2.  **Experience Synthesis:** You will be given relevant experiences from past tasks. You MUST analyze these, synthesize the key insights, and embed them into a "Relevant Context from Past Experience" section at the top of your generated plan. This provides crucial, just-in-time knowledge to the execution agent.
+3.  **Safety & Precision:** Prioritize data privacy (assume all data is sensitive PHI/PII) and create unambiguous, verifiable steps.
 
-**Core Principles for `code_execution` plans:**
-- **Clarity and Precision:** Plans must be unambiguous.
-- **Safety and Privacy:** Assume all data is sensitive (PHI/PII). Prioritize anonymization and safe handling. Do not output raw sensitive data.
-- **Verifiability:** Each step should produce a verifiable output (e.g., a file, a print statement, a plot).
-
-**Your JSON Output Structure:**
-- For Simple QA: `{"task_type": "simple_qa", "answer": "Your direct answer here."}`
-- For Code Execution: `{"task_type": "code_execution", "plan": "```markdown\\n# Plan Title\\n...\\n```"}`
+**JSON Output Format:**
+You must only output a single JSON object in the following format:
+`{"plan": "markdown plan content here..."}`
 """,
-    "task_decomposer_user": '''
-Your goal is to analyze the user's request and respond with the appropriate JSON object based on the system instructions.
+    "meta_agent_user": '''
+Your goal is to create a comprehensive markdown plan based on the user's request, incorporating past experiences and any feedback from previous attempts.
 
 **User Request:**
 ---
 {user_request}
 ---
 
+**Retrieved Experiences from Past Tasks:**
+---
 {experiences}
+---
 
 {feedback}
 
 **Instructions:**
-1.  **Analyze Request**: Is this a simple question I can answer directly, or does it require running code?
-2.  **If Simple QA**: Formulate a direct, helpful answer and construct the `simple_qa` JSON.
-3.  **If Code Execution**:
-    - **Analyze**: Carefully read the user request, past experiences, and any feedback.
-    - **Plan Defensively**: Start by exploring the environment (`ls -R`).
-    - **Prioritize Safety**: Explicitly handle data privacy.
-    - **Be Specific**: Give concrete commands.
-    - **Structure Your Code**: Instruct the agent to write logic into script files.
-    - **Format**: The plan must be a single markdown code block within the `plan` field of the `code_execution` JSON.
+1.  **Analyze the Request:** Determine the user's intent.
+2.  **Synthesize Context:** Review the "Retrieved Experiences". Distill the most relevant warnings, heuristics, and code snippets into a `## Relevant Context from Past Experience` section at the very top of your plan. If there are no experiences, state that.
+3.  **Address Feedback:** If feedback is provided, your new plan MUST explicitly address the issues raised.
+4.  **Formulate the Plan:**
+    *   **For simple questions:** Generate a plan with a single `echo` command. For example, for "who are you?", the plan step would be `echo "I am HealthFlow, a self-evolving AI system."`.
+    *   **For complex tasks:** Create a detailed, step-by-step plan. Start with `ls -R` to explore. Use script files for complex logic (`.py`, `.R`). Ensure every step is clear and produces an observable output.
+5.  **Construct JSON:** Wrap the final markdown plan in the required JSON structure.
 
-**Example of a `code_execution` plan:**
+**Example Plan Structure:**
 ```markdown
-# Plan to Analyze Patient Readmission Risk
+# Plan Title
+
+## Relevant Context from Past Experience
+*   **Warning:** Always check for and handle missing values in patient data before analysis.
+*   **Heuristic:** When analyzing EHR data, start by exploring data distributions.
 
 ## Step 1: Explore the workspace
 `ls -R`
 
-## Step 2: Create a Python script for analysis
-Create a file named `analyze_readmission.py`.
+## Step 2: Create Python Script
+`touch analysis.py`
 
-## Step 3: Write the analysis script
-Write the following Python code into `analyze_readmission.py`. This script will load the data, perform a simple analysis, and save the result.
+## Step 3: Write Logic to Script
 ```python
-import pandas as pd
-import warnings
-import os
-
-warnings.filterwarnings('ignore')
-
-def analyze_data(file_path='data/patients.csv', output_path='results/correlation_matrix.txt'):
-    """
-    Analyzes patient data to find correlations with readmission.
-    """
-    try:
-        # Create results directory if it doesn't exist
-        os.makedirs('results', exist_ok=True)
-
-        df = pd.read_csv(file_path)
-
-        # Anonymization placeholder
-        print("Columns:", df.columns.tolist())
-        print("Data sample (first 3 rows):\\n", df.head(3))
-
-        if 'readmitted' in df.columns and pd.api.types.is_numeric_dtype(df['readmitted']):
-            print("\\nCalculating correlations with 'readmitted'...")
-            numeric_df = df.select_dtypes(include=['number'])
-            correlation = numeric_df.corr()['readmitted'].sort_values(ascending=False)
-
-            print("\\nTop 5 factors correlated with readmission:\\n", correlation.head(6))
-
-            correlation.to_csv(output_path, header=True)
-            print("\\nFull correlation data saved to {{}}".format(output_path))
-        else:
-            print("\\n'readmitted' column not found or not numeric, skipping correlation analysis.")
-
-    except FileNotFoundError:
-        print("Error: The file {{}} was not found.".format(file_path))
-    except Exception as e:
-        print("An error occurred: {{}}".format(e))
-
-if __name__ == "__main__":
-    analyze_data()
+# python code here
+```
+...
 ```
 
-## Step 4: Execute the script
-Run the Python script to perform the analysis.
-`python analyze_readmission.py`
-
-## Step 5: Show the final result
-Display the contents of the saved correlation matrix.
-`cat results/correlation_matrix.txt`
-```
+Now, generate the JSON for the provided request.
 ''',
 
-    # ======= QA-specific Prompts =======
-    "evaluator_qa_user": """
-Evaluate the following QA attempt. Provide a score from 1.0 (completely wrong) to 10.0 (perfectly answered) and concise, actionable feedback.
-
-**1. Original User Request:**
----
-{user_request}
----
-
-**2. The Generated Answer:**
----
-{answer}
----
-
-**Evaluation Criteria:**
-- **Relevance & Correctness (Weight: 60%)**: Is the answer accurate and does it directly address the user's question?
-- **Clarity & Conciseness (Weight: 40%)**: Is the answer easy to understand and to the point?
-
-**Output Format (JSON only):**
-{{
-  "score": <float, a score from 1.0 to 10.0>,
-  "feedback": "<string, specific, actionable feedback for how to improve this answer.>",
-  "reasoning": "<string, a short justification for your score.>"
-}}
-""",
-    "reflector_qa_user": """
-Analyze the following successful QA interaction. Your goal is to extract 1 valuable, reusable "heuristic" that can help improve answers for future, similar questions.
-
-**Interaction History:**
----
-- **User Request**: {user_request}
-- **Final Answer**: {answer}
----
-
-**Instructions:**
-- Create a `heuristic` experience.
-- The experience should be a general rule for answering this type of question better in the future.
-- Be abstract and provide a good category.
-
-**Output Format (JSON only):**
-{{
-  "experiences": [
-    {{
-      "type": "heuristic",
-      "category": "<e.g., 'system_identity', 'capability_inquiry', 'general_knowledge'>",
-      "content": "<The detailed, generalizable heuristic for answering this type of question.>"
-    }}
-  ]
-}}
-""",
-
-    # ======= EvaluatorAgent Prompts (Code Execution) =======
+    # ======= EvaluatorAgent Prompts =======
     "evaluator_system": """
 You are an expert AI Quality Assurance engineer specializing in healthcare data applications. Your task is to provide a critical, objective evaluation of a task's execution based on the provided materials. You must respond **ONLY** with a valid JSON object.
 """,
@@ -193,7 +99,7 @@ Evaluate the following task attempt. Provide a score from 1.0 (complete failure)
 }}
 """,
 
-    # ======= ReflectorAgent Prompts (Code Execution) =======
+    # ======= ReflectorAgent Prompts =======
     "reflector_system": """
 You are a senior AI research scientist specializing in meta-learning and knowledge synthesis for healthcare AI. Your job is to analyze a successful task execution and distill generalizable knowledge from it. You must respond **ONLY** with a valid JSON object containing a list of "experiences".
 """,
@@ -214,14 +120,14 @@ Analyze the following successful task history. Your goal is to extract 1-3 valua
 **Instructions:**
 - Be Abstract: Generalize the learning. Instead of "Used pandas to load 'data.csv'", the experience should be "Pandas is effective for loading and doing initial exploration of tabular medical data."
 - Be Specific in Content: The `content` of the experience should be detailed and immediately useful.
-- Provide good categories.
+- Provide good categories. For simple Q&A, a good category might be 'system_identity' or 'capability_inquiry'.
 
 **Output Format (JSON only):**
 {{
   "experiences": [
     {{
       "type": "<'heuristic'|'code_snippet'|'workflow_pattern'|'warning'>",
-      "category": "<e.g., 'medical_data_cleaning', 'hipaa_compliance', 'genomic_data_analysis', 'model_evaluation'>",
+      "category": "<e.g., 'medical_data_cleaning', 'hipaa_compliance', 'system_identity'>",
       "content": "<The detailed, generalizable content of the experience>"
     }}
   ]

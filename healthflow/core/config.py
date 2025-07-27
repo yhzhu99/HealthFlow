@@ -13,7 +13,7 @@ class LLMProviderConfig(BaseModel):
 
 class SystemConfig(BaseModel):
     max_retries: int = Field(2, description="Maximum number of retries for a failing task.")
-    workspace_dir: str = Field("workspace", description="Directory for task artifacts and experience knowledge base.")
+    workspace_dir: str = Field("workspace", description="Directory for task artifacts.")
 
 class EvaluationConfig(BaseModel):
     success_threshold: float = Field(8.0, description="Score (out of 10) to consider a task successful.")

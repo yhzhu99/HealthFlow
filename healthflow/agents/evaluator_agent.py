@@ -8,26 +8,9 @@ class EvaluatorAgent:
     """
     This agent evaluates the execution of a task based on the original request,
     the plan, and the execution log. It provides a structured score and feedback.
-    It can also evaluate direct QA answers.
     """
     def __init__(self, llm_provider: LLMProvider):
         self.llm_provider = llm_provider
-
-    async def evaluate_qa(self, user_request: str, answer: str) -> dict:
-        """
-        Evaluates a direct QA answer.
-        """
-        system_prompt = get_prompt("evaluator_system")
-        user_prompt = get_prompt("evaluator_qa_user").format(
-            user_request=user_request,
-            answer=answer
-        )
-        messages = [
-            LLMMessage(role="system", content=system_prompt),
-            LLMMessage(role="user", content=user_prompt)
-        ]
-        logger.info("Requesting QA evaluation from LLM...")
-        return await self._get_evaluation(messages)
 
     async def evaluate(self, user_request: str, task_list: str, execution_log: str) -> dict:
         """

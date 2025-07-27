@@ -12,7 +12,7 @@ from rich.spinner import Spinner
 sys.path.insert(0, str(Path(__file__).parent))
 
 from healthflow.system import HealthFlowSystem
-from healthflow.core.config import get_config, setup_logging, HealthFlowConfig
+from healthflow.core.config import get_config, setup_logging
 
 app = typer.Typer(
     name="healthflow",
@@ -56,6 +56,9 @@ async def run_single_task_flow(system: HealthFlowSystem, task: str):
         result = await system.run_task(task, live, spinner)
 
     _display_task_result(result)
+    # Exit with a non-zero code if the task failed, useful for scripting/CI
+    if not result.get("success", False):
+        raise typer.Exit(code=1)
 
 async def main_interactive_loop(system: HealthFlowSystem):
     """Runs the interactive mode loop."""
@@ -68,17 +71,26 @@ async def main_interactive_loop(system: HealthFlowSystem):
             if task_input.lower() in ["exit", "quit"]:
                 console.print("[yellow]Exiting interactive mode.[/yellow]")
                 break
+            # In interactive mode, we don't exit the script on failure
             await run_single_task_flow(system, task_input)
         except (KeyboardInterrupt, EOFError):
             console.print("\n[yellow]Exiting interactive mode.[/yellow]")
             break
+        except typer.Exit: # Catch the exit from run_single_task_flow
+            console.print("[yellow]Task failed. Ready for next command.[/yellow]")
 
-def _initialize_system(config_path: Path) -> HealthFlowSystem:
+
+def _initialize_system(config_path: Path, experience_path: Path, shell: str, instructions_path: Path) -> HealthFlowSystem:
     """Loads config, sets up logging, and initializes the HealthFlowSystem."""
     try:
         config = get_config(config_path)
         setup_logging(config)
-        return HealthFlowSystem(config)
+        return HealthFlowSystem(
+            config=config,
+            experience_path=experience_path,
+            shell=shell,
+            instructions_path=instructions_path
+        )
     except (ValueError, FileNotFoundError) as e:
         console.print(Panel(f"[bold red]Initialization Error:[/bold red] {e}", title="Error", border_style="red"))
         raise typer.Exit(code=1)
@@ -87,21 +99,27 @@ def _initialize_system(config_path: Path) -> HealthFlowSystem:
 def run(
     task: str = typer.Argument(..., help="The high-level healthcare task for HealthFlow to accomplish."),
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
+    experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
+    shell: str = typer.Option("/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /bin/bash)."),
+    instructions_path: Path = typer.Option("CLAUDE.md", "--instructions-path", help="Path to the markdown instructions file for Claude Code."),
 ):
     """
     Run a single task through the HealthFlow system.
     """
-    system = _initialize_system(config_path)
+    system = _initialize_system(config_path, experience_path, shell, instructions_path)
     asyncio.run(run_single_task_flow(system, task))
 
 @app.command()
 def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
+    experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
+    shell: str = typer.Option("/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /bin/bash)."),
+    instructions_path: Path = typer.Option("CLAUDE.md", "--instructions-path", help="Path to the markdown instructions file for Claude Code."),
 ):
     """
     Starts HealthFlow in an interactive, chat-like mode for multiple tasks.
     """
-    system = _initialize_system(config_path)
+    system = _initialize_system(config_path, experience_path, shell, instructions_path)
     asyncio.run(main_interactive_loop(system))
 
 @app.callback(invoke_without_command=True)

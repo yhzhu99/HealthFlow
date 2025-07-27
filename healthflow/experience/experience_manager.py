@@ -12,10 +12,10 @@ class ExperienceManager:
     Manages the persistent storage and retrieval of structured experiences
     using a JSONL file. This forms the system's long-term, evolving memory.
     """
-    def __init__(self, workspace_dir: str):
-        self.experience_path = Path(workspace_dir) / "experience.jsonl"
-        # Ensure the workspace directory exists
-        self.experience_path.parent.mkdir(exist_ok=True)
+    def __init__(self, experience_path: Path):
+        self.experience_path = experience_path
+        # Ensure the parent directory exists
+        self.experience_path.parent.mkdir(parents=True, exist_ok=True)
         # Ensure the file exists
         if not self.experience_path.exists():
             self.experience_path.touch()
@@ -59,7 +59,7 @@ class ExperienceManager:
                     try:
                         data = json.loads(line)
                         all_experiences.append(Experience(**data))
-                    except (json.JSONDecodeError, TypeError) as e:
+                    except (json.JSONDecodeError, TypeError, ValueError) as e:
                         logger.warning(f"Skipping corrupted line in experience.jsonl: {e}")
 
         if not all_experiences:
