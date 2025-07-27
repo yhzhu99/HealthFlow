@@ -93,7 +93,7 @@ class HealthFlowSystem:
 
             # 2. Delegate & Execute
             if spinner and live: spinner.text = f"Attempt {attempt_num}: Delegating to executor..."
-            execution_result = await self.executor.execute(task_list_path, task_workspace)
+            execution_result = await self.executor.execute(user_request, task_list_path, task_workspace)
             attempt_history["execution"] = execution_result
             logger.info(f"[{task_id}] Execution completed for attempt {attempt_num}. Success: {execution_result['success']}")
 
