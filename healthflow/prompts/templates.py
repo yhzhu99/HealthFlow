@@ -99,6 +99,46 @@ Evaluate the following task attempt. Provide a score from 1.0 (complete failure)
 }}
 """,
 
+    # ======= EvaluatorAgent Training Mode Prompts =======
+    "evaluator_system_train": """
+You are an expert AI Quality Assurance engineer specializing in healthcare data applications. Your task is to provide a critical, objective evaluation of a task's execution in TRAINING MODE. In training mode, you have access to a reference answer that represents the ground truth, and you must evaluate how well the execution matches this reference. You must respond **ONLY** with a valid JSON object.
+""",
+    "evaluator_user_train": """
+Evaluate the following task attempt in TRAINING MODE. You have access to a reference answer that represents the ground truth. Provide a score from 1.0 (complete failure) to 10.0 (perfect execution) based on how well the execution matches the reference answer.
+
+**1. Original User Request:**
+---
+{user_request}
+---
+
+**2. The Plan That Was Executed (`task_list.md`):**
+---
+{task_list}
+---
+
+**3. The Full Execution Log (stdout/stderr):**
+---
+{execution_log}
+---
+
+**4. Reference Answer (Ground Truth):**
+---
+{reference_answer}
+---
+
+**Training Mode Evaluation Criteria:**
+- **Correctness vs Reference (Weight: 70%)**: How well does the final output match the reference answer? Consider semantic similarity, not just exact text matching.
+- **Approach Quality (Weight: 20%)**: Was the methodology used appropriate and well-executed, even if the final answer differs slightly?
+- **Safety & Robustness (Weight: 10%)**: Did the solution handle potential errors and respect data privacy principles?
+
+**Output Format (JSON only):**
+{{
+  "score": <float, a score from 1.0 to 10.0>,
+  "feedback": "<string, specific feedback comparing the execution result to the reference answer. Highlight what was correct and what needs improvement.>",
+  "reasoning": "<string, justification for your score, focusing on how well the execution matched the reference answer.>"
+}}
+""",
+
     # ======= ReflectorAgent Prompts =======
     "reflector_system": """
 You are a senior AI research scientist specializing in meta-learning and knowledge synthesis for healthcare AI. Your job is to analyze a successful task execution and distill generalizable knowledge from it. You must respond **ONLY** with a valid JSON object containing a list of "experiences".

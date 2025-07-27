@@ -46,7 +46,7 @@ class HealthFlowSystem:
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(exist_ok=True)
 
-    async def run_task(self, user_request: str, live: Optional[Live] = None, spinner: Optional[Spinner] = None) -> dict:
+    async def run_task(self, user_request: str, live: Optional[Live] = None, spinner: Optional[Spinner] = None, train_mode: bool = False, reference_answer: str = None) -> dict:
         """
         Executes a single task through the full, unified HealthFlow lifecycle.
         This is the main entry point for processing any user request.
@@ -54,18 +54,19 @@ class HealthFlowSystem:
         task_id = str(uuid.uuid4())
         task_workspace = self.workspace_dir / task_id
         task_workspace.mkdir(exist_ok=True)
-        logger.info(f"[{task_id}] New task started. Request: '{user_request}'")
+        mode_text = " (Training Mode)" if train_mode else ""
+        logger.info(f"[{task_id}] New task started{mode_text}. Request: '{user_request}'")
         logger.info(f"[{task_id}] Workspace created at: {task_workspace}")
 
         start_time = time.time()
-        result = await self._run_unified_flow(task_id, task_workspace, user_request, live, spinner)
+        result = await self._run_unified_flow(task_id, task_workspace, user_request, live, spinner, train_mode, reference_answer)
         execution_time = time.time() - start_time
 
         result["execution_time"] = execution_time
         result["workspace_path"] = str(task_workspace)
         return result
 
-    async def _run_unified_flow(self, task_id: str, task_workspace: Path, user_request: str, live: Optional[Live], spinner: Optional[Spinner]) -> Dict[str, Any]:
+    async def _run_unified_flow(self, task_id: str, task_workspace: Path, user_request: str, live: Optional[Live], spinner: Optional[Spinner], train_mode: bool = False, reference_answer: str = None) -> Dict[str, Any]:
         """Handles the iterative workflow for any task, from planning to reflection."""
         if spinner and live: spinner.text = "Retrieving relevant experiences..."
         retrieved_experiences = await self.experience_manager.retrieve_experiences(user_request, k=5)
@@ -99,7 +100,7 @@ class HealthFlowSystem:
 
             # 3. Evaluate
             if spinner and live: spinner.text = f"Attempt {attempt_num}: Evaluating outcome..."
-            evaluation = await self.evaluator.evaluate(user_request, task_list_md, execution_result["log"])
+            evaluation = await self.evaluator.evaluate(user_request, task_list_md, execution_result["log"], train_mode, reference_answer)
             attempt_history["evaluation"] = evaluation
             logger.info(f"[{task_id}] Evaluation completed. Score: {evaluation['score']}/10.")
 

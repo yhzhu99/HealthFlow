@@ -47,13 +47,14 @@ def _display_task_result(result: dict):
 """
     console.print(Panel(final_report, title=panel_title, border_style=panel_border_style))
 
-async def run_single_task_flow(system: HealthFlowSystem, task: str):
+async def run_single_task_flow(system: HealthFlowSystem, task: str, train_mode: bool = False, reference_answer: str = None):
     """Runs a single task and displays the result with a live spinner."""
-    console.print(Panel(f"[bold cyan]Starting HealthFlow Task[/bold cyan]\n\n[dim]Task:[/dim] {task}", border_style="cyan"))
+    mode_text = "[bold yellow](Training Mode)[/bold yellow] " if train_mode else ""
+    console.print(Panel(f"[bold cyan]Starting HealthFlow Task[/bold cyan] {mode_text}\n\n[dim]Task:[/dim] {task}", border_style="cyan"))
 
     spinner = Spinner("dots", text="HealthFlow is orchestrating...")
     with Live(spinner, console=console, transient=True, refresh_per_second=20) as live:
-        result = await system.run_task(task, live, spinner)
+        result = await system.run_task(task, live, spinner, train_mode, reference_answer)
 
     _display_task_result(result)
     # Exit with a non-zero code if the task failed, useful for scripting/CI
@@ -100,12 +101,18 @@ def run(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     shell: str = typer.Option("/usr/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /usr/bin/bash)."),
+    train_mode: bool = typer.Option(False, "--train", help="Enable training mode (CLI only)."),
+    reference_answer: str = typer.Option(None, "--reference-answer", help="Reference answer for training mode evaluation."),
 ):
     """
     Run a single task through the HealthFlow system.
     """
+    if train_mode and reference_answer is None:
+        console.print(Panel("[bold red]Error:[/bold red] Training mode requires --reference-answer parameter.", border_style="red"))
+        raise typer.Exit(code=1)
+    
     system = _initialize_system(config_path, experience_path, shell)
-    asyncio.run(run_single_task_flow(system, task))
+    asyncio.run(run_single_task_flow(system, task, train_mode, reference_answer))
 
 @app.command()
 def interactive(
