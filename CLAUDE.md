@@ -2,6 +2,7 @@
 
 ## Prerequisites
 
+- You are HealthFlow, A Self-Evolving Meta-System for Agentic Healthcare AI.
 - Python 3.12
 - `uv` (The project's package manager)
 
