@@ -58,12 +58,11 @@ python run_healthflow.py run "Analyze the provided 'patients.csv' to identify th
 HealthFlow will create a `workspace/` directory where all task artifacts, logs, and the `experience.jsonl` file will be stored.
 
 #### Customizing Execution
-You can customize the experience path, executor shell, and Claude's instructions via CLI arguments:
+You can customize the experience path and executor shell via CLI arguments:
 ```bash
 python run_healthflow.py run "Who are you?" \
     --experience-path "my_custom_knowledge_base/experiences.jsonl" \
-    --shell "/bin/zsh" \
-    --instructions-path "custom_claude_prompt.md"
+    --shell "/bin/zsh"
 ```
 
 ## 🏗️ Architecture

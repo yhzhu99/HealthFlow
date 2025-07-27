@@ -80,7 +80,7 @@ async def main_interactive_loop(system: HealthFlowSystem):
             console.print("[yellow]Task failed. Ready for next command.[/yellow]")
 
 
-def _initialize_system(config_path: Path, experience_path: Path, shell: str, instructions_path: Path) -> HealthFlowSystem:
+def _initialize_system(config_path: Path, experience_path: Path, shell: str) -> HealthFlowSystem:
     """Loads config, sets up logging, and initializes the HealthFlowSystem."""
     try:
         config = get_config(config_path)
@@ -88,8 +88,7 @@ def _initialize_system(config_path: Path, experience_path: Path, shell: str, ins
         return HealthFlowSystem(
             config=config,
             experience_path=experience_path,
-            shell=shell,
-            instructions_path=instructions_path
+            shell=shell
         )
     except (ValueError, FileNotFoundError) as e:
         console.print(Panel(f"[bold red]Initialization Error:[/bold red] {e}", title="Error", border_style="red"))
@@ -101,12 +100,11 @@ def run(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     shell: str = typer.Option("/usr/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /usr/bin/bash)."),
-    instructions_path: Path = typer.Option("CLAUDE.md", "--instructions-path", help="Path to the markdown instructions file for Claude Code."),
 ):
     """
     Run a single task through the HealthFlow system.
     """
-    system = _initialize_system(config_path, experience_path, shell, instructions_path)
+    system = _initialize_system(config_path, experience_path, shell)
     asyncio.run(run_single_task_flow(system, task))
 
 @app.command()
@@ -114,12 +112,11 @@ def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     shell: str = typer.Option("/usr/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /usr/bin/bash)."),
-    instructions_path: Path = typer.Option("CLAUDE.md", "--instructions-path", help="Path to the markdown instructions file for Claude Code."),
 ):
     """
     Starts HealthFlow in an interactive, chat-like mode for multiple tasks.
     """
-    system = _initialize_system(config_path, experience_path, shell, instructions_path)
+    system = _initialize_system(config_path, experience_path, shell)
     asyncio.run(main_interactive_loop(system))
 
 @app.callback(invoke_without_command=True)

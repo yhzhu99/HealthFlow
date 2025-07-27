@@ -6,12 +6,11 @@ class ClaudeCodeExecutor:
     """
     A robust wrapper for executing tasks using the external Claude Code CLI tool.
     It captures stdout, stderr, and the return code of the execution.
-    It can be configured with a specific shell and instructions file.
+    It can be configured with a specific shell.
     """
-    def __init__(self, shell: str, instructions_path: Path):
+    def __init__(self, shell: str):
         self.shell = shell
-        self.instructions_path = instructions_path
-        logger.info(f"ClaudeCodeExecutor initialized with shell: '{self.shell}' and instructions: '{self.instructions_path}'")
+        logger.info(f"ClaudeCodeExecutor initialized with shell: '{self.shell}'")
 
     async def execute(self, task_list_path: Path, working_dir: Path) -> dict:
         """
@@ -25,15 +24,8 @@ class ClaudeCodeExecutor:
             A dictionary containing the success status, return code, a combined log,
             and the path to the log file.
         """
-        try:
-            with open(self.instructions_path, 'r', encoding='utf-8') as f:
-                instructions = f.read().strip().replace('"', '\\"')
-        except FileNotFoundError:
-            logger.warning(f"Instructions file not found: {self.instructions_path}. Using a default instruction for Claude Code.")
-            instructions = "You are an expert AI assistant. Carefully execute the plan provided to you."
-
-        # The prompt to Claude includes the instructions and a reference to the plan file via the '@' syntax.
-        full_prompt = f'{instructions} The detailed plan to execute is in the file @{task_list_path.name}.'
+        # The prompt to Claude includes the task description and a reference to the plan file via the '@' syntax.
+        full_prompt = f'Execute the detailed plan provided in the file @{task_list_path.name}. Follow the steps carefully and implement all requirements.'
         command = f'claude --dangerously-skip-permissions --print "{full_prompt}"'
 
         log_file_path = working_dir / "execution.log"
