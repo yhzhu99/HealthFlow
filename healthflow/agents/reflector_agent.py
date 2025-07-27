@@ -26,7 +26,9 @@ class ReflectorAgent:
             "user_request": full_history["user_request"],
             "retrieved_experiences": [exp["content"] for exp in full_history.get("retrieved_experiences", [])],
             "final_plan": successful_attempt["task_list"],
-            "final_log": successful_attempt["execution"]["log"][:8000] # Truncate log
+            "final_log": successful_attempt["execution"]["log"][:8000], # Truncate log
+            "evaluation_score": successful_attempt["evaluation"]["score"],
+            "evaluation_reasoning": successful_attempt["evaluation"]["reasoning"]
         }
         history_str = json.dumps(history_for_prompt, indent=2)
 

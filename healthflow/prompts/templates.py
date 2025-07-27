@@ -104,30 +104,36 @@ Evaluate the following task attempt. Provide a score from 1.0 (complete failure)
 You are a senior AI research scientist specializing in meta-learning and knowledge synthesis for healthcare AI. Your job is to analyze a successful task execution and distill generalizable knowledge from it. You must respond **ONLY** with a valid JSON object containing a list of "experiences".
 """,
     "reflector_user": """
-Analyze the following successful task history. Your goal is to extract 1-3 valuable, reusable "experiences" that can help improve performance on future, similar healthcare-related tasks. Focus on what made this attempt successful.
+Analyze the following successful task history. Your goal is to extract 1-3 valuable, reusable "experiences" that can help improve performance on future, similar healthcare-related tasks. Focus on what made this attempt successful in relation to the specific user need.
 
-**Task History (request, final plan, and execution log):**
+**Task History (request, final plan, execution log, and evaluation):**
 ---
 {task_history}
 ---
 
+**Analysis Focus:**
+1. **User Intent Analysis**: What was the user really asking for? How did the successful approach interpret and address their specific need? More importantly, the experience should generalize to other users with similar requests.
+2. **Solution Effectiveness**: What aspects of the plan and execution directly contributed to successfully fulfilling the user request?
+3. **Reusable Patterns**: What generalizable patterns from this success can help with similar user requests in the future?
+
 **Types of Experience to Extract:**
-- `heuristic`: A general rule of thumb or best practice. Example: "For Electronic Health Record (EHR) data, always start by checking the distribution of codes and identifying sparse features."
-- `code_snippet`: A small, reusable piece of Python code that solves a common problem. Example: A function to calculate BMI from 'height_cm' and 'weight_kg' columns in a pandas DataFrame.
-- `workflow_pattern`: A sequence of steps effective for a certain task. Example: "For cohort selection: 1. Load data. 2. Filter by inclusion criteria. 3. Exclude by exclusion criteria. 4. Save cohort IDs to a file. 5. Verify cohort size."
-- `warning`: A caution about a potential pitfall. Example: "When working with date/time data in healthcare, be aware of timezone differences and always convert to a consistent format like UTC early in the process."
+- `heuristic`: A general rule of thumb or best practice derived from how this user request was successfully handled. Example: "For Electronic Health Record (EHR) analysis requests, always start by checking the distribution of codes and identifying sparse features before applying statistical methods."
+- `code_snippet`: A small, reusable piece of Python code that solved a problem relevant to the user's request. Example: A function to calculate BMI from 'height_cm' and 'weight_kg' columns in a pandas DataFrame.
+- `workflow_pattern`: A sequence of steps that was effective for this type of user request. Example: "For cohort selection requests: 1. Load data. 2. Filter by inclusion criteria. 3. Exclude by exclusion criteria. 4. Save cohort IDs to a file. 5. Verify cohort size."
+- `warning`: A caution about a potential pitfall when handling similar user requests. Example: "When users request date/time analysis in healthcare, be aware of timezone differences and always convert to a consistent format like UTC early in the process."
 
 **Instructions:**
-- Be Abstract: Generalize the learning. Instead of "Used pandas to load 'data.csv'", the experience should be "Pandas is effective for loading and doing initial exploration of tabular medical data."
-- Be Specific in Content: The `content` of the experience should be detailed and immediately useful.
-- Provide good categories. For simple Q&A, a good category might be 'system_identity' or 'capability_inquiry'.
+- **Be Abstract**: Frame experiences in terms of user request patterns. Instead of "Used pandas to load data", consider "For data analysis requests, pandas is effective for loading and doing initial exploration of tabular medical data."
+- **Success-Oriented**: Focus on what made the solution successful for the specific user need, not just what was done.
+- **Be Specific in Content**: The `content` of the experience should be detailed and immediately useful for similar user requests.
+- **Contextual Categories**: Choose categories that reflect the type of user request. For simple Q&A, use 'system_identity' or 'capability_inquiry'. For data tasks, use categories like 'medical_data_analysis', 'clinical_workflow', etc.
 
 **Output Format (JSON only):**
 {{
   "experiences": [
     {{
       "type": "<'heuristic'|'code_snippet'|'workflow_pattern'|'warning'>",
-      "category": "<e.g., 'medical_data_cleaning', 'hipaa_compliance', 'system_identity'>",
+      "category": "<e.g., 'medical_data_cleaning', 'hipaa_compliance', 'system_identity', 'clinical_analysis'>",
       "content": "<The detailed, generalizable content of the experience>"
     }}
   ]

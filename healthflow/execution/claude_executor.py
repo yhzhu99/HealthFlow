@@ -30,7 +30,7 @@ class ClaudeCodeExecutor:
         command = f'claude --dangerously-skip-permissions --print "{full_prompt}"'
 
         log_file_path = working_dir / "execution.log"
-        logger.info(f"Executing command in '{working_dir}' with shell '{self.shell}': {command}")
+        logger.info(f"Executing command in '{working_dir}': {command}")
 
         process = await asyncio.create_subprocess_shell(
             command,

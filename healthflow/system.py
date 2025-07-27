@@ -34,7 +34,7 @@ class HealthFlowSystem:
     def __init__(self, config: HealthFlowConfig, experience_path: Path, shell: str):
         self.config = config
         self.llm_provider = create_llm_provider(config.llm)
-        self.experience_manager = ExperienceManager(experience_path)
+        self.experience_manager = ExperienceManager(experience_path, self.llm_provider)
 
         # Initialize agents with the shared LLM provider
         self.meta_agent = MetaAgent(self.llm_provider)
