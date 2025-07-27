@@ -61,13 +61,19 @@ def create_output_directory(dataset_name: str, qid: str) -> Path:
     return output_dir
 
 
-def run_healthflow_task(task: str, output_dir: Path) -> Dict[str, Any]:
+def run_healthflow_task(task: str, output_dir: Path, experience_path: str = None, shell: str = None) -> Dict[str, Any]:
     """Run a single HealthFlow task and capture the output."""
     try:
+        # Build the command with optional arguments
+        cmd = [sys.executable, "run_healthflow.py", "run", task]
+
+        if experience_path:
+            cmd.extend(["--experience-path", experience_path])
+        if shell:
+            cmd.extend(["--shell", shell])
+
         # Run the HealthFlow system
-        result = subprocess.run([
-            sys.executable, "run_healthflow.py", "run", task
-        ], capture_output=True, text=True, cwd=Path.cwd())
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=Path.cwd())
 
         # Save the raw output
         with open(output_dir / "stdout.txt", "w", encoding="utf-8") as f:
@@ -159,6 +165,8 @@ def copy_workspace_files(workspace_path: str, output_dir: Path):
 def run(
     dataset_path: Path = typer.Argument(..., help="Path to the dataset .jsonl file"),
     dataset_name: str = typer.Argument(..., help="Name of the dataset (used for output directory)"),
+    experience_path: str = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to experience file for HealthFlow"),
+    shell: str = typer.Option("/usr/bin/zsh", "--shell", help="Shell to use for command execution"),
 ):
     """
     Run HealthFlow benchmarking on a dataset.
@@ -197,7 +205,7 @@ def run(
             output_dir = create_output_directory(dataset_name, qid)
 
             # Run the HealthFlow task
-            execution_info = run_healthflow_task(task_text, output_dir)
+            execution_info = run_healthflow_task(task_text, output_dir, experience_path, shell)
 
             # Extract the generated answer
             generated_answer = extract_answer_from_output(execution_info['stdout'])
