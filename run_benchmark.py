@@ -61,7 +61,7 @@ def create_output_directory(dataset_name: str, qid: str) -> Path:
     return output_dir
 
 
-def run_healthflow_task(task: str, output_dir: Path, config_path: str = None, experience_path: str = None, shell: str = None) -> Dict[str, Any]:
+def run_healthflow_task(task: str, output_dir: Path, config_path: str = None, experience_path: str = None, shell: str = None, active_llm: str = None) -> Dict[str, Any]:
     """Run a single HealthFlow task and capture the output."""
     try:
         # Build the command with optional arguments
@@ -73,6 +73,8 @@ def run_healthflow_task(task: str, output_dir: Path, config_path: str = None, ex
             cmd.extend(["--experience-path", experience_path])
         if shell:
             cmd.extend(["--shell", shell])
+        if active_llm:
+            cmd.extend(["--active-llm", active_llm])
 
         # Run the HealthFlow system
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=Path.cwd())
@@ -170,6 +172,7 @@ def run(
     config_path: str = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file"),
     experience_path: str = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to experience file for HealthFlow"),
     shell: str = typer.Option("/usr/bin/zsh", "--shell", help="Shell to use for command execution"),
+    active_llm: str = typer.Option(None, "--active-llm", help="Override the active LLM from config.toml (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)"),
 ):
     """
     Run HealthFlow benchmarking on a dataset.
@@ -208,7 +211,7 @@ def run(
             output_dir = create_output_directory(dataset_name, qid)
 
             # Run the HealthFlow task
-            execution_info = run_healthflow_task(task_text, output_dir, config_path, experience_path, shell)
+            execution_info = run_healthflow_task(task_text, output_dir, config_path, experience_path, shell, active_llm)
 
             # Extract the generated answer
             generated_answer = extract_answer_from_output(execution_info['stdout'])

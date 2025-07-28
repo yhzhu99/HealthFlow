@@ -220,10 +220,13 @@ class TrainingRunner:
         console.print(f"\n[green]Training results saved to: {output_path}[/green]")
         logger.info(f"Training results saved to {output_path}")
 
-def _initialize_system(config_path: Path, experience_path: Path, shell: str) -> HealthFlowSystem:
+def _initialize_system(config_path: Path, experience_path: Path, shell: str, active_llm: str = None) -> HealthFlowSystem:
     """Initialize the HealthFlow system."""
     try:
         config = get_config(config_path)
+        # Override active_llm if provided via command line
+        if active_llm:
+            config['active_llm'] = active_llm
         setup_logging(config)
         return HealthFlowSystem(
             config=config,
@@ -239,10 +242,11 @@ async def main_async(
     config_path: Path,
     experience_path: Path,
     shell: str,
-    output_path: Path
+    output_path: Path,
+    active_llm: str = None
 ):
     """Main async function to run training."""
-    system = _initialize_system(config_path, experience_path, shell)
+    system = _initialize_system(config_path, experience_path, shell, active_llm)
     
     trainer = TrainingRunner(system, experience_path)
     summary = await trainer.run_training(training_file)
@@ -263,6 +267,7 @@ def main():
     parser.add_argument("--experience-path", type=Path, default="workspace/experience.jsonl", help="Path to the experience knowledge base file")
     parser.add_argument("--shell", default="/usr/bin/zsh", help="Shell to use for subprocess execution")
     parser.add_argument("--output", "-o", type=Path, default="workspace/training_results.jsonl", help="Path to save training results")
+    parser.add_argument("--active-llm", help="Override the active LLM from config.toml (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)")
     
     args = parser.parse_args()
     
@@ -272,7 +277,8 @@ def main():
             config_path=args.config,
             experience_path=args.experience_path,
             shell=args.shell,
-            output_path=args.output
+            output_path=args.output,
+            active_llm=args.active_llm
         ))
     except KeyboardInterrupt:
         console.print("\n[yellow]Training interrupted by user.[/yellow]")
