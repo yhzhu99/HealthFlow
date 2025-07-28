@@ -191,7 +191,7 @@ def run(
         raise typer.Exit(code=1)
 
     # Create main results directory
-    results_dir = Path("benchmark_results") / dataset_name
+    results_dir = Path("benchmark_results") /dataset_name / active_llm
     results_dir.mkdir(parents=True, exist_ok=True)
 
     results = []
