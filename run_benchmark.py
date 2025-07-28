@@ -73,8 +73,10 @@ def run_healthflow_task(task: str, output_dir: Path, config_path: str = None, ex
             cmd.extend(["--experience-path", experience_path])
         if shell:
             cmd.extend(["--shell", shell])
-        if active_llm:
-            cmd.extend(["--active-llm", active_llm])
+
+        if not active_llm:
+            raise ValueError("active_llm parameter is required")
+        cmd.extend(["--active-llm", active_llm])
 
         # Run the HealthFlow system
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=Path.cwd())
@@ -172,7 +174,7 @@ def run(
     config_path: str = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file"),
     experience_path: str = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to experience file for HealthFlow"),
     shell: str = typer.Option("/usr/bin/zsh", "--shell", help="Shell to use for command execution"),
-    active_llm: str = typer.Option(None, "--active-llm", help="Override the active LLM from config.toml (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)"),
+    active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)"),
 ):
     """
     Run HealthFlow benchmarking on a dataset.

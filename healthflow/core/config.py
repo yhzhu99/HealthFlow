@@ -30,18 +30,11 @@ class HealthFlowConfig(BaseModel):
     evaluation: EvaluationConfig
     logging: LoggingConfig
 
-_config: HealthFlowConfig = None
-
-def get_config(config_path: Path = Path("config.toml")) -> HealthFlowConfig:
+def get_config(config_path: Path, active_llm: str) -> HealthFlowConfig:
     """
     Loads configuration from a TOML file, validates it, selects the active LLM's
     settings, and returns a unified HealthFlowConfig object.
-    Caches the config after the first load.
     """
-    global _config
-    if _config is not None:
-        return _config
-
     if not config_path.exists():
         example_path = Path("config.toml.example")
         if example_path.exists():
@@ -51,28 +44,28 @@ def get_config(config_path: Path = Path("config.toml")) -> HealthFlowConfig:
     try:
         config_data = toml.load(config_path)
 
-        active_llm_name = config_data.get("active_llm")
-        if not active_llm_name:
-            raise ValueError("'active_llm' key is missing or empty in config.toml")
+        if not active_llm:
+            raise ValueError("'active_llm' parameter is required")
 
-        active_llm_config_data = config_data.get("llm", {}).get(active_llm_name)
+        active_llm_config_data = config_data.get("llm", {}).get(active_llm)
         if not active_llm_config_data:
-            raise ValueError(f"Configuration for active LLM '{active_llm_name}' not found under the '[llm]' section.")
+            raise ValueError(f"Configuration for LLM '{active_llm}' not found under the '[llm]' section.")
 
         llm_provider_config = LLMProviderConfig(**active_llm_config_data)
         system_config = SystemConfig(**config_data.get("system", {}))
         evaluation_config = EvaluationConfig(**config_data.get("evaluation", {}))
         logging_config = LoggingConfig(**config_data.get("logging", {}))
 
-        _config = HealthFlowConfig(
-            active_llm_name=active_llm_name,
+        config = HealthFlowConfig(
+            active_llm_name=active_llm,
             llm=llm_provider_config,
             system=system_config,
             evaluation=evaluation_config,
             logging=logging_config,
         )
-        logger.info(f"Configuration loaded successfully. Active LLM for reasoning: '{active_llm_name}'")
-        return _config
+            
+        logger.info(f"Configuration loaded successfully. Active LLM for reasoning: '{active_llm}'")
+        return config
 
     except Exception as e:
         logger.error(f"Error parsing configuration file '{config_path}': {e}")

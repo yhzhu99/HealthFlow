@@ -1,8 +1,5 @@
 # HealthFlow Configuration
 
-# Select the active LLM provider for agent reasoning and evaluation
-active_llm = "deepseek-v3"
-
 # LLM Provider Configurations
 # All agents and the shared LLMTaskEvaluator use the same provider for consistency
 

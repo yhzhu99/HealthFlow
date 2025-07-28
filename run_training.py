@@ -220,30 +220,10 @@ class TrainingRunner:
         console.print(f"\n[green]Training results saved to: {output_path}[/green]")
         logger.info(f"Training results saved to {output_path}")
 
-def _initialize_system(config_path: Path, experience_path: Path, shell: str, active_llm: str = None) -> HealthFlowSystem:
+def _initialize_system(config_path: Path, experience_path: Path, shell: str, active_llm: str) -> HealthFlowSystem:
     """Initialize the HealthFlow system."""
     try:
-        if active_llm:
-            # We need to override the active LLM before loading config
-            # Load the TOML file and modify it temporarily
-            import toml
-            config_data = toml.load(config_path)
-            config_data['active_llm'] = active_llm
-            
-            # Create a temporary config path and save the modified config
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as temp_file:
-                toml.dump(config_data, temp_file)
-                temp_config_path = Path(temp_file.name)
-            
-            try:
-                config = get_config(temp_config_path)
-            finally:
-                # Clean up the temporary file
-                temp_config_path.unlink()
-        else:
-            config = get_config(config_path)
-            
+        config = get_config(config_path, active_llm)
         setup_logging(config)
         return HealthFlowSystem(
             config=config,
@@ -284,7 +264,7 @@ def main():
     parser.add_argument("--experience-path", type=Path, default="workspace/experience.jsonl", help="Path to the experience knowledge base file")
     parser.add_argument("--shell", default="/usr/bin/zsh", help="Shell to use for subprocess execution")
     parser.add_argument("--output", "-o", type=Path, default="workspace/training_results.jsonl", help="Path to save training results")
-    parser.add_argument("--active-llm", help="Override the active LLM from config.toml (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)")
+    parser.add_argument("--active-llm", required=True, help="The active LLM to use (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)")
     
     args = parser.parse_args()
     
