@@ -223,10 +223,27 @@ class TrainingRunner:
 def _initialize_system(config_path: Path, experience_path: Path, shell: str, active_llm: str = None) -> HealthFlowSystem:
     """Initialize the HealthFlow system."""
     try:
-        config = get_config(config_path)
-        # Override active_llm if provided via command line
         if active_llm:
-            config['active_llm'] = active_llm
+            # We need to override the active LLM before loading config
+            # Load the TOML file and modify it temporarily
+            import toml
+            config_data = toml.load(config_path)
+            config_data['active_llm'] = active_llm
+            
+            # Create a temporary config path and save the modified config
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as temp_file:
+                toml.dump(config_data, temp_file)
+                temp_config_path = Path(temp_file.name)
+            
+            try:
+                config = get_config(temp_config_path)
+            finally:
+                # Clean up the temporary file
+                temp_config_path.unlink()
+        else:
+            config = get_config(config_path)
+            
         setup_logging(config)
         return HealthFlowSystem(
             config=config,
