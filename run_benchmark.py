@@ -8,12 +8,11 @@ results for performance evaluation.
 import json
 import subprocess
 import sys
-import asyncio
 from pathlib import Path
 from typing import Dict, Any, List
 import typer
 from rich.console import Console
-from rich.progress import Progress, TaskID
+from rich.progress import Progress
 from rich.panel import Panel
 
 app = typer.Typer(
@@ -54,9 +53,9 @@ def load_dataset(dataset_path: Path) -> List[Dict[str, Any]]:
     return tasks
 
 
-def create_output_directory(dataset_name: str, qid: str) -> Path:
+def create_output_directory(dataset_name: str, active_llm: str, qid: str) -> Path:
     """Create the output directory for a specific task."""
-    output_dir = Path("benchmark_results") / dataset_name / str(qid)
+    output_dir = Path("benchmark_results") / dataset_name / active_llm / str(qid)
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
@@ -210,7 +209,7 @@ def run(
             progress.update(task_progress, description=f"[cyan]Processing task {qid}...")
 
             # Create output directory for this task
-            output_dir = create_output_directory(dataset_name, qid)
+            output_dir = create_output_directory(dataset_name, active_llm, qid)
 
             # Run the HealthFlow task
             execution_info = run_healthflow_task(task_text, output_dir, config_path, experience_path, shell, active_llm)
