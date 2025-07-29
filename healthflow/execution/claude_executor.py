@@ -21,6 +21,7 @@ I have prepared a detailed plan for reference in the file @{task_list_path.name}
 
         command_args = [
             'claude',
+            '--dangerously-skip-permissions',
             '--print',
             full_prompt
         ]
