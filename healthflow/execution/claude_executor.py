@@ -10,37 +10,27 @@ class ClaudeCodeExecutor:
     """
     def __init__(self, shell: str):
         self.shell = shell
-        logger.info(f"ClaudeCodeExecutor initialized with shell: '{self.shell}'")
 
     async def execute(self, user_request: str, task_list_path: Path, working_dir: Path) -> dict:
         """
         Runs `claude` in a subprocess with the original user request and a reference plan.
-
-        Args:
-            user_request: The original user request/query that needs to be accomplished.
-            task_list_path: Path to the markdown file with step-by-step plan (used as reference).
-            working_dir: The directory where the command should be executed and artifacts stored.
-
-        Returns:
-            A dictionary containing the success status, return code, a combined log,
-            and the path to the log file.
         """
-        # Get the absolute path to the project root (where run_healthflow.py is located)
-        project_root = Path(__file__).parent.parent.parent.absolute()
-
-        # The prompt includes the original user request and references the plan as guidance
-        # Also provide context about the project structure and important paths
         full_prompt = f'''Your task: {user_request}
 
 I have prepared a detailed plan for reference in the file @{task_list_path.name}. You can use this plan as guidance, but feel free to adapt your approach as needed to best accomplish the original task. The plan is just a reference - you have autonomy to determine the best way to complete the user's request.'''
 
-        command = f'claude --dangerously-skip-permissions --print "{full_prompt}"'
+        command_args = [
+            'claude',
+            '--dangerously-skip-permissions',
+            '--print',
+            full_prompt
+        ]
 
         log_file_path = working_dir / "execution.log"
-        logger.info(f"Executing command in '{working_dir}': {command}")
+        logger.info(f"Executing command in '{working_dir}': {' '.join(command_args)}")
 
-        process = await asyncio.create_subprocess_shell(
-            command,
+        process = await asyncio.create_subprocess_exec(
+            *command_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=working_dir,
