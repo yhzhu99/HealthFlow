@@ -22,6 +22,7 @@ model_name = "deepseek-reasoner"
 [system]
 max_retries = 2 # Maximum number of retries for a failing task
 workspace_dir = "workspace" # The directory to store all task-related artifacts and the experience knowledge base
+shell = "/usr/bin/zsh" # Shell to use for subprocess execution (e.g., /usr/bin/bash, /usr/bin/zsh)
 
 # --- Evaluation Configuration ---
 [evaluation]

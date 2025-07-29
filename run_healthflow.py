@@ -81,15 +81,14 @@ async def main_interactive_loop(system: HealthFlowSystem):
             console.print("[yellow]Task failed. Ready for next command.[/yellow]")
 
 
-def _initialize_system(config_path: Path, experience_path: Path, shell: str, active_llm: str) -> HealthFlowSystem:
+def _initialize_system(config_path: Path, experience_path: Path, active_llm: str) -> HealthFlowSystem:
     """Loads config, sets up logging, and initializes the HealthFlowSystem."""
     try:
         config = get_config(config_path, active_llm)
         setup_logging(config)
         return HealthFlowSystem(
             config=config,
-            experience_path=experience_path,
-            shell=shell
+            experience_path=experience_path
         )
     except (ValueError, FileNotFoundError) as e:
         console.print(Panel(f"[bold red]Initialization Error:[/bold red] {e}", title="Error", border_style="red"))
@@ -100,7 +99,6 @@ def run(
     task: str = typer.Argument(..., help="The high-level healthcare task for HealthFlow to accomplish."),
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
-    shell: str = typer.Option("/usr/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /usr/bin/bash)."),
     train_mode: bool = typer.Option(False, "--train", help="Enable training mode (CLI only)."),
     reference_answer: str = typer.Option(None, "--reference-answer", help="Reference answer for training mode evaluation."),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)."),
@@ -112,20 +110,19 @@ def run(
         console.print(Panel("[bold red]Error:[/bold red] Training mode requires --reference-answer parameter.", border_style="red"))
         raise typer.Exit(code=1)
     
-    system = _initialize_system(config_path, experience_path, shell, active_llm)
+    system = _initialize_system(config_path, experience_path, active_llm)
     asyncio.run(run_single_task_flow(system, task, train_mode, reference_answer))
 
 @app.command()
 def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
-    shell: str = typer.Option("/usr/bin/zsh", "--shell", help="The shell to use for subprocess execution (e.g., /usr/bin/bash)."),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)."),
 ):
     """
     Starts HealthFlow in an interactive, chat-like mode for multiple tasks.
     """
-    system = _initialize_system(config_path, experience_path, shell, active_llm)
+    system = _initialize_system(config_path, experience_path, active_llm)
     asyncio.run(main_interactive_loop(system))
 
 @app.callback(invoke_without_command=True)

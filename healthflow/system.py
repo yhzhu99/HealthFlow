@@ -31,7 +31,7 @@ class HealthFlowSystem:
     The main orchestrator for the unified Plan -> Delegate -> Evaluate -> Reflect -> Evolve cycle.
     This class manages the entire lifecycle of a task from user request to completion.
     """
-    def __init__(self, config: HealthFlowConfig, experience_path: Path, shell: str):
+    def __init__(self, config: HealthFlowConfig, experience_path: Path):
         self.config = config
         self.llm_provider = create_llm_provider(config.llm)
         self.experience_manager = ExperienceManager(experience_path, self.llm_provider)
@@ -41,7 +41,7 @@ class HealthFlowSystem:
         self.evaluator = EvaluatorAgent(self.llm_provider)
         self.reflector = ReflectorAgent(self.llm_provider)
 
-        self.executor = ClaudeCodeExecutor(shell=shell)
+        self.executor = ClaudeCodeExecutor(shell=config.system.shell)
 
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(exist_ok=True)

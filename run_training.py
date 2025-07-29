@@ -255,15 +255,14 @@ class TrainingRunner:
         except Exception as e:
             logger.warning(f"Failed to copy workspace files: {e}")
 
-def _initialize_system(config_path: Path, experience_path: Path, shell: str, active_llm: str) -> HealthFlowSystem:
+def _initialize_system(config_path: Path, experience_path: Path, active_llm: str) -> HealthFlowSystem:
     """Initialize the HealthFlow system."""
     try:
         config = get_config(config_path, active_llm)
         setup_logging(config)
         return HealthFlowSystem(
             config=config,
-            experience_path=experience_path,
-            shell=shell
+            experience_path=experience_path
         )
     except (ValueError, FileNotFoundError) as e:
         console.print(Panel(f"[bold red]Initialization Error:[/bold red] {e}", title="Error", border_style="red"))
@@ -274,11 +273,10 @@ async def main_async(
     dataset_name: str,
     config_path: Path,
     experience_path: Path,
-    shell: str,
     active_llm: str = None
 ):
     """Main async function to run training."""
-    system = _initialize_system(config_path, experience_path, shell, active_llm)
+    system = _initialize_system(config_path, experience_path, active_llm)
     
     trainer = TrainingRunner(system, experience_path)
     summary = await trainer.run_training(training_file)
@@ -312,7 +310,6 @@ def main():
     parser.add_argument("dataset_name", help="Name of the dataset (used for output directory structure)")
     parser.add_argument("--config", "-c", type=Path, default="config.toml", help="Path to the configuration file")
     parser.add_argument("--experience-path", type=Path, default="workspace/experience.jsonl", help="Path to the experience knowledge base file")
-    parser.add_argument("--shell", default="/usr/bin/zsh", help="Shell to use for subprocess execution")
     parser.add_argument("--active-llm", required=True, help="The active LLM to use (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)")
     
     args = parser.parse_args()
@@ -323,7 +320,6 @@ def main():
             dataset_name=args.dataset_name,
             config_path=args.config,
             experience_path=args.experience_path,
-            shell=args.shell,
             active_llm=args.active_llm
         ))
     except KeyboardInterrupt:
