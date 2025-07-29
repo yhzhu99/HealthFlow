@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 import argparse
 from dataclasses import dataclass
+import shutil
 
 import typer
 from rich.console import Console
@@ -208,17 +209,51 @@ class TrainingRunner:
         console.print("\n")
         console.print(table)
     
-    def save_experience(self, output_path: Path):
-        """Save training results and experiences to specified path."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+    def save_results(self, dataset_name: str, active_llm: str):
+        """Save training results using the benchmark-style directory structure."""
+        # Create main results directory using the same structure as benchmark
+        results_dir = Path("benchmark_results") / dataset_name / active_llm
+        results_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save detailed results
-        with open(output_path, 'w', encoding='utf-8') as f:
+        # Save individual results in qid directories (same as benchmark)
+        for result in self.results:
+            qid = result["qid"]
+            qid_dir = results_dir / str(qid)
+            qid_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save individual result JSON
+            with open(qid_dir / "training_result.json", 'w', encoding='utf-8') as f:
+                json.dump(result, f, indent=2)
+            
+            # Copy workspace files if available
+            workspace_path = result.get("workspace_path")
+            if workspace_path and Path(workspace_path).exists():
+                self._copy_workspace_files(Path(workspace_path), qid_dir)
+        
+        # Save aggregated results
+        results_file = results_dir / "training_results.jsonl"
+        with open(results_file, 'w', encoding='utf-8') as f:
             for result in self.results:
                 f.write(json.dumps(result, ensure_ascii=False) + '\n')
         
-        console.print(f"\n[green]Training results saved to: {output_path}[/green]")
-        logger.info(f"Training results saved to {output_path}")
+        console.print(f"\n[green]Training results saved to: {results_file}[/green]")
+        logger.info(f"Training results saved to {results_file}")
+        
+        return results_dir
+    
+    def _copy_workspace_files(self, workspace_path: Path, output_dir: Path):
+        """Copy generated files from the workspace to the output directory."""
+        if not workspace_path.exists():
+            return
+        
+        try:
+            for item in workspace_path.iterdir():
+                if item.is_file():
+                    shutil.copy2(item, output_dir / item.name)
+                elif item.is_dir():
+                    shutil.copytree(item, output_dir / item.name, dirs_exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Failed to copy workspace files: {e}")
 
 def _initialize_system(config_path: Path, experience_path: Path, shell: str, active_llm: str) -> HealthFlowSystem:
     """Initialize the HealthFlow system."""
@@ -236,10 +271,10 @@ def _initialize_system(config_path: Path, experience_path: Path, shell: str, act
 
 async def main_async(
     training_file: Path,
+    dataset_name: str,
     config_path: Path,
     experience_path: Path,
     shell: str,
-    output_path: Path,
     active_llm: str = None
 ):
     """Main async function to run training."""
@@ -247,7 +282,21 @@ async def main_async(
     
     trainer = TrainingRunner(system, experience_path)
     summary = await trainer.run_training(training_file)
-    trainer.save_experience(output_path)
+    results_dir = trainer.save_results(dataset_name, active_llm)
+    
+    # Create summary file (similar to benchmark)
+    summary_data = {
+        "dataset_name": dataset_name,
+        "total_examples": summary["total_examples"],
+        "successful_examples": summary["successful_examples"],
+        "failed_examples": summary["failed_examples"], 
+        "success_rate": summary["success_rate"],
+        "average_score": summary["average_score"],
+        "results_directory": str(results_dir)
+    }
+    
+    with open(results_dir / "training_summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary_data, f, indent=2)
     
     # Exit with non-zero code if success rate is too low
     if summary["success_rate"] < 50:
@@ -260,10 +309,10 @@ def main():
     """Main entry point for the training script."""
     parser = argparse.ArgumentParser(description="Run HealthFlow training on a dataset")
     parser.add_argument("training_file", type=Path, help="Path to the training JSONL file")
+    parser.add_argument("dataset_name", help="Name of the dataset (used for output directory structure)")
     parser.add_argument("--config", "-c", type=Path, default="config.toml", help="Path to the configuration file")
     parser.add_argument("--experience-path", type=Path, default="workspace/experience.jsonl", help="Path to the experience knowledge base file")
     parser.add_argument("--shell", default="/usr/bin/zsh", help="Shell to use for subprocess execution")
-    parser.add_argument("--output", "-o", type=Path, default="workspace/training_results.jsonl", help="Path to save training results")
     parser.add_argument("--active-llm", required=True, help="The active LLM to use (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)")
     
     args = parser.parse_args()
@@ -271,10 +320,10 @@ def main():
     try:
         asyncio.run(main_async(
             training_file=args.training_file,
+            dataset_name=args.dataset_name,
             config_path=args.config,
             experience_path=args.experience_path,
             shell=args.shell,
-            output_path=args.output,
             active_llm=args.active_llm
         ))
     except KeyboardInterrupt:
