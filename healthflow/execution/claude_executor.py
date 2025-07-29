@@ -34,7 +34,7 @@ I have prepared a detailed plan for reference in the file @{task_list_path.name}
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=working_dir,
-            executable=self.shell
+            # executable=self.shell
         )
 
         log_content = ""
