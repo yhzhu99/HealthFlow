@@ -20,3 +20,10 @@
 ## Guiding Principles
 
 - **Python First:** When possible, prioritize using Python and its ecosystem to solve problems.
+
+
+## Critical Instrucctions
+
+1.  **Workspace:** ALL files you create (scripts, plots, data, etc.) MUST be saved inside working directory. DO NOT create files anywhere else.
+2.  **Dataset Access:** If the task requires reading datasets (e.g., `TJH.csv`), they are located in the `/home/yhzhu/projects/HealthFlow/healthflow_datasets/` directory. You MUST use the full, absolute path to access them. For example: `read_csv('/home/yhzhu/projects/HealthFlow/healthflow_datasets/TJH.csv')`.
+3.  **Execution:** Execute all commands from your current working directory. DO NOT create files in the project root directory outside of your workspace.

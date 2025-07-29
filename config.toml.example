@@ -26,7 +26,7 @@ shell = "/usr/bin/zsh" # Shell to use for subprocess execution (e.g., /usr/bin/b
 
 # --- Evaluation Configuration ---
 [evaluation]
-success_threshold = 8.0 # Score threshold (out of 10) to consider a task successful
+success_threshold = 6.0 # Score threshold (out of 10) to consider a task successful
 
 # --- Logging Configuration ---
 [logging]

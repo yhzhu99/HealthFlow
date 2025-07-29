@@ -27,21 +27,13 @@ class ClaudeCodeExecutor:
         """
         # Get the absolute path to the project root (where run_healthflow.py is located)
         project_root = Path(__file__).parent.parent.parent.absolute()
-        
+
         # The prompt includes the original user request and references the plan as guidance
         # Also provide context about the project structure and important paths
         full_prompt = f'''Your task: {user_request}
 
-I have prepared a detailed plan for reference in the file @{task_list_path.name}. You can use this plan as guidance, but feel free to adapt your approach as needed to best accomplish the original task. The plan is just a reference - you have autonomy to determine the best way to complete the user's request.
+I have prepared a detailed plan for reference in the file @{task_list_path.name}. You can use this plan as guidance, but feel free to adapt your approach as needed to best accomplish the original task. The plan is just a reference - you have autonomy to determine the best way to complete the user's request.'''
 
-IMPORTANT PATH CONTEXT:
-- Project root directory: {project_root}
-- Current working directory: {working_dir}  
-- Datasets are located at: {project_root}/healthflow_datasets/
-- If you need to access datasets like TJH.csv, use the full path: {project_root}/healthflow_datasets/TJH.csv
-- All generated files and code should stay within your current working directory: {working_dir}
-- DO NOT create files in the project root directory outside of your workspace'''
-        
         command = f'claude --dangerously-skip-permissions --print "{full_prompt}"'
 
         log_file_path = working_dir / "execution.log"
