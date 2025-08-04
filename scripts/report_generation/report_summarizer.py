@@ -255,7 +255,7 @@ def main():
     Main function to process a range of QID folders concurrently,
     with breakpoint continuation support, configured via command-line arguments.
     """
-    # --- 1. 解析命令行参数 ---
+    # --- 1. Parse command line arguments ---
     args = parse_arguments()
 
     print(f"--- Starting Batch Processing ---")
@@ -264,7 +264,7 @@ def main():
     print(f"Model: {args.model_name}")
     print(f"Max Workers: {args.max_workers}")
 
-    # --- 2. 查找所有潜在的任务文件夹 ---
+    # --- 2. Find all potential task folders ---
     all_qids = [str(i) for i in range(args.qid_start, args.qid_end + 1)]
     all_target_paths = []
     for qid in all_qids:
@@ -274,7 +274,7 @@ def main():
         else:
             print(f"Warning: Directory for QID {qid} not found at '{path}', skipping.")
 
-    # --- 3. 检查需要完成的任务 ---
+    # --- 3. Check tasks that need to be completed ---
     print("\n--- Checking for Previously Completed Tasks ---")
     tasks_to_process = []
     skipped_count = 0
@@ -307,14 +307,14 @@ def main():
         print("All tasks in the specified range are already completed. Exiting.")
         return
 
-    # --- 4. 初始化LLM ---
+    # --- 4. Initialize LLM ---
     try:
         llm = get_llm(args.model_name)
     except ValueError as e:
         print(f"Initialization Error: {e}")
         return
 
-    # --- 5. 并发处理剩余任务 ---
+    # --- 5. Concurrently process remaining tasks ---
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_workers) as executor:
         future_to_qid = {
             executor.submit(process_qid_folder, path, llm): os.path.basename(path)

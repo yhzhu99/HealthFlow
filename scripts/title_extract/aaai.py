@@ -6,10 +6,10 @@ import os
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# 创建输出文件夹
+# Create output directory
 os.makedirs("aaai", exist_ok=True)
 
-# Session + Retry 设置
+# Session + Retry settings
 session = requests.Session()
 retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
 adapter = HTTPAdapter(max_retries=retries)
@@ -20,7 +20,7 @@ headers = {
     "User-Agent": "Mozilla/5.0"
 }
 
-# 年份映射
+# Year mapping
 year_map = {
     34: 2020,
     35: 2021,
@@ -32,7 +32,7 @@ year_map = {
 
 base_url_template = "https://aaai.org/proceeding/aaai-{}-{}/"
 
-# 提取技术论文链接（带 track 名）
+# Extract technical paper links (with track name)
 def get_technical_track_links(year_num, url):
     print(f"🧭 Visiting: {url}")
     try:
@@ -53,11 +53,11 @@ def get_technical_track_links(year_num, url):
         print(f"❌ Failed to get technical track links for AAAI-{year_num}: {e}")
         return []
 
-# 判断是否旧结构链接
+# Determine if it's a legacy structure link
 def href_is_legacy(href):
     return href.startswith("https://aaai.org/proceeding/vol") or href.startswith("https://aaai.org/proceeding/0")
 
-# 提取新版 OJS 格式页面的论文
+# Extract papers from new OJS format pages
 def extract_papers_ojs(issue_url, track_name):
     print(f" [OJS] Extracting from: {issue_url}")
     papers = []
@@ -77,14 +77,14 @@ def extract_papers_ojs(issue_url, track_name):
         print(f" [OJS] Failed to extract: {e}")
     return papers
 
-# 提取旧结构页面的论文
+# Extract papers from legacy structure pages
 def extract_papers_legacy(issue_url, track_name):
     print(f" [Legacy] Extracting from: {issue_url}")
     papers = []
     try:
         res = session.get(issue_url, headers=headers, timeout=10)
         soup = BeautifulSoup(res.text, 'html.parser')
-        
+
         for li in soup.select('li.paper-wrap'):
             title_tag = li.find('h5')
             pdf_tag = li.find('a', class_='wp-block-button', href=True)
@@ -98,7 +98,7 @@ def extract_papers_legacy(issue_url, track_name):
     return papers
 
 
-# 主流程
+# Main process
 for num in range(34, 40):  # AAAI-34 到 AAAI-39
     year = year_map[num]
     url = base_url_template.format(num, year)
@@ -111,9 +111,9 @@ for num in range(34, 40):  # AAAI-34 到 AAAI-39
         else:
             papers = extract_papers_legacy(track_url, track_name)
         all_papers.extend(papers)
-        time.sleep(2)  # 避免封 IP
+        time.sleep(2)  # Avoid IP blocking
 
-    # 保存当前年份的 CSV
+    # Save CSV for current year
     csv_filename = f"aaai/AAAI-{num}-{year}.csv"
     with open(csv_filename, "w", encoding="utf-8", newline='') as f:
         writer = csv.writer(f)

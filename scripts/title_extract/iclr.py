@@ -45,30 +45,30 @@ class ICLRHandler(xml.sax.ContentHandler):
         elif self.current_data == "booktitle":
             self.booktitle += content
 
-# 主程序入口
+# Main program entry point
 if __name__ == "__main__":
-    xml_path = "dblp.xml"  # 替换为你的路径
+    xml_path = "dblp.xml"  # Replace with your path
     handler = ICLRHandler()
     parser = xml.sax.make_parser()
     parser.setFeature(xml.sax.handler.feature_namespaces, 0)
     parser.setContentHandler(handler)
     parser.parse(xml_path)
 
-    print(f"find: {len(handler.records)} records")
+    print(f"Found: {len(handler.records)} records")
 
-    # 创建目标文件夹
+    # Create target directory
     os.makedirs("iclr", exist_ok=True)
 
-    # 按年份分组
+    # Group by year
     year_dict = defaultdict(list)
     for rec in handler.records:
         year_dict[rec["year"]].append(rec)
 
-    # 写入各年份 CSV 文件
+    # Write CSV files for each year
     for year, items in year_dict.items():
         file_path = os.path.join("iclr", f"iclr_{year}.csv")
         with open(file_path, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=["key", "title", "year"])
             writer.writeheader()
             writer.writerows(items)
-        print(f"saved: {file_path}")
+        print(f"Saved: {file_path}")

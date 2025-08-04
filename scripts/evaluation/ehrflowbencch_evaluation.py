@@ -5,14 +5,14 @@ import traceback
 import toml
 import concurrent.futures
 import threading
-import argparse  # 导入 argparse 模块
+import argparse  # Import argparse module
 from tqdm import tqdm
 import pandas as pd
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
-# --- 全局常量和线程锁 ---
-# 创建一个线程锁，用于在多线程环境中安全地向tqdm写入日志
+# --- Global constants and thread locks ---
+# Create a thread lock for safely writing tqdm logs in multi-threaded environment
 tqdm_lock = threading.Lock()
 
 # File type definitions
@@ -21,7 +21,7 @@ TEXT_EXTENSIONS = ['.txt', '.json', '.md', '.html', '.css', '.js', '.log']
 
 
 def parse_arguments():
-    """解析命令行参数"""
+    """Parse command line arguments"""
     parser = argparse.ArgumentParser(
         description="Run HealthFlow evaluation using command-line arguments.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -48,16 +48,16 @@ def parse_arguments():
     parser.add_argument(
         '--qid-range', 
         type=str,
-        default=None, # 默认处理所有找到的QID
+        default=None, # Process all found QIDs by default
         help="Specify a range or list of QIDs to process. Examples: '1-10', '5', '1,3,8'. If not set, all QIDs will be processed."
     )
     
     return parser.parse_args()
 
 
-# --- 1. 配置加载与模型初始化 ---
+# --- 1. Configuration loading and model initialization ---
 def load_llm_configs(config_path):
-    """从 TOML 配置文件中加载所有 LLM 配置，包括 max_workers。"""
+    """Load all LLM configurations from TOML configuration file, including max_workers."""
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = toml.load(f)
@@ -76,7 +76,7 @@ def load_llm_configs(config_path):
         raise FileNotFoundError(f"Config file not found at '{config_path}'.")
 
 def initialize_llms(configs):
-    """根据配置列表初始化所有 LLM 实例。"""
+    """Initialize all LLM instances based on configuration list."""
     models = {}
     for config in configs:
         try:
@@ -98,7 +98,7 @@ def initialize_llms(configs):
     return models
 
 
-# --- 2. 核心工作函数 ---
+# --- 2. Core working functions ---
 def read_text_file(file_path, max_chars=20000):
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -123,7 +123,7 @@ def get_directory_structure(root_dir):
     return structure
 
 def build_evaluation_prompt(qid_path):
-    """构建评估所需的完整Prompt。"""
+    """Build the complete Prompt required for evaluation."""
     result_json_path = os.path.join(qid_path, 'result.json')
     if not os.path.exists(result_json_path):
         return None, "result.json not found"
@@ -249,9 +249,9 @@ Based on all materials and the rigorous scoring rubric provided above, perform y
     return prompt_text, None
 
 
-# --- 3. 评估阶段 (Phase 1) ---
+# --- 3. Evaluation phase (Phase 1) ---
 def evaluate_qid_with_single_model(qid_path, llm_name, model_instance, output_dir):
-    """用一个指定的LLM评估一个QID，并将结果保存到特定文件。"""
+    """Evaluate a QID with a specified LLM and save the result to a specific file."""
     qid = os.path.basename(qid_path)
     qid_output_dir = os.path.join(output_dir, qid)
     os.makedirs(qid_output_dir, exist_ok=True)
@@ -286,7 +286,7 @@ def evaluate_qid_with_single_model(qid_path, llm_name, model_instance, output_di
         return qid, llm_name, "error", f"API call failed: {e}\n{traceback.format_exc()}"
 
 def run_evaluation_phase(llm_models, qid_folders, output_dir):
-    """为每个LLM创建独立的线程池，并同时运行所有评估任务。"""
+    """Create independent thread pools for each LLM and run all evaluation tasks simultaneously."""
     print("\n--- Starting Evaluation Phase (Fully Parallel) ---")
     
     executors = {
@@ -338,9 +338,9 @@ def run_evaluation_phase(llm_models, qid_folders, output_dir):
     print("\n--- Evaluation Phase Finished ---")
 
 
-# --- 4. 聚合阶段 (Phase 2) ---
+# --- 4. Aggregation phase (Phase 2) ---
 def run_aggregation_phase(qid_folders, output_dir):
-    """聚合所有评估结果，计算平均分。"""
+    """Aggregate all evaluation results and calculate average scores."""
     print("\n--- Starting Aggregation Phase ---")
     
     all_qids_summaries = []
@@ -426,9 +426,9 @@ def run_aggregation_phase(qid_folders, output_dir):
     print(json.dumps(final_averages, indent=4))
     print(f"\nDetailed summary saved to: {final_summary_path}")
 
-# --- 5. 主执行流程 ---
+# --- 5. Main execution flow ---
 def get_qid_folders_to_process(qid_range_str, dataset_path):
-    """根据指定的QID范围返回要处理的文件夹路径列表。"""
+    """Return a list of folder paths to process based on the specified QID range."""
     all_potential_folders = glob.glob(os.path.join(dataset_path, '*'))
 
     qid_folders_to_process = []
@@ -438,24 +438,24 @@ def get_qid_folders_to_process(qid_range_str, dataset_path):
             if qid_str.isdigit():
                 qid_folders_to_process.append(folder_path)
 
-    # 按QID对文件夹进行排序
+    # Sort folders by QID
     qid_folders = sorted(
         qid_folders_to_process,
         key=lambda x: int(os.path.basename(x))
     )
 
-    # 如果没有指定范围，则返回所有文件夹
+    # Return all folders if no range is specified
     if not qid_range_str:
         return qid_folders
 
-    # 根据提供的QID范围进行过滤
+    # Filter based on the provided QID range
     try:
-        if ',' in qid_range_str: # 处理列表格式, e.g., '1,4,6,7,8'
+        if ',' in qid_range_str: # Handle list format, e.g., '1,4,6,7,8'
             qid_set = set(map(int, qid_range_str.split(',')))
-        elif '-' in qid_range_str: # 处理连续范围格式, e.g., '1-5'
+        elif '-' in qid_range_str: # Handle continuous range format, e.g., '1-5'
             start, end = map(int, qid_range_str.split('-'))
             qid_set = set(range(start, end + 1))
-        else: # 处理单个数字格式, e.g., '5'
+        else: # Handle single number format, e.g., '5'
             qid_set = {int(qid_range_str)}
         
         qid_folders = [folder for folder in qid_folders if int(os.path.basename(folder)) in qid_set]
@@ -466,8 +466,8 @@ def get_qid_folders_to_process(qid_range_str, dataset_path):
 
 
 def main(args):
-    """主执行函数"""
-    # 确保输出目录存在 (使用传入的参数)
+    """Main execution function"""
+    # Ensure output directory exists (using passed parameters)
     os.makedirs(args.output_dir, exist_ok=True)
     
     try:
@@ -477,7 +477,7 @@ def main(args):
         print(f"[CRITICAL ERROR] {e}")
         return
 
-    # 使用传入的参数检索QID文件夹
+    # Retrieve QID folders using passed parameters
     qid_folders = get_qid_folders_to_process(args.qid_range, args.dataset_path)
 
     if not qid_folders:
@@ -486,7 +486,7 @@ def main(args):
     
     print(f"\nFound {len(qid_folders)} QIDs to process: {[os.path.basename(p) for p in qid_folders]}")
 
-    # 运行评估和聚合阶段
+    # Run evaluation and aggregation phases
     run_evaluation_phase(llm_models, qid_folders, args.output_dir)
     run_aggregation_phase(qid_folders, args.output_dir)
     

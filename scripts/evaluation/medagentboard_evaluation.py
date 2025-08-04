@@ -5,26 +5,26 @@ import traceback
 import toml
 import concurrent.futures
 import threading
-import argparse  # 导入 argparse 模块
+import argparse  # Import argparse module
 from tqdm import tqdm
 import pandas as pd
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
-# --- 全局常量和线程锁 ---
-# 创建线程锁以安全地写入tqdm日志
+# --- Global constants and thread locks ---
+# Create thread lock to safely write tqdm logs
 tqdm_lock = threading.Lock()
 
-# 定义文件类型
+# Define file types
 CODE_EXTENSIONS = ['.py']
 TEXT_EXTENSIONS = ['.txt', '.json', 'md', '.log']
-# 注意：我们对CSV进行特殊处理，对PNG/PKL等二进制文件只记录其存在
+# Note: We handle CSV specially, only record existence of binary files like PNG/PKL
 
 def parse_arguments():
-    """解析命令行参数"""
+    """Parse command line arguments"""
     parser = argparse.ArgumentParser(
         description="Run evaluation and aggregation for AI agent submissions using command-line arguments.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter # 友好地显示默认值
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter # Display default values in a friendly way
     )
     
     parser.add_argument(
@@ -54,16 +54,16 @@ def parse_arguments():
     parser.add_argument(
         '--qid-range', 
         type=str,
-        default=None, # 默认处理所有找到的QID
+        default=None, # Process all found QIDs by default
         help="Specify a range or list of QIDs to process. Examples: '1-10', '5', '1,3,8'. If not set, all QIDs will be processed."
     )
     
     return parser.parse_args()
 
 
-# --- 1. 配置加载与模型初始化 (此部分代码保持不变) ---
+# --- 1. Configuration loading and model initialization (this part of the code remains unchanged) ---
 def load_llm_configs(config_path):
-    """从 TOML 配置文件中加载所有 LLM 配置。"""
+    """Load all LLM configurations from TOML configuration file."""
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = toml.load(f)
@@ -82,7 +82,7 @@ def load_llm_configs(config_path):
         raise FileNotFoundError(f"Config file not found at '{config_path}'.")
 
 def initialize_llms(configs):
-    """根据配置列表初始化所有 LLM 实例。"""
+    """Initialize all LLM instances based on configuration list."""
     models = {}
     for config in configs:
         try:
@@ -90,8 +90,8 @@ def initialize_llms(configs):
                 model_name=config['model_name'],
                 openai_api_key=config['api_key'],
                 openai_api_base=config['base_url'],
-                temperature=0.0, # 对于严格评估，温度设为0以保证结果稳定性
-                timeout=300, # 增加超时时间以处理复杂任务
+                temperature=0.0, # Set temperature to 0 for strict evaluation to ensure result stability
+                timeout=300, # Increase timeout to handle complex tasks
             )
             models[config['evaluator_name']] = {
                 "instance": model_instance,
@@ -104,31 +104,31 @@ def initialize_llms(configs):
         raise ValueError("No LLM models could be initialized.")
     return models
 
-# --- 2. 核心工作函数 (此部分代码保持不变) ---
+# --- 2. Core working functions (this part of the code remains unchanged) ---
 
 def read_file_content(file_path, max_chars=15000):
     """
-    读取文件内容，对不同类型文件进行智能处理。
-    修改版：将CSV文件作为普通文本文件处理，读取其全部内容（受max_chars限制）。
+    Read file content with intelligent processing for different file types.
+    Modified version: Treat CSV files as regular text files, reading their full content (limited by max_chars).
     """
     try:
         ext = os.path.splitext(file_path)[1].lower()
 
-        # 将 .csv 添加到文本/代码文件的处理逻辑中
+        # Add .csv to the processing logic for text/code files
         if ext in CODE_EXTENSIONS or ext in TEXT_EXTENSIONS or ext == '.csv':
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                # 读取最多 max_chars + 1 个字符，以判断是否需要截断
+                # Read at most max_chars + 1 characters to determine if truncation is needed
                 content = f.read(max_chars + 1)
                 if len(content) > max_chars:
                     return content[:max_chars] + "\n... [File content truncated] ..."
                 return content
         
-        # 二进制文件的处理逻辑保持不变
+        # Processing logic for binary files remains unchanged
         elif ext in ['.png', '.pkl', '.jpg', '.jpeg', '.bin']:
             size_kb = os.path.getsize(file_path) / 1024
             return f"[Binary File Exists: {os.path.basename(file_path)}, Size: {size_kb:.2f} KB]"
         
-        # 不支持的文件类型的处理逻辑保持不变
+        # Processing logic for unsupported file types remains unchanged
         else:
             return f"[Unsupported File Type: {os.path.basename(file_path)}]"
             
@@ -137,19 +137,19 @@ def read_file_content(file_path, max_chars=15000):
 
 
 def get_files_summary(directory_or_prefix, is_answer=False):
-    """获取一个目录或具有特定前缀的文件的摘要。"""
+    """Get a summary of files in a directory or with a specific prefix."""
     summary = ""
     if is_answer:
-        # 【修正】答案文件在以QID命名的子目录中，所以应该在目录内搜索
+        # [Fix] Answer files are in subdirectories named after QID, so search within the directory
         files = glob.glob(os.path.join(directory_or_prefix, '*'))
     else:
-        # Agent生成的文件在目录中
+        # Agent-generated files are in the directory
         files = glob.glob(os.path.join(directory_or_prefix, '*'))
-        # 排除 result.json
+        # Exclude result.json
         files = [f for f in files if os.path.basename(f) != 'result.json']
 
     if not files:
-        # 返回更有信息量的提示
+        # Return more informative hints
         if is_answer:
             return f"No standard answer files found in directory: {directory_or_prefix}"
         else:
@@ -168,7 +168,7 @@ def get_files_summary(directory_or_prefix, is_answer=False):
 
 
 def build_evaluation_prompt(qid_path, answer_path):
-    """构建用于评估的完整、高度结构化和任务自适应的Prompt。"""
+    """Build a complete, highly structured and task-adaptive Prompt for evaluation."""
     qid = os.path.basename(qid_path)
     result_json_path = os.path.join(qid_path, 'result.json')
     if not os.path.exists(result_json_path):
@@ -178,7 +178,7 @@ def build_evaluation_prompt(qid_path, answer_path):
         result_data = json.load(f)
 
     task_brief = result_data.get('task', 'N/A')
-    # 使用 json.dumps 保证 generated_answer 的格式正确，特别是当它本身就是json字符串时
+    # Use json.dumps to ensure correct format of generated_answer, especially when it's already a json string
     agent_reasoning = json.dumps(result_data.get('generated_answer', 'N/A'), indent=2, ensure_ascii=False)
     task_type = result_data.get('task_type', 'unknown').lower()
 
@@ -189,8 +189,8 @@ def build_evaluation_prompt(qid_path, answer_path):
     answer_file_prefix = os.path.join(answer_path, qid)
     standard_answer_summary = get_files_summary(answer_file_prefix, is_answer=True)
 
-    # --- 动态生成评估维度和评分标准 ---
-    # 1. 将具体task_type映射到四大评估维度
+    # --- Dynamically generate evaluation dimensions and scoring criteria ---
+    # 1. Map specific task_type to four major evaluation dimensions
     if 'preprocessing' in task_type or 'wrangling' in task_type or 'statistics' in task_type or 'querying' in task_type:
         dimension_name = "Data Extraction and Statistical Analysis"
         dimension_indicators = {
@@ -435,18 +435,18 @@ Now, perform your evaluation. Compare the agent's submission to the standard ans
 
     return prompt_text, None
 
-# --- 3. 评估阶段 (Phase 1) - 已适配参数传递 ---
+# --- 3. Evaluation phase (Phase 1) - Parameter passing adapted ---
 def evaluate_qid_with_single_model(qid_path, llm_name, model_instance, answer_path, output_dir):
-    """用一个指定的LLM评估一个QID。"""
+    """Evaluate a QID with a specified LLM."""
     qid = os.path.basename(qid_path)
-    # 使用传入的 output_dir
+    # Use the passed output_dir
     qid_output_dir = os.path.join(output_dir, qid)
     os.makedirs(qid_output_dir, exist_ok=True)
     
     output_file = os.path.join(qid_output_dir, f"{llm_name}.json")
     
     try:
-        # answer_path 作为参数传入
+        # answer_path passed as parameter
         prompt_text, error = build_evaluation_prompt(qid_path, answer_path)
         if error:
             return qid, llm_name, "error", f"Prompt creation failed: {error}"
@@ -455,7 +455,7 @@ def evaluate_qid_with_single_model(qid_path, llm_name, model_instance, answer_pa
         response = model_instance.invoke([message])
         llm_output = response.content.strip()
 
-        # 增强JSON解析鲁棒性
+        # Enhance JSON parsing robustness
         if llm_output.startswith("```json"):
             llm_output = llm_output[7:-3].strip()
         
@@ -479,7 +479,7 @@ def evaluate_qid_with_single_model(qid_path, llm_name, model_instance, answer_pa
 
 
 def run_evaluation_phase(llm_models, qid_folders, answer_path, output_dir):
-    """为每个LLM创建独立的线程池，并同时运行所有评估任务。"""
+    """Create independent thread pools for each LLM and run all evaluation tasks simultaneously."""
     print("\n--- Starting Evaluation Phase (Fully Parallel) ---")
     
     executors = {
@@ -496,7 +496,7 @@ def run_evaluation_phase(llm_models, qid_folders, answer_path, output_dir):
         for qid_path in qid_folders:
             qid = os.path.basename(qid_path)
             for llm_name, model_info in llm_models.items():
-                # 使用传入的 output_dir
+                # Use the passed output_dir
                 output_file = os.path.join(output_dir, qid, f"{llm_name}.json")
                 if os.path.exists(output_file):
                     # print(f"Skipping already completed task: QID {qid} | Model {llm_name}")
@@ -504,7 +504,7 @@ def run_evaluation_phase(llm_models, qid_folders, answer_path, output_dir):
 
                 model_instance = model_info["instance"]
                 executor = executors[llm_name]
-                # 将 answer_path 和 output_dir 传递给工作函数
+                # Pass answer_path and output_dir to worker function
                 future = executor.submit(evaluate_qid_with_single_model, qid_path, llm_name, model_instance, answer_path, output_dir)
                 all_futures.append(future)
 
@@ -534,21 +534,21 @@ def run_evaluation_phase(llm_models, qid_folders, answer_path, output_dir):
     print("\n--- Evaluation Phase Finished ---")
 
 
-# --- 4. 聚合阶段 (Phase 2) - 已适配参数传递 ---
+# --- 4. Aggregation phase (Phase 2) - Parameter passing adapted ---
 def run_aggregation_phase(qid_folders, output_dir):
-    """聚合所有评估结果，计算平均分。"""
+    """Aggregate all evaluation results and calculate average scores."""
     print("\n--- Starting Aggregation Phase ---")
     
     all_qids_summaries = []
     
-    # 注意：score_keys需要与您的JSON输出结构匹配。
-    # 这里的keys是基于您的Prompt动态生成的，因此聚合时需要找到所有以_score结尾的key
-    # 为简化，我们先假设一个固定的key列表，但更健壮的实现会动态发现它们。
-    # 暂时使用一个通用方法来捕获所有评分
+    # Note: score_keys need to match your JSON output structure.
+    # The keys here are dynamically generated based on your Prompt, so we need to find all keys ending with _score during aggregation
+    # For simplification, we first assume a fixed key list, but a more robust implementation would dynamically discover them.
+    # Temporarily use a general method to capture all scores
     
     grand_totals = {}
     grand_counts = {}
-    processed_once = False # 标志位，用于只从第一个文件中提取一次评分键
+    processed_once = False # Flag to extract scoring keys only once from the first file
 
     for qid_path in tqdm(qid_folders, desc="Aggregating results"):
         qid = os.path.basename(qid_path)
@@ -569,21 +569,21 @@ def run_aggregation_phase(qid_folders, output_dir):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 
-                # 动态发现 score keys
+                # Dynamically discover score keys
                 current_score_keys = [key for key in data.keys() if key.endswith('_score')]
                 if not current_score_keys:
                     with tqdm_lock:
                         tqdm.write(f"[Warning] No keys ending with '_score' found in {file_path}. Skipping.")
                     continue
 
-                # 初始化字典
+                # Initialize dictionaries
                 for key in current_score_keys:
                     qid_score_sums.setdefault(key, 0)
                     qid_score_counts.setdefault(key, 0)
                     grand_totals.setdefault(key, 0)
                     grand_counts.setdefault(key, 0)
                 
-                # 累加分数
+                # Accumulate scores
                 for key in current_score_keys:
                     score = data.get(key)
                     if isinstance(score, (int, float)):
@@ -640,9 +640,9 @@ def run_aggregation_phase(qid_folders, output_dir):
     print(f"\nDetailed summary saved to: {final_summary_path}")
 
 
-# --- 5. 主执行流程 (已适配参数) ---
+# --- 5. Main execution flow (parameters adapted) ---
 def get_qid_folders_to_process(qid_range_str, dataset_path):
-    """根据指定的QID范围返回要处理的文件夹路径列表。"""
+    """Return a list of folder paths to process based on the specified QID range."""
     all_potential_folders = glob.glob(os.path.join(dataset_path, '*'))
 
     qid_folders_to_process = []
@@ -652,24 +652,24 @@ def get_qid_folders_to_process(qid_range_str, dataset_path):
             if qid_str.isdigit():
                 qid_folders_to_process.append(folder_path)
 
-    # 按QID对文件夹进行排序
+    # Sort folders by QID
     qid_folders = sorted(
         qid_folders_to_process,
         key=lambda x: int(os.path.basename(x))
     )
 
-    # 如果没有指定范围，则返回所有文件夹
+    # Return all folders if no range is specified
     if not qid_range_str:
         return qid_folders
 
-    # 根据提供的QID范围进行过滤
+    # Filter based on the provided QID range
     try:
-        if ',' in qid_range_str: # 处理列表格式, e.g., '1,4,6,7,8'
+        if ',' in qid_range_str: # Handle list format, e.g., '1,4,6,7,8'
             qid_set = set(map(int, qid_range_str.split(',')))
-        elif '-' in qid_range_str: # 处理连续范围格式, e.g., '1-5'
+        elif '-' in qid_range_str: # Handle continuous range format, e.g., '1-5'
             start, end = map(int, qid_range_str.split('-'))
             qid_set = set(range(start, end + 1))
-        else: # 处理单个数字格式, e.g., '5'
+        else: # Handle single number format, e.g., '5'
             qid_set = {int(qid_range_str)}
         
         qid_folders = [folder for folder in qid_folders if int(os.path.basename(folder)) in qid_set]
@@ -680,19 +680,19 @@ def get_qid_folders_to_process(qid_range_str, dataset_path):
 
 
 def main(args):
-    """主执行函数"""
-    # 确保输出目录存在 (使用传入的参数)
+    """Main execution function"""
+    # Ensure output directory exists (using passed parameters)
     os.makedirs(args.output_dir, exist_ok=True)
     
     try:
-        # 使用传入的参数
+        # Use passed parameters
         llm_configs = load_llm_configs(args.config_file)
         llm_models = initialize_llms(llm_configs)
     except (FileNotFoundError, ValueError, RuntimeError) as e:
         print(f"[CRITICAL ERROR] {e}")
         return
 
-    # 使用传入的参数检索QID文件夹
+    # Retrieve QID folders using passed parameters
     qid_folders = get_qid_folders_to_process(args.qid_range, args.dataset_path)
 
     if not qid_folders:
@@ -701,7 +701,7 @@ def main(args):
     
     print(f"\nFound {len(qid_folders)} QIDs to process: {[os.path.basename(p) for p in qid_folders]}")
 
-    # 运行评估和聚合阶段
+    # Run evaluation and aggregation phases
     run_evaluation_phase(llm_models, qid_folders, args.answer_path, args.output_dir)
     run_aggregation_phase(qid_folders, args.output_dir)
     
@@ -709,7 +709,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    # 1. 解析命令行参数
+    # 1. Parse command line arguments
     args = parse_arguments()
-    # 2. 将解析后的参数对象传递给主函数
+    # 2. Pass the parsed argument object to the main function
     main(args)

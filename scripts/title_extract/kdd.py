@@ -25,7 +25,7 @@ for bib_file in bib_files:
 
         records_by_year[year].append([title, url, year])
 
-# 写入 CSV 文件（按年份分组）
+# Write CSV files (grouped by year)
 for year, records in records_by_year.items():
     output_path = os.path.join(output_dir, f"kdd_{year}.csv")
     with open(output_path, "w", encoding="utf-8", newline="") as f:

@@ -11,7 +11,7 @@ import pandas as pd
 
 from healthflow.tools.llm_configs import LLM_MODELS_SETTINGS
 
-# 设置日志
+# Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def parse_args():
@@ -25,7 +25,7 @@ def parse_args():
 
 def get_medagentsbench_prompt(generated_answer: str, reference_answer: str) -> tuple[str, str]:
     """
-    生成用于评估MedAgentsBench数据集的System和User Prompt。
+    Generate System and User Prompts for evaluating MedAgentsBench dataset.
     """
     system_prompt = (
         "You are a Large Language Model Answer Evaluator. Your task is to assess responses on a benchmark "
@@ -56,28 +56,28 @@ You must process the input and return the result in a strict JSON format. The ou
 
 def extract_answer_with_regex(answer: str) -> str | None:
     """
-    使用正则表达式快速提取单字母选项。
-    支持两种主要格式:
-    1. 答案在开头，如: "A", "A.", "A)", " A "...
-    2. 答案在 \\boxed{} 中，如: "... The final answer is \\boxed{A}"
+    Use regular expressions to quickly extract single letter options.
+    Supports two main formats:
+    1. Answer at the beginning, like: "A", "A.", "A)", " A "...
+    2. Answer in \\boxed{}, like: "... The final answer is \\boxed{A}"
     """
     if not isinstance(answer, str):
         return None
 
-    # 格式 1: 检查答案是否在字符串开头
-    # 使用 re.match 匹配字符串的开始部分。
+    # Format 1: Check if answer is at the beginning of string
+    # Use re.match to match the beginning of the string.
     match_start = re.match(r"^\s*\(?([A-Z])[\s\.\)]*", answer.strip(), re.IGNORECASE)
     if match_start:
         return match_start.group(1).upper()
 
-    # 格式 2: 如果开头没有匹配，则在整个字符串中搜索 \boxed{} 格式
-    # 使用 re.search 匹配字符串中的任何位置。
-    # 需要对LaTeX命令中的特殊字符进行转义: \ -> \\, { -> \{, } -> \}
+    # Format 2: If no match at beginning, search for \boxed{} format in entire string
+    # Use re.search to match any position in the string.
+    # Need to escape special characters in LaTeX commands: \ -> \\, { -> \{, } -> \}
     match_boxed = re.search(r"\\boxed\{\s*([A-Z])\s*\}", answer, re.IGNORECASE)
     if match_boxed:
         return match_boxed.group(1).upper()
 
-    # 如果两种格式都未匹配到，则返回 None
+    # If neither format matches, return None
     return None
 
 def extract_answer_with_llm(
@@ -87,7 +87,7 @@ def extract_answer_with_llm(
         max_retries: int = 3
     ) -> dict | None:
     """
-    当正则匹配失败时，使用LLM提取答案。
+    When regex matching fails, use LLM to extract answers.
     """
     system_prompt, user_prompt = get_medagentsbench_prompt(generated_answer, reference_answer)
     messages = [
@@ -104,19 +104,19 @@ def extract_answer_with_llm(
                 model=model_settings["model_name"],
                 messages=messages,
                 stream=False,
-                response_format={"type": "json_object"}, # 强制JSON输出
+                response_format={"type": "json_object"}, # Force JSON output
                 temperature=0.0
             )
 
             response_content = response.choices[0].message.content
-            # 解析LLM返回的JSON字符串
+            # Parse the JSON string returned by LLM
             parsed_json = json.loads(response_content)
 
-            # 验证返回的JSON是否包含所需字段
+            # Verify if the returned JSON contains required fields
             if all(k in parsed_json for k in ["reference_answer", "generated_answer", "extracted_answer"]):
                 extracted = parsed_json.get("extracted_answer")
                 if isinstance(extracted, str) and re.fullmatch(r"[A-Z]", str(extracted).strip(), re.IGNORECASE):
-                    # 确保提取出的也是单个字母
+                    # Ensure the extracted is also a single letter
                     parsed_json["extracted_answer"] = str(extracted).strip().upper()
                     return parsed_json
                 else:
@@ -129,14 +129,14 @@ def extract_answer_with_llm(
         except Exception as e:
             logging.error(f"An error occurred during LLM call (attempt {attempt + 1}/{max_retries}): {e}")
 
-        time.sleep(1) # 在重试前等待
+        time.sleep(1) # Wait before retrying
 
     logging.error(f"Failed to get a valid response from LLM after {max_retries} retries for answer: {generated_answer}")
     return None
 
 def process_all_results(config: dict):
     """
-    遍历所有模型和结果文件，提取答案并保存处理后的结果。
+    Traverse all models and result files, extract answers and save processed results.
     """
     for model_name in config["models_to_evaluate"]:
         input_dir = os.path.join(config["input_log_dir"], config["dataset_name"], model_name)
@@ -164,7 +164,7 @@ def process_all_results(config: dict):
             generated_answer = data.get("generated_answer")
             reference_answer = data.get("reference_answer")
 
-            # 1. 尝试使用正则表达式提取
+            # 1. Try using regular expressions to extract
             if isinstance(generated_answer, str):
                 extracted_answer = extract_answer_with_regex(generated_answer)
             elif isinstance(generated_answer, list):
@@ -172,7 +172,7 @@ def process_all_results(config: dict):
             else:
                 extracted_answer = None
 
-            # 2. 如果正则失败，则使用LLM
+            # 2. If regex fails, use LLM
             if extracted_answer is None:
                 continue
                 logging.info(f"Regex failed for {file}, using LLM for extraction...")
@@ -181,21 +181,21 @@ def process_all_results(config: dict):
                 if llm_result:
                     final_data = llm_result
                 else:
-                    # 如果LLM也失败，记录错误并跳过
+                    # If LLM also fails, log error and skip
                     final_data = data.copy()
-                    final_data["extracted_answer"] = "EXTRACT_FAILED" # 标记失败
+                    final_data["extracted_answer"] = "EXTRACT_FAILED" # Mark as failed
             else:
-                # 正则成功，构建统一格式
+                # Regex successful, build unified format
                 final_data = data.copy()
                 final_data["extracted_answer"] = extracted_answer
 
-            # 3. 保存处理后的文件
+            # 3. Save processed file
             with open(output_path, 'w', encoding='utf-8') as f:
                 json.dump(final_data, f, indent=4)
 
 def calculate_accuracy(config: dict):
     """
-    从处理后的日志中计算每个模型的准确率，并将结果保存到CSV文件中。
+    Calculate accuracy for each model from processed logs and save results to CSV file.
     """
     logging.info("\n--- Calculating Final Accuracies and Saving to CSV ---")
 
@@ -229,11 +229,11 @@ def calculate_accuracy(config: dict):
                 correct_predictions += 1
 
         if total_samples > 0:
-            # 减去提取失败的样本，计算有效准确率
+            # Subtract failed extraction samples to calculate effective accuracy
             valid_total = total_samples - failed_extractions
             accuracy = (correct_predictions / valid_total) * 100 if valid_total > 0 else 0
 
-            # 为当前模型创建一个结果字典
+            # Create a result dictionary for current model
             model_summary = {
                 "Model": model_name,
                 "Accuracy (%)": accuracy,
@@ -246,18 +246,18 @@ def calculate_accuracy(config: dict):
         else:
             logging.info(f"No samples found for model {model_name}.")
 
-    # 检查是否有结果需要保存
+    # Check if there are results to save
     if not results_list:
         logging.warning("No results to save to CSV.")
         return
 
-    # 使用pandas创建DataFrame并保存到CSV
+    # Use pandas to create DataFrame and save to CSV
     df = pd.DataFrame(results_list)
 
-    # 将DataFrame按准确率降序排序
+    # Sort DataFrame by accuracy in descending order
     df = df.sort_values(by="Accuracy (%)", ascending=False).reset_index(drop=True)
 
-    # 定义输出CSV文件的路径
+    # Define output CSV file path
     output_csv_path = os.path.join(config["output_log_dir"], config["dataset_name"], "evaluation_summary.csv")
 
     try:
