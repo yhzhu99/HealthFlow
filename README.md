@@ -1,89 +1,124 @@
-# HealthFlow: A Self-Evolving Meta-System for Agentic Healthcare AI
+# HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research
 
-HealthFlow is a research framework designed to orchestrate, evaluate, and learn from powerful, external agentic coders like **Claude Code**, with a specific focus on healthcare tasks. Its core technical contribution is not in building a coding agent itself, but in creating a **self-evolving meta-system** that manages one to solve complex healthcare-related problems.
+HealthFlow is a research framework designed to orchestrate, evaluate, and learn from powerful, external agentic coders to solve complex healthcare research tasks. Its core innovation lies not in building a coding agent itself, but in creating a **self-evolving meta-system** that learns to become a better strategic planner.
 
-This project is designed with academic publication (e.g., NeurIPS) in mind, focusing on a novel approach to agentic AI: **experience-driven workflow evolution**. The system automates the process of turning a high-level user request into a successful outcome through an iterative feedback loop, while continuously capturing and synthesizing experience to improve its future performance.
+The system treats every task as a scientific experiment, autonomously refining its own high-level problem-solving policies by distilling successes and failures into a durable, strategic knowledge base. This marks a shift from building better *tool-users* to designing smarter, self-evolving *task-managers*, paving the way for more autonomous and effective AI for scientific discovery.
 
-## 🌟 Core Innovation: Unified, Experience-Driven Workflow
+## ✨ Core Features
 
-HealthFlow's novelty lies in its unified and automated **Plan -> Delegate -> Evaluate -> Reflect -> Evolve** cycle. It treats every task, from a simple question to a complex analysis, as a scientific experiment, learning from every success to continuously improve its own capabilities in the healthcare domain.
+-   **Meta-Level Evolution**: Goes beyond simple tool use by synthesizing successful task executions into a durable strategic knowledge base (`experience.jsonl`), allowing it to improve its high-level planning over time.
+-   **Modular Multi-Agent System**: A robust architecture of specialized agents for Planning (`MetaAgent`), Execution (`ClaudeCodeExecutor`), Evaluation (`EvaluatorAgent`), and Reflection (`ReflectorAgent`).
+-   **Knowledge Bootstrapping**: A `train_mode` to build an initial, high-quality experience base from curated problems with reference answers, addressing the "cold start" problem.
+-   **Unified Workflow**: A consistent and powerful `Plan -> Execute -> Evaluate -> Reflect` cycle that handles all tasks, from simple questions to complex, multi-step data analysis.
 
-1.  **Plan (MetaAgent)**: A user's request (e.g., "Analyze patient dataset to find correlations" or "Who are you?") is analyzed by the `MetaAgent` in the context of relevant **experiences** retrieved from past tasks. The agent's key responsibility is to synthesize these experiences into actionable context and then generate a detailed, step-by-step markdown plan (`task_list.md`).
-2.  **Delegate (ClaudeCodeExecutor)**: The system universally delegates the execution of the generated `task_list.md` to an external agentic coder (`Claude Code`) by invoking it via a shell command (e.g., `claude --dangerously-skip-permissions -p "..."`). It captures the entire terminal output for analysis.
-3.  **Evaluate (EvaluatorAgent)**: A dedicated evaluator agent assesses the execution outcome, considering correctness, efficiency, and healthcare-specific best practices. If a task fails or the quality is low, the system can loop back to the Plan phase, using the feedback to refine the plan.
-4.  **Reflect (ReflectorAgent)**: Upon successful completion of *any* task, a reflector agent analyzes the entire interaction (request, plan, logs) to synthesize key learnings into structured **experience objects** (e.g., a `heuristic`, a `warning`, a `code_snippet`).
-5.  **Evolve (ExperienceManager)**: These structured experiences are stored in a persistent, searchable `experience.jsonl` file. This growing knowledge base is used by the `MetaAgent` during the planning step, enabling it to make smarter decisions and create better, more context-aware plans for future tasks, thus closing the self-improvement loop.
+## 🚀 How It Works: The Self-Evolving Loop
 
-This unified architecture ensures that HealthFlow is both consistent in its approach and robust enough for complex challenges, while continuously improving its ability to manage all types of tasks over time.
+HealthFlow's novelty lies in its unified and automated **Plan -> Execute -> Evaluate -> Reflect -> Evolve** cycle. It treats every task as a learning opportunity, enabling it to continuously improve its own strategic capabilities.
 
-## 🚀 Quick Start
+1.  **Plan (MetaAgent)**: A user's request is analyzed by the `MetaAgent`. It queries the `ExperienceManager` for relevant past experiences and synthesizes them into a detailed, step-by-step markdown plan (`task_list.md`). This plan is context-aware, incorporating learned heuristics and warnings.
+
+2.  **Execute (ClaudeCodeExecutor)**: The system delegates the execution of the plan to a powerful, external agentic coder (e.g., `claude`). It captures the entire terminal output, including commands, standard output, and errors, for analysis.
+
+3.  **Evaluate (EvaluatorAgent)**: The `EvaluatorAgent` assesses the execution outcome against the original request and plan. It provides a quantitative score and qualitative feedback. If the task fails or quality is low, this feedback is used to generate a better plan in the next attempt.
+
+4.  **Reflect (ReflectorAgent)**: Upon *successful* completion of any task, the `ReflectorAgent` analyzes the entire interaction (request, plan, logs, evaluation) to synthesize generalizable knowledge into structured **Experience Objects** (e.g., a `heuristic`, a `warning`, a `code_snippet`).
+
+5.  **Evolve (ExperienceManager)**: These structured experiences are saved to a persistent `experience.jsonl` file. This growing knowledge base is used by the `MetaAgent` during future planning, enabling it to make smarter decisions and create better plans, thus closing the self-improvement loop.
+
+## 🏁 Quick Start
 
 ### 1. Prerequisites
-- Python 3.12+
-- `uv` (for package management)
-- [Claude Code CLI](https://docs.anthropic.com/claude/docs/claude-code) installed and available in your `PATH`.
+
+-   Python 3.12+
+-   `uv` (a fast Python package installer and resolver)
+-   [Anthropic's `claude` CLI](https://docs.anthropic.com/claude/docs/claude-code) installed and available in your `PATH`. This is the default execution agent.
 
 ### 2. Setup
-```bash
-# Clone the repository
-git clone <repository-url>
-cd healthflow-project
 
-# Install dependencies
+```bash
+# 1. Clone the repository
+git clone https://github.com/your-username/healthflow.git
+cd healthflow
+
+# 2. Install dependencies using uv
 uv sync
 
-# Activate the virtual environment
+# 3. Activate the virtual environment
 source .venv/bin/activate
 
-# Create your configuration file from the example
+# 4. Create your configuration file from the example
 cp config.toml.example config.toml
 ```
-Now, edit `config.toml`, set your desired `active_llm`, and add your LLM API key. This key is used for HealthFlow's internal reasoning agents, not for Claude Code.
 
-### 3. Running HealthFlow
+**Next, edit `config.toml`** to add API keys for the LLMs you intend to use for *reasoning* (planning, evaluating, reflecting). You can configure multiple providers.
 
-There are two ways to run the system:
+## 💻 Usage
 
-#### Interactive Mode
-For a chat-like session where you can run multiple healthcare-related tasks.
-```bash
-python run_healthflow.py interactive
-```
+HealthFlow is controlled via a powerful command-line interface. You must always specify which reasoning LLM to use with the `--active-llm` flag.
 
-#### Single-Task Mode
+### Running a Single Task
+
 To execute a single, specific task and then exit.
-```bash
-python run_healthflow.py run "Analyze the provided 'patients.csv' to identify the top 3 risk factors for readmission. Anonymize any patient identifiers in the output."
-```
-HealthFlow will create a `workspace/` directory where all task artifacts, logs, and the `experience.jsonl` file will be stored.
 
-#### Customizing Execution
-You can customize the experience path and executor shell via CLI arguments:
 ```bash
-python run_healthflow.py run "Who are you?" \
-    --experience-path "my_custom_knowledge_base/experiences.jsonl" \
-    --shell "/bin/zsh"
+python run_healthflow.py run "Analyze the provided 'patients.csv' to identify the top 3 risk factors for readmission. Anonymize any patient identifiers in the output." --active-llm deepseek-v3
 ```
+
+### Interactive Mode
+
+For a chat-like session where you can run multiple tasks sequentially.
+
+```bash
+python run_healthflow.py interactive --active-llm deepseek-v3
+```
+
+### Training (Knowledge Bootstrapping)
+
+Use this mode to populate the experience memory from a curated dataset with reference answers. This is key to bootstrapping the agent's strategic knowledge.
+
+The training data should be a `.jsonl` file where each line is a JSON object with `qid`, `task`, and `answer` keys.
+
+```bash
+# Format: python run_training.py <training_file> <dataset_name> --active-llm <llm>
+python run_training.py data/train_set.jsonl ehrflow_train --active-llm deepseek-r1
+```
+
+This will run each task, use the reference answer for evaluation, and save learned experiences to `workspace/experience.jsonl`. Detailed logs are saved to `benchmark_results/`.
+
+### Benchmarking
+
+Evaluate HealthFlow's performance on a benchmark dataset. The dataset format is the same as for training.
+
+```bash
+# Format: python run_benchmark.py <dataset_file> <dataset_name> --active-llm <llm>
+python run_benchmark.py data/benchmark_set.jsonl ehrflow_eval --active-llm deepseek-r1
+```
+
+Results, including logs for each task and a final summary, will be saved in the `benchmark_results/` directory.
 
 ## 🏗️ Architecture
 
-*   **`HealthFlowSystem` (`healthflow/system.py`)**: The central orchestrator that manages the unified workflow.
-*   **Internal Agents (`healthflow/agents/`)**: A suite of LLM-powered agents for high-level reasoning:
-    *   `MetaAgent`: **The core planner** that analyzes requests, synthesizes past experiences, and generates a detailed execution plan for every task.
-    *   `EvaluatorAgent`: Assesses performance for all code execution outcomes with a healthcare context.
-    *   `ReflectorAgent`: Synthesizes knowledge from all successful tasks.
-*   **Execution Engine (`healthflow/execution/claude_executor.py`)**: A simple, robust wrapper for calling the external `claude` CLI tool, used for all tasks.
-*   **Experience & Memory (`healthflow/experience/`)**: The heart of the self-evolution mechanism.
-    *   `ExperienceManager`: Manages the `experience.jsonl` file for storing and retrieving structured experiences.
-    *   `experience_models.py`: Pydantic models defining the structure of an `Experience`.
-*   **Prompts (`healthflow/prompts/`)**: A centralized repository of prompt templates that guide the agents.
-*   **CLI (`run_healthflow.py`)**: A user-friendly command-line interface powered by Typer and Rich.
+The project is designed to be modular and minimalist, serving as a clean research platform.
 
-This architecture is intentionally minimalist and modular to serve as a clean and effective research platform for studying self-improving AI systems in the healthcare domain.
+-   **`run_healthflow.py`, `run_training.py`, `run_benchmark.py`**: CLI entrypoints for different modes of operation.
+-   **`healthflow/`**: The core library code.
+    -   **`system.py`**: Contains `HealthFlowSystem`, the central orchestrator that manages the self-evolving workflow.
+    -   **`agents/`**: LLM-powered agents for high-level reasoning (`MetaAgent`, `EvaluatorAgent`, `ReflectorAgent`).
+    -   **`execution/`**: The `ClaudeCodeExecutor` wrapper for calling the external `claude` CLI tool.
+    -   **`experience/`**: The heart of the self-evolution mechanism. `ExperienceManager` manages the `experience.jsonl` knowledge base, and `experience_models.py` defines its structure.
+    -   **`prompts/`**: A centralized repository of prompt templates that guide the agents.
+    -   **`core/`**: Core components like configuration loading (`config.py`) and the LLM provider wrapper (`llm_provider.py`).
+-   **`workspace/`**: The default directory where all runtime artifacts are stored. Each task gets a unique subdirectory containing its plan, logs, and any generated files. The `experience.jsonl` file is also stored here.
+-   **`benchmark_results/`**: The output directory for training and benchmarking runs, organized by dataset and model.
+-   **`config.toml`**: The central configuration file for LLMs, system settings, and more.
+-   **`pyproject.toml`**: Project metadata and dependencies, managed by `uv`.
 
-## Project Structure & Conventions
+## ⚙️ Configuration
 
-*   **Configuration**: All settings are in `config.toml`.
-*   **Dependencies**: Managed by `uv` via `pyproject.toml`.
-*   **Logging**: Logs are written to `healthflow.log`.
-*   **Data**: All generated data, including task artifacts and the experience database, is stored in the `workspace/` directory, organized by `task_id`.
+All settings are managed in `config.toml`.
+
+-   **`[llm.*]`**: Define connection details for different LLM providers (e.g., `[llm.deepseek-v3]`, `[llm.gemini]`). You must provide `base_url`, `api_key`, and `model_name`.
+-   **`--active-llm <name>`**: This mandatory runtime flag tells HealthFlow which `[llm.*]` block from your `config.toml` to use for the reasoning agents.
+-   **`[system]`**: Configure system-wide behavior like `max_retries` and the `workspace_dir`.
+-   **`[evaluation]`**: Set the `success_threshold` score for a task to be considered successful.
+-   **`[logging]`**: Control the log level and file path.
