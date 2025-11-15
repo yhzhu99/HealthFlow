@@ -12,8 +12,8 @@ VENUES=("aaai")
 YEARS=("2020")
 
 # Define which LLMs to run. These names must match the keys in the Python script's LLM_MODELS_SETTINGS.
-# Example: LLMS_TO_RUN=("deepseek-v3-official" "qwen3-235b-a22b")
-LLMS_TO_RUN=("deepseek-v3-official" "qwen3-235b-a22b")
+# Example: LLMS_TO_RUN=("deepseek-chat-official" "qwen3-235b-a22b")
+LLMS_TO_RUN=("deepseek-chat-official" "qwen3-235b-a22b")
 
 # Define performance parameters.
 BATCH_SIZE=20

@@ -8,12 +8,12 @@ base_url = "https://api.openai.com/v1"
 api_key = "YOUR_OPENAI_API_KEY"
 model_name = "gpt-4-turbo-preview"
 
-[llm.deepseek-v3]
+[llm.deepseek-chat]
 base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-chat"
 
-[llm.deepseek-r1]
+[llm.deepseek-reasoner]
 base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-reasoner"

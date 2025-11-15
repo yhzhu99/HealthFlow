@@ -101,7 +101,7 @@ def run(
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     train_mode: bool = typer.Option(False, "--train", help="Enable training mode (CLI only)."),
     reference_answer: str = typer.Option(None, "--reference-answer", help="Reference answer for training mode evaluation."),
-    active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)."),
+    active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
 ):
     """
     Run a single task through the HealthFlow system.
@@ -109,7 +109,7 @@ def run(
     if train_mode and reference_answer is None:
         console.print(Panel("[bold red]Error:[/bold red] Training mode requires --reference-answer parameter.", border_style="red"))
         raise typer.Exit(code=1)
-    
+
     system = _initialize_system(config_path, experience_path, active_llm)
     asyncio.run(run_single_task_flow(system, task, train_mode, reference_answer))
 
@@ -117,7 +117,7 @@ def run(
 def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
-    active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)."),
+    active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
 ):
     """
     Starts HealthFlow in an interactive, chat-like mode for multiple tasks.

@@ -5,9 +5,9 @@
 
 **[📜 Read our ArXiv Paper](https://arxiv.org/abs/2508.02621)**
 
-> **Authors:** Yinghao Zhu¹²*, Yifan Qi¹*, Zixiang Wang¹, Lei Gu¹, Dehao Sui¹, Haoran Hu¹, Xichen Zhang², Ziyi He², Liantao Ma¹†, Lequan Yu²†
+> **Authors:** Yinghao Zhu¹²*, Yifan Qi¹*, Zixiang Wang¹, Lei Gu¹, Dehao Sui¹, Haoran Hu¹, Xichen Zhang³, Ziyi He², Junjun He⁴, Liantao Ma¹†, Lequan Yu²†
 >
-> ¹Peking University, ²The University of Hong Kong
+> ¹Peking University, ²The University of Hong Kong, ³The Hong Kong University of Science and Technology, ⁴Shanghai Artificial Intelligence Laboratory
 >
 > *(\* Equal contribution, † Corresponding authors)*
 
@@ -19,6 +19,7 @@ The system treats every task as a scientific experiment, autonomously refining i
 
 ## ✨ Core Features
 
+-   **Web-Based Interface**: A user-friendly Streamlit-based WebUI for easy interaction with the HealthFlow system through your browser.
 -   **Meta-Level Evolution**: Goes beyond simple tool use by synthesizing successful task executions into a durable strategic knowledge base (`experience.jsonl`), allowing it to improve its high-level planning over time.
 -   **Modular Multi-Agent System**: A robust architecture of specialized agents for Planning (`MetaAgent`), Execution (`ClaudeCodeExecutor`), Evaluation (`EvaluatorAgent`), and Reflection (`ReflectorAgent`).
 -   **Knowledge Bootstrapping**: A `train_mode` to build an initial, high-quality experience base from curated problems with reference answers, addressing the "cold start" problem.
@@ -68,27 +69,37 @@ cp config.toml.example config.toml
 
 **Next, edit `config.toml`** to add API keys for the LLMs you intend to use for *reasoning* (planning, evaluating, reflecting). You can configure multiple providers.
 
-## 💻 Usage
+### 3. Start the WebUI
 
-HealthFlow is controlled via a powerful command-line interface. You must always specify which reasoning LLM to use with the `--active-llm` flag.
+For a user-friendly web interface, you can launch the Streamlit-based WebUI:
 
-### Running a Single Task
+```bash
+streamlit run app.py
+```
+
+This will start the web application, which you can access in your browser at the provided URL (typically `http://localhost:8501`).
+
+### 4. CLI Usage
+
+If you prefer the command-line interface, you can use the CLI directly. HealthFlow is controlled via a powerful command-line interface. You must always specify which reasoning LLM to use with the `--active-llm` flag.
+
+#### Running a Single Task
 
 To execute a single, specific task and then exit.
 
 ```bash
-python run_healthflow.py run "Analyze the provided 'patients.csv' to identify the top 3 risk factors for readmission. Anonymize any patient identifiers in the output." --active-llm deepseek-v3
+python run_healthflow.py run "Analyze the provided 'patients.csv' to identify the top 3 risk factors for readmission. Anonymize any patient identifiers in the output." --active-llm deepseek-chat
 ```
 
-### Interactive Mode
+#### Interactive Mode
 
 For a chat-like session where you can run multiple tasks sequentially.
 
 ```bash
-python run_healthflow.py interactive --active-llm deepseek-v3
+python run_healthflow.py interactive --active-llm deepseek-chat
 ```
 
-### Training (Knowledge Bootstrapping)
+#### Training (Knowledge Bootstrapping)
 
 Use this mode to populate the experience memory from a curated dataset with reference answers. This is key to bootstrapping the agent's strategic knowledge.
 
@@ -96,18 +107,18 @@ The training data should be a `.jsonl` file where each line is a JSON object wit
 
 ```bash
 # Format: python run_training.py <training_file> <dataset_name> --active-llm <llm>
-python run_training.py data/train_set.jsonl ehrflow_train --active-llm deepseek-r1
+python run_training.py data/train_set.jsonl ehrflow_train --active-llm deepseek-reasoner
 ```
 
 This will run each task, use the reference answer for evaluation, and save learned experiences to `workspace/experience.jsonl`. Detailed logs are saved to `benchmark_results/`.
 
-### Benchmarking
+#### Benchmarking
 
 Evaluate HealthFlow's performance on a benchmark dataset. The dataset format is the same as for training.
 
 ```bash
 # Format: python run_benchmark.py <dataset_file> <dataset_name> --active-llm <llm>
-python run_benchmark.py data/benchmark_set.jsonl ehrflow_eval --active-llm deepseek-r1
+python run_benchmark.py data/benchmark_set.jsonl ehrflow_eval --active-llm deepseek-reasoner
 ```
 
 Results, including logs for each task and a final summary, will be saved in the `benchmark_results/` directory.
@@ -116,6 +127,7 @@ Results, including logs for each task and a final summary, will be saved in the 
 
 The project is designed to be modular and minimalist, serving as a clean research platform.
 
+-   **`app.py`**: Streamlit-based WebUI entrypoint for a user-friendly browser interface.
 -   **`run_healthflow.py`, `run_training.py`, `run_benchmark.py`**: CLI entrypoints for different modes of operation.
 -   **`healthflow/`**: The core library code.
     -   **`system.py`**: Contains `HealthFlowSystem`, the central orchestrator that manages the self-evolving workflow.
@@ -133,7 +145,7 @@ The project is designed to be modular and minimalist, serving as a clean researc
 
 All settings are managed in `config.toml`.
 
--   **`[llm.*]`**: Define connection details for different LLM providers (e.g., `[llm.deepseek-v3]`, `[llm.gemini]`). You must provide `base_url`, `api_key`, and `model_name`.
+-   **`[llm.*]`**: Define connection details for different LLM providers (e.g., `[llm.deepseek-chat]`, `[llm.gemini]`). You must provide `base_url`, `api_key`, and `model_name`.
 -   **`--active-llm <name>`**: This mandatory runtime flag tells HealthFlow which `[llm.*]` block from your `config.toml` to use for the reasoning agents.
 -   **`[system]`**: Configure system-wide behavior like `max_retries` and the `workspace_dir`.
 -   **`[evaluation]`**: Set the `success_threshold` score for a task to be considered successful.
@@ -145,12 +157,12 @@ If you use HealthFlow in your research, please cite our paper:
 
 ```bibtex
 @misc{zhu2025healthflow,
-      title={HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research}, 
-      author={Yinghao Zhu and Yifan Qi and Zixiang Wang and Lei Gu and Dehao Sui and Haoran Hu and Xichen Zhang and Ziyi He and Liantao Ma and Lequan Yu},
+      title={HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research},
+      author={Yinghao Zhu and Yifan Qi and Zixiang Wang and Lei Gu and Dehao Sui and Haoran Hu and Xichen Zhang and Ziyi He and and Junjun He and Liantao Ma and Lequan Yu},
       year={2025},
       eprint={2508.02621},
       archivePrefix={arXiv},
       primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2508.02621}, 
+      url={https://arxiv.org/abs/2508.02621},
 }
 ```

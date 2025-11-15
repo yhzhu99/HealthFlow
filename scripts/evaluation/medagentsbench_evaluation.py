@@ -19,8 +19,8 @@ def parse_args():
     parser.add_argument("--input_log_dir", type=str, default="logs", help="Input log directory")
     parser.add_argument("--output_log_dir", type=str, default="processed_logs", help="Output log directory")
     parser.add_argument("--dataset_name", type=str, default="medagentsbench", help="Dataset name")
-    parser.add_argument("--evaluator_model_key", type=str, default="deepseek-v3-official", help="Evaluator model key")
-    parser.add_argument("--models_to_evaluate", type=str, nargs="+", default=["ColaCare", "MedAgent", "MDAgents", "SingleLLM_deepseek-r1-official_zero_shot", "SingleLLM_deepseek-v3-official_zero_shot", "SingleLLM_huatuogpt_zero_shot", "SingleLLM_medgemma_zero_shot"], help="Models to evaluate")
+    parser.add_argument("--evaluator_model_key", type=str, default="deepseek-chat-official", help="Evaluator model key")
+    parser.add_argument("--models_to_evaluate", type=str, nargs="+", default=["ColaCare", "MedAgent", "MDAgents", "SingleLLM_deepseek-reasoner-official_zero_shot", "SingleLLM_deepseek-chat-official_zero_shot", "SingleLLM_huatuogpt_zero_shot", "SingleLLM_medgemma_zero_shot"], help="Models to evaluate")
     return parser.parse_args()
 
 def get_medagentsbench_prompt(generated_answer: str, reference_answer: str) -> tuple[str, str]:
