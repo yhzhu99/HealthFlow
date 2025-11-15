@@ -30,12 +30,12 @@ except Exception as e:
 
 # --- Static Configuration ---
 LLM_MODELS_SETTINGS = {
-    "deepseek-v3-official": {
+    "deepseek-chat-official": {
         "api_key": os.getenv("DEEPSEEK_API_KEY"),
         "base_url": "https://api.deepseek.com",
         "model_name": "deepseek-chat",
     },
-    "deepseek-r1-official": {
+    "deepseek-reasoner-official": {
         "api_key": os.getenv("DEEPSEEK_API_KEY"),
         "base_url": "https://api.deepseek.com",
         "model_name": "deepseek-reasoner",

@@ -20,12 +20,12 @@ load_dotenv(dotenv_path='.env')
 
 # --- Centralized LLM Settings ---
 LLM_MODELS_SETTINGS = {
-    "deepseek-v3-official": {
+    "deepseek-chat-official": {
         "api_key": os.getenv("DEEPSEEK_API_KEY"),
         "base_url": "https://api.deepseek.com",
         "model_name": "deepseek-chat",
     },
-    "deepseek-r1-official": {
+    "deepseek-reasoner-official": {
         "api_key": os.getenv("DEEPSEEK_API_KEY"),
         "base_url": "https://api.deepseek.com",
         "model_name": "deepseek-reasoner",
@@ -255,7 +255,7 @@ def main():
     parser.add_argument("--paper_id", type=str, required=True, help="ID of the paper to process (e.g., '2203.01077').")
     parser.add_argument("--markdowns-dir", type=Path, default=Path("extract_task/assets/markdowns"), help="Directory of markdown folders.")
     parser.add_argument("--output-dir", type=Path, default=Path("extract_task/tasks"), help="Directory to save output JSONL files.")
-    parser.add_argument("--llm", type=str, default="deepseek-r1-official", choices=list(LLM_MODELS_SETTINGS.keys()), help="LLM to use for extraction.")
+    parser.add_argument("--llm", type=str, default="deepseek-reasoner-official", choices=list(LLM_MODELS_SETTINGS.keys()), help="LLM to use for extraction.")
     args = parser.parse_args()
 
     # --- Concurrency & Pre-flight Checks ---

@@ -46,7 +46,7 @@ class HealthFlowSystem:
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(exist_ok=True)
 
-    async def run_task(self, user_request: str, live: Optional[Live] = None, spinner: Optional[Spinner] = None, train_mode: bool = False, reference_answer: str = None) -> dict:
+    async def run_task(self, user_request: str, live: Optional[Live] = None, spinner: Optional[Spinner] = None, train_mode: bool = False, reference_answer: str = None, uploaded_files: Optional[Dict[str, bytes]] = None) -> dict:
         """
         Executes a single task through the full, unified HealthFlow lifecycle.
         This is the main entry point for processing any user request.
@@ -54,6 +54,21 @@ class HealthFlowSystem:
         task_id = str(uuid.uuid4())
         task_workspace = self.workspace_dir / task_id
         task_workspace.mkdir(exist_ok=True)
+
+        # Save any uploaded files to the workspace
+        if uploaded_files:
+            logger.info(f"[{task_id}] Saving {len(uploaded_files)} uploaded files to the workspace.")
+            for filename, content in uploaded_files.items():
+                # Sanitize filename to prevent path traversal issues
+                safe_filename = Path(filename).name
+                file_path = task_workspace / safe_filename
+                try:
+                    with open(file_path, "wb") as f:
+                        f.write(content)
+                    logger.info(f"[{task_id}] Saved '{filename}' to '{file_path}'.")
+                except Exception as e:
+                    logger.error(f"[{task_id}] Failed to save uploaded file '{filename}': {e}")
+
         mode_text = " (Training Mode)" if train_mode else ""
         logger.info(f"[{task_id}] New task started{mode_text}. Request: '{user_request}'")
         logger.info(f"[{task_id}] Workspace created at: {task_workspace}")

@@ -122,7 +122,7 @@ python medagentsbench_evaluation.py \
     --input_log_dir /path/to/agent_logs \
     --output_log_dir /path/to/processed_logs \
     --dataset_name medagentsbench \
-    --evaluator_model_key deepseek-v3-official \
+    --evaluator_model_key deepseek-chat-official \
     --models_to_evaluate ColaCare MedAgent
 ```
 -   `--input_log_dir`: Root directory of the raw logs from agent runs.
@@ -140,7 +140,7 @@ python hle_evaluation.py \
     --input_log_dir /path/to/agent_logs \
     --output_log_dir /path/to/processed_logs \
     --dataset_name hle \
-    --evaluator_model_key deepseek-v3-official \
+    --evaluator_model_key deepseek-chat-official \
     --models_to_evaluate ColaCare SingleLLM_gpt4
 ```
 

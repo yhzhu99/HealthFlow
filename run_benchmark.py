@@ -170,7 +170,7 @@ def run(
     dataset_name: str = typer.Argument(..., help="Name of the dataset (used for output directory)"),
     config_path: str = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file"),
     experience_path: str = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to experience file for HealthFlow"),
-    active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-v3, deepseek-r1, kimi-k2, gemini)"),
+    active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)"),
 ):
     """
     Run HealthFlow benchmarking on a dataset.

@@ -15,7 +15,7 @@ set -e
 
 # --- Configuration ---
 # The LLM to use. Must be a key from LLM_MODELS_SETTINGS in extract.py.
-# Options: "deepseek-v3-official", "deepseek-r1-official", "qwen3-235b-a22b", "gemini-2.5-pro"
+# Options: "deepseek-chat-official", "deepseek-reasoner-official", "qwen3-235b-a22b", "gemini-2.5-pro"
 LLM_MODEL=gemini-2.5-pro
 
 # Number of parallel jobs to run. Adjust based on your machine and API rate limits.
