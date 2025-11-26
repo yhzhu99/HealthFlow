@@ -122,8 +122,7 @@ with st.sidebar:
     active_llm = st.selectbox("Select Reasoning LLM", options=llm_options)
     st.markdown("---")
     st.caption("A Self-Evolving Meta-System for Agentic Healthcare AI.")
-    st.markdown("For **COMP9501 Final Group Project**")
-    st.markdown("[GitHub Repository](https://github.com/yhzhu99/COMP9501-Final-Project)") # <-- UPDATE YOUR REPO LINK
+    st.markdown("[GitHub Repository](https://github.com/yhzhu99/HealthFlow)")
 
 # --- Main Page ---
 st.title("🌊 HealthFlow Agent")
