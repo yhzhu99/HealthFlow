@@ -12,9 +12,10 @@ dependencies = [
     "openai>=1.97.1",
     "pydantic>=2.11.7",
     "rich>=14.1.0",
+    "streamlit>=1.51.0",
     "tenacity>=9.1.2",
     "toml>=0.10.2",
-    "typer[all]>=0.16.0",
+    "typer>=0.16.0",
 ]
 
 [project.scripts]
