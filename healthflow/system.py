@@ -253,7 +253,7 @@ class HealthFlowSystem:
                 },
                 "verification": {
                     "passed": verification.passed,
-                    "checks": verification.checks,
+                    "checks": [check.to_dict() for check in verification.checks],
                     "artifact_paths": verification.artifact_paths,
                 },
                 "gate": {
@@ -299,6 +299,11 @@ class HealthFlowSystem:
 
         history_path = task_workspace / "full_history.json"
         self._write_json(history_path, full_history)
+        if full_history["attempts"]:
+            self._write_json(
+                task_workspace / "verification.json",
+                full_history["attempts"][-1]["verification"],
+            )
 
         return {
             "success": is_success,
@@ -309,6 +314,7 @@ class HealthFlowSystem:
             "verification_passed": verification_passed,
             "log_path": full_history["attempts"][-1]["execution"]["log_path"] if full_history["attempts"] else None,
             "prompt_path": full_history["attempts"][-1]["execution"]["prompt_path"] if full_history["attempts"] else None,
+            "verification_path": str(task_workspace / "verification.json"),
             "memory_context_path": str(task_workspace / "memory_context.json"),
         }
 

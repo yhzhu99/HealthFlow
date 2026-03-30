@@ -18,7 +18,13 @@ class ToolBroker:
             bundle.append("tabular inspection")
         if "clinical_text" in data_profile.modalities:
             bundle.append("text parsing")
+        if data_profile.patient_id_columns:
+            bundle.append("patient-level split audit")
+        if data_profile.target_columns or task_family in {"predictive_modeling", "survival_analysis", "time_series_modeling"}:
+            bundle.append("leakage + temporal audit")
         if task_family in {"predictive_modeling", "survival_analysis", "time_series_modeling"}:
             bundle.append("metrics + validation artifacts")
+        if task_family in {"predictive_modeling", "survival_analysis", "time_series_modeling", "cohort_extraction"}:
+            bundle.append("cohort definition artifact")
         # Preserve order while de-duplicating.
-        return list(dict.fromkeys(bundle))
+        return list(dict.fromkeys(bundle))[:7]
