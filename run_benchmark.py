@@ -160,6 +160,11 @@ async def run_benchmark_async(
             qid = str(task_data["qid"])
             task_text = task_data["task"]
             reference_answer = task_data["answer"]
+            task_metadata = {
+                key: value
+                for key, value in task_data.items()
+                if key not in {"qid", "task", "answer"}
+            }
             output_dir = create_output_directory(dataset_name, active_llm, qid)
             progress.update(task_progress, description=f"[cyan]Processing task {qid}...")
 
@@ -189,6 +194,7 @@ async def run_benchmark_async(
                 "qid": qid,
                 "task": task_text,
                 "reference_answer": reference_answer,
+                **task_metadata,
                 "generated_answer": result.get("answer", ""),
                 "success": result.get("success", False),
                 "score": score,
