@@ -4,7 +4,7 @@ from loguru import logger
 
 from ..core.llm_provider import LLMProvider, LLMMessage
 from ..prompts.templates import get_prompt
-from ..experience.experience_models import Experience, ExperienceType
+from ..experience.experience_models import Experience, ExperienceType, MemoryLayer, ValidationStatus
 
 class ReflectorAgent:
     """
@@ -14,21 +14,26 @@ class ReflectorAgent:
     def __init__(self, llm_provider: LLMProvider):
         self.llm_provider = llm_provider
 
-    async def synthesize_experience(self, full_history: Dict[str, Any]) -> List[Experience]:
+    async def synthesize_experience(self, full_history: Dict[str, Any], verified: bool) -> List[Experience]:
         """
         Analyzes a successful execution history and synthesizes reusable experiences.
         This method is used for all successfully completed tasks.
         """
         system_prompt = get_prompt("reflector_system")
 
-        successful_attempt = full_history["attempts"][-1]
+        final_attempt = full_history["attempts"][-1]
         history_for_prompt = {
             "user_request": full_history["user_request"],
             "retrieved_experiences": [exp["content"] for exp in full_history.get("retrieved_experiences", [])],
-            "final_plan": successful_attempt["task_list"],
-            "final_log": successful_attempt["execution"]["log"][:8000], # Truncate log
-            "evaluation_score": successful_attempt["evaluation"]["score"],
-            "evaluation_reasoning": successful_attempt["evaluation"]["reasoning"]
+            "task_family": full_history.get("task_family", "general"),
+            "dataset_signature": full_history.get("dataset_signature", "unknown"),
+            "backend": full_history.get("backend", "unknown"),
+            "verification_passed": verified,
+            "final_plan": final_attempt["task_list"],
+            "final_log": final_attempt["execution"]["log"][:8000],
+            "verification_summary": final_attempt.get("verification", {}),
+            "evaluation_score": final_attempt["evaluation"]["score"],
+            "evaluation_reasoning": final_attempt["evaluation"]["reasoning"],
         }
         history_str = json.dumps(history_for_prompt, indent=2)
 
@@ -50,9 +55,18 @@ class ReflectorAgent:
                 try:
                     exp = Experience(
                         type=ExperienceType(item["type"]),
+                        layer=MemoryLayer(item.get("layer", "strategy")),
                         category=item["category"],
                         content=item["content"],
-                        source_task_id=full_history["task_id"]
+                        source_task_id=full_history["task_id"],
+                        task_family=full_history.get("task_family", "general"),
+                        dataset_signature=full_history.get("dataset_signature", "unknown"),
+                        stage="reflection",
+                        backend=full_history.get("backend", "unknown"),
+                        validation_status=ValidationStatus.VERIFIED if verified else ValidationStatus.FAILED,
+                        confidence=float(item.get("confidence", 0.6)),
+                        conflict_group=item.get("conflict_group"),
+                        tags=item.get("tags", []),
                     )
                     experiences.append(exp)
                 except (ValueError, KeyError) as e:

@@ -13,7 +13,20 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
 from healthflow.system import HealthFlowSystem
-from healthflow.core.config import get_config, setup_logging, HealthFlowConfig, LLMProviderConfig, SystemConfig, EvaluationConfig, LoggingConfig
+from healthflow.core.config import (
+    get_config,
+    setup_logging,
+    BackendCLIConfig,
+    EHRConfig,
+    EvaluationConfig,
+    ExecutorConfig,
+    HealthFlowConfig,
+    LLMProviderConfig,
+    LoggingConfig,
+    MemoryConfig,
+    SystemConfig,
+    VerificationConfig,
+)
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -52,25 +65,47 @@ def get_system_initializer():
         st.session_state.is_deployed = False
         return initialize_system_from_file
 
-def initialize_system_from_secrets(active_llm_name: str) -> HealthFlowSystem:
+def initialize_system_from_secrets(active_llm_name: str, active_executor_name: str) -> HealthFlowSystem:
     """Initializes HealthFlowSystem using Streamlit's secrets for deployed apps."""
     try:
         llm_config_data = st.secrets.llm[active_llm_name]
         llm_config = LLMProviderConfig(**llm_config_data)
         system_config = SystemConfig(**st.secrets.get("system", {}))
+        executor_config = ExecutorConfig(
+            active_backend=active_executor_name,
+            prompt_file_name=st.secrets.get("executor", {}).get("prompt_file_name", "executor_prompt.md"),
+            backends={
+                name: BackendCLIConfig(**data)
+                for name, data in st.secrets.get("executor", {}).get("backends", {}).items()
+            },
+        )
+        memory_config = MemoryConfig(**st.secrets.get("memory", {}))
+        ehr_config = EHRConfig(**st.secrets.get("ehr", {}))
+        verification_config = VerificationConfig(**st.secrets.get("verification", {}))
         evaluation_config = EvaluationConfig(**st.secrets.get("evaluation", {}))
         logging_config = LoggingConfig(**st.secrets.get("logging", {"log_level": "INFO", "log_file": "healthflow_streamlit.log"}))
-        config = HealthFlowConfig(active_llm_name=active_llm_name, llm=llm_config, system=system_config, evaluation=evaluation_config, logging=logging_config)
+        config = HealthFlowConfig(
+            active_llm_name=active_llm_name,
+            active_executor_name=active_executor_name,
+            llm=llm_config,
+            system=system_config,
+            executor=executor_config,
+            memory=memory_config,
+            ehr=ehr_config,
+            verification=verification_config,
+            evaluation=evaluation_config,
+            logging=logging_config,
+        )
         setup_logging(config)
         return HealthFlowSystem(config=config, experience_path=Path(config.system.workspace_dir) / "experience.jsonl")
     except Exception as e:
         st.error(f"Error initializing from secrets for LLM '{active_llm_name}': {e}")
         st.stop()
 
-def initialize_system_from_file(active_llm_name: str) -> HealthFlowSystem:
+def initialize_system_from_file(active_llm_name: str, active_executor_name: str) -> HealthFlowSystem:
     """Initializes HealthFlowSystem from local config.toml for development."""
     try:
-        config = get_config(Path("config.toml"), active_llm_name)
+        config = get_config(Path("config.toml"), active_llm_name, active_executor_name)
         setup_logging(config)
         return HealthFlowSystem(config=config, experience_path=Path("workspace/experience.jsonl"))
     except Exception as e:
@@ -109,10 +144,12 @@ with st.sidebar:
 
     if st.session_state.is_deployed:
         llm_options = list(st.secrets.llm.keys()) if 'llm' in st.secrets else []
+        executor_options = list(st.secrets.get("executor", {}).get("backends", {}).keys()) or ["claude_code", "opencode", "pi"]
         st.info("☁️ Cloud Mode: Config from Streamlit secrets.")
     else:
         config_data_local = load_config_data()
         llm_options = list(config_data_local.get("llm", {}).keys())
+        executor_options = list(config_data_local.get("executor", {}).get("backends", {}).keys()) or ["claude_code", "opencode", "pi"]
         st.info("💻 Local Mode: Config from `config.toml`.")
 
     if not llm_options:
@@ -120,6 +157,7 @@ with st.sidebar:
         st.stop()
 
     active_llm = st.selectbox("Select Reasoning LLM", options=llm_options)
+    active_executor = st.selectbox("Select Executor Backend", options=executor_options)
     st.markdown("---")
     st.caption("A Self-Evolving Meta-System for Agentic Healthcare AI.")
     st.markdown("[GitHub Repository](https://github.com/yhzhu99/HealthFlow)")
@@ -154,7 +192,7 @@ if st.button("🚀 Start Agent Execution", type="primary", disabled=st.session_s
 
     with st.spinner("HealthFlow is orchestrating... This may take several minutes."):
         try:
-            system = initializer(active_llm)
+            system = initializer(active_llm, active_executor)
             result = run_healthflow_task_async(system, task_input, files_to_upload)
             st.session_state.task_result = result
         except Exception as e:

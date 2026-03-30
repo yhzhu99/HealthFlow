@@ -255,10 +255,10 @@ class TrainingRunner:
         except Exception as e:
             logger.warning(f"Failed to copy workspace files: {e}")
 
-def _initialize_system(config_path: Path, experience_path: Path, active_llm: str) -> HealthFlowSystem:
+def _initialize_system(config_path: Path, experience_path: Path, active_llm: str, active_executor: str | None) -> HealthFlowSystem:
     """Initialize the HealthFlow system."""
     try:
-        config = get_config(config_path, active_llm)
+        config = get_config(config_path, active_llm, active_executor)
         setup_logging(config)
         return HealthFlowSystem(
             config=config,
@@ -273,10 +273,11 @@ async def main_async(
     dataset_name: str,
     config_path: Path,
     experience_path: Path,
-    active_llm: str = None
+    active_llm: str = None,
+    active_executor: str | None = None,
 ):
     """Main async function to run training."""
-    system = _initialize_system(config_path, experience_path, active_llm)
+    system = _initialize_system(config_path, experience_path, active_llm, active_executor)
 
     trainer = TrainingRunner(system, experience_path)
     summary = await trainer.run_training(training_file)
@@ -311,6 +312,7 @@ def main():
     parser.add_argument("--config", "-c", type=Path, default="config.toml", help="Path to the configuration file")
     parser.add_argument("--experience-path", type=Path, default="workspace/experience.jsonl", help="Path to the experience knowledge base file")
     parser.add_argument("--active-llm", required=True, help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)")
+    parser.add_argument("--active-executor", default=None, help="The executor backend to use (e.g., claude_code, opencode, pi)")
 
     args = parser.parse_args()
 
@@ -320,7 +322,8 @@ def main():
             dataset_name=args.dataset_name,
             config_path=args.config,
             experience_path=args.experience_path,
-            active_llm=args.active_llm
+            active_llm=args.active_llm,
+            active_executor=args.active_executor,
         ))
     except KeyboardInterrupt:
         console.print("\n[yellow]Training interrupted by user.[/yellow]")

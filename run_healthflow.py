@@ -81,10 +81,10 @@ async def main_interactive_loop(system: HealthFlowSystem):
             console.print("[yellow]Task failed. Ready for next command.[/yellow]")
 
 
-def _initialize_system(config_path: Path, experience_path: Path, active_llm: str) -> HealthFlowSystem:
+def _initialize_system(config_path: Path, experience_path: Path, active_llm: str, active_executor: str | None) -> HealthFlowSystem:
     """Loads config, sets up logging, and initializes the HealthFlowSystem."""
     try:
-        config = get_config(config_path, active_llm)
+        config = get_config(config_path, active_llm, active_executor)
         setup_logging(config)
         return HealthFlowSystem(
             config=config,
@@ -102,6 +102,7 @@ def run(
     train_mode: bool = typer.Option(False, "--train", help="Enable training mode (CLI only)."),
     reference_answer: str = typer.Option(None, "--reference-answer", help="Reference answer for training mode evaluation."),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
+    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)."),
 ):
     """
     Run a single task through the HealthFlow system.
@@ -110,7 +111,7 @@ def run(
         console.print(Panel("[bold red]Error:[/bold red] Training mode requires --reference-answer parameter.", border_style="red"))
         raise typer.Exit(code=1)
 
-    system = _initialize_system(config_path, experience_path, active_llm)
+    system = _initialize_system(config_path, experience_path, active_llm, active_executor)
     asyncio.run(run_single_task_flow(system, task, train_mode, reference_answer))
 
 @app.command()
@@ -118,11 +119,12 @@ def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
+    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)."),
 ):
     """
     Starts HealthFlow in an interactive, chat-like mode for multiple tasks.
     """
-    system = _initialize_system(config_path, experience_path, active_llm)
+    system = _initialize_system(config_path, experience_path, active_llm, active_executor)
     asyncio.run(main_interactive_loop(system))
 
 @app.callback(invoke_without_command=True)

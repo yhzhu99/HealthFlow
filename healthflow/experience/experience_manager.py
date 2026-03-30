@@ -1,12 +1,13 @@
 import json
 import aiofiles
 from pathlib import Path
-from typing import List
+from collections import defaultdict
+from typing import Dict, List
 from loguru import logger
 import re
 
-from .experience_models import Experience
-from ..core.llm_provider import LLMProvider, LLMMessage
+from .experience_models import Experience, MemoryLayer, ValidationStatus
+from ..core.llm_provider import LLMProvider
 
 class ExperienceManager:
     """
@@ -37,17 +38,21 @@ class ExperienceManager:
 
         logger.info(f"Saved {len(experiences)} new experiences to the knowledge base.")
 
-    async def retrieve_experiences(self, query: str, k: int = 5) -> List[Experience]:
+    async def reset(self):
+        """Truncate the memory file."""
+        async with aiofiles.open(self.experience_path, mode='w', encoding='utf-8') as f:
+            await f.write("")
+        logger.info("Reset experience memory at {}", self.experience_path)
+
+    async def retrieve_experiences(
+        self,
+        query: str,
+        task_family: str = "general",
+        dataset_signature: str = "unknown",
+        budgets: Dict[str, int] | None = None,
+    ) -> List[Experience]:
         """
-        Retrieves the top k most relevant experiences using semantic search with LLM.
-        Falls back to keyword matching if LLM is not available.
-
-        Args:
-            query: The user request string to find relevant experiences for.
-            k: The maximum number of experiences to return.
-
-        Returns:
-            A list of the most relevant Experience objects.
+        Retrieves the most relevant experiences using lightweight hybrid scoring.
         """
         if not self.experience_path.exists() or self.experience_path.stat().st_size == 0:
             return []
@@ -65,79 +70,76 @@ class ExperienceManager:
         if not all_experiences:
             return []
 
-        # Use semantic retrieval if LLM is available, otherwise fall back to keyword matching
-        if self.llm_provider:
-            try:
-                return await self._semantic_retrieve(query, all_experiences, k)
-            except Exception as e:
-                logger.warning(f"Semantic retrieval failed, falling back to keyword matching: {e}")
-                return await self._keyword_retrieve(query, all_experiences, k)
-        else:
-            return await self._keyword_retrieve(query, all_experiences, k)
-
-    async def _semantic_retrieve(self, query: str, all_experiences: List[Experience], k: int) -> List[Experience]:
-        """Use LLM to semantically match experiences to the query."""
-        # Prepare experiences for LLM evaluation
-        experiences_text = "\n\n".join([
-            f"Experience {i+1}:\n- Type: {exp.type.value}\n- Category: {exp.category}\n- Content: {exp.content}"
-            for i, exp in enumerate(all_experiences)
-        ])
-        
-        system_prompt = """You are an expert at matching user queries to relevant past experiences in a healthcare AI system. Your task is to analyze a user query and rank the provided experiences by relevance.
-
-Return a JSON object with a "rankings" array containing the indices (1-based) of the most relevant experiences, ordered from most to least relevant. Only include experiences that are actually relevant to the query."""
-
-        user_prompt = f"""User Query: {query}
-
-Available Experiences:
-{experiences_text}
-
-Please rank the experiences by relevance to the user query. Return only the indices of relevant experiences in order of decreasing relevance."""
-
-        messages = [
-            LLMMessage(role="system", content=system_prompt),
-            LLMMessage(role="user", content=user_prompt)
-        ]
-
-        response = await self.llm_provider.generate(messages, json_mode=True)
-        
-        try:
-            rankings_data = json.loads(response.content)
-            rankings = rankings_data.get("rankings", [])
-            
-            # Convert 1-based indices to 0-based and get corresponding experiences
-            relevant_experiences = []
-            for idx in rankings[:k]:  # Limit to top k
-                if 1 <= idx <= len(all_experiences):
-                    relevant_experiences.append(all_experiences[idx - 1])
-            
-            logger.debug(f"Semantic retrieval found {len(relevant_experiences)} relevant experiences for query: '{query}'")
-            return relevant_experiences
-            
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            logger.warning(f"Failed to parse semantic retrieval response: {e}")
-            # Fall back to keyword matching
-            return await self._keyword_retrieve(query, all_experiences, k)
-
-    async def _keyword_retrieve(self, query: str, all_experiences: List[Experience], k: int) -> List[Experience]:
-        """Original keyword-based retrieval as fallback."""
-        query_words = set(re.findall(r'\b\w+\b', query.lower()))
+        budgets = budgets or {
+            MemoryLayer.STRATEGY.value: 3,
+            MemoryLayer.FAILURE.value: 2,
+            MemoryLayer.DATASET.value: 1,
+            MemoryLayer.ARTIFACT.value: 1,
+        }
+        query_words = set(re.findall(r"\b\w+\b", query.lower()))
         scored_experiences = []
-        
+
         for exp in all_experiences:
-            score = 0
-            content_words = set(re.findall(r'\b\w+\b', (exp.content + " " + exp.category).lower()))
-            matching_words = query_words.intersection(content_words)
-            score = len(matching_words)
+            exp_words = set(
+                re.findall(
+                    r"\b\w+\b",
+                    " ".join(
+                        [
+                            exp.content,
+                            exp.category,
+                            exp.task_family,
+                            exp.dataset_signature,
+                            " ".join(exp.tags),
+                        ]
+                    ).lower(),
+                )
+            )
+            overlap_score = len(query_words.intersection(exp_words))
+            task_family_bonus = 4 if exp.task_family == task_family else 0
+            dataset_bonus = 3 if dataset_signature != "unknown" and exp.dataset_signature == dataset_signature else 0
+            validation_bonus = {
+                ValidationStatus.VERIFIED: 3,
+                ValidationStatus.UNVERIFIED: 1,
+                ValidationStatus.FAILED: 0,
+            }[exp.validation_status]
+            recency_bonus = 1 if exp.created_at else 0
+            total_score = overlap_score + task_family_bonus + dataset_bonus + validation_bonus + recency_bonus
+            if total_score > 0:
+                scored_experiences.append((total_score, exp))
 
-            if score > 0:
-                scored_experiences.append((score, exp))
+        scored_experiences.sort(key=lambda item: (item[0], item[1].confidence, item[1].created_at), reverse=True)
 
-        # Sort by score in descending order
-        scored_experiences.sort(key=lambda x: x[0], reverse=True)
+        filtered_by_conflict: List[Experience] = []
+        seen_conflicts = set()
+        for _, exp in scored_experiences:
+            if exp.conflict_group and exp.conflict_group in seen_conflicts:
+                continue
+            filtered_by_conflict.append(exp)
+            if exp.conflict_group:
+                seen_conflicts.add(exp.conflict_group)
 
-        # Return the top k experiences (just the Experience object)
-        top_k_experiences = [exp for score, exp in scored_experiences[:k]]
+        grouped: Dict[str, List[Experience]] = defaultdict(list)
+        for exp in filtered_by_conflict:
+            grouped[exp.layer.value].append(exp)
 
-        logger.debug(f"Keyword retrieval found {len(top_k_experiences)} experiences for query: '{query}'")
-        return top_k_experiences
+        selected: List[Experience] = []
+        for layer_name, layer_budget in budgets.items():
+            selected.extend(grouped.get(layer_name, [])[:layer_budget])
+
+        # Fill any remaining slots with the next best memories across layers.
+        target_count = sum(budgets.values())
+        if len(selected) < target_count:
+            selected_ids = {id(exp) for exp in selected}
+            for exp in filtered_by_conflict:
+                if id(exp) not in selected_ids:
+                    selected.append(exp)
+                if len(selected) >= target_count:
+                    break
+
+        logger.debug(
+            "Retrieved {} memories for task_family='{}' dataset_signature='{}'",
+            len(selected),
+            task_family,
+            dataset_signature,
+        )
+        return selected

@@ -60,7 +60,14 @@ def create_output_directory(dataset_name: str, active_llm: str, qid: str) -> Pat
     return output_dir
 
 
-def run_healthflow_task(task: str, output_dir: Path, config_path: str = None, experience_path: str = None, active_llm: str = None) -> Dict[str, Any]:
+def run_healthflow_task(
+    task: str,
+    output_dir: Path,
+    config_path: str = None,
+    experience_path: str = None,
+    active_llm: str = None,
+    active_executor: str = None,
+) -> Dict[str, Any]:
     """Run a single HealthFlow task and capture the output."""
     try:
         # Build the command with optional arguments
@@ -74,6 +81,8 @@ def run_healthflow_task(task: str, output_dir: Path, config_path: str = None, ex
         if not active_llm:
             raise ValueError("active_llm parameter is required")
         cmd.extend(["--active-llm", active_llm])
+        if active_executor:
+            cmd.extend(["--active-executor", active_executor])
 
         # Run the HealthFlow system
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=Path.cwd())
@@ -171,6 +180,7 @@ def run(
     config_path: str = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file"),
     experience_path: str = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to experience file for HealthFlow"),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)"),
+    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)"),
 ):
     """
     Run HealthFlow benchmarking on a dataset.
@@ -209,7 +219,14 @@ def run(
             output_dir = create_output_directory(dataset_name, active_llm, qid)
 
             # Run the HealthFlow task
-            execution_info = run_healthflow_task(task_text, output_dir, config_path, experience_path, active_llm)
+            execution_info = run_healthflow_task(
+                task_text,
+                output_dir,
+                config_path,
+                experience_path,
+                active_llm,
+                active_executor,
+            )
 
             # Extract the generated answer
             generated_answer = extract_answer_from_output(execution_info['stdout'])

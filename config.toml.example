@@ -18,11 +18,54 @@ base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-reasoner"
 
+# --- Executor Configuration ---
+[executor]
+active_backend = "claude_code"
+prompt_file_name = "executor_prompt.md"
+
+[executor.backends.claude_code]
+binary = "claude"
+args = ["--dangerously-skip-permissions", "--print"]
+prompt_mode = "append"
+timeout_seconds = 900
+
+[executor.backends.opencode]
+binary = "opencode"
+args = []
+prompt_mode = "append"
+timeout_seconds = 900
+
+[executor.backends.pi]
+binary = "pi"
+args = []
+prompt_mode = "append"
+timeout_seconds = 900
+
 # --- System Configuration ---
 [system]
 max_retries = 2 # Maximum number of retries for a failing task
 workspace_dir = "workspace" # The directory to store all task-related artifacts and the experience knowledge base
 shell = "/usr/bin/zsh" # Shell to use for subprocess execution (e.g., /usr/bin/bash, /usr/bin/zsh)
+
+# --- Memory Configuration ---
+[memory]
+mode = "accumulate_eval" # accumulate_eval | frozen_train | reset
+retrieve_k = 6
+strategy_k = 3
+failure_k = 2
+dataset_k = 1
+writeback_on_failure = true
+
+# --- EHR Configuration ---
+[ehr]
+enable_profile = true
+enable_risk_checks = true
+max_preview_rows = 3
+
+# --- Verification Configuration ---
+[verification]
+require_verifier_pass = true
+required_report_sections = ["Task Summary", "Data Profile", "Method", "Verification", "Limitations"]
 
 # --- Evaluation Configuration ---
 [evaluation]

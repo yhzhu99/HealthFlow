@@ -12,7 +12,15 @@ class EvaluatorAgent:
     def __init__(self, llm_provider: LLMProvider):
         self.llm_provider = llm_provider
 
-    async def evaluate(self, user_request: str, task_list: str, execution_log: str, train_mode: bool = False, reference_answer: str = None) -> dict:
+    async def evaluate(
+        self,
+        user_request: str,
+        task_list: str,
+        execution_log: str,
+        verification_summary: str,
+        train_mode: bool = False,
+        reference_answer: str = None,
+    ) -> dict:
         """
         Evaluates the task's code execution and returns a structured dictionary.
         In train mode, uses reference_answer as ground truth for evaluation.
@@ -23,7 +31,8 @@ class EvaluatorAgent:
                 user_request=user_request,
                 task_list=task_list,
                 execution_log=execution_log,
-                reference_answer=reference_answer
+                reference_answer=reference_answer,
+                verification_summary=verification_summary,
             )
             logger.info("Requesting training mode evaluation from LLM with reference answer...")
         else:
@@ -31,7 +40,8 @@ class EvaluatorAgent:
             user_prompt = get_prompt("evaluator_user").format(
                 user_request=user_request,
                 task_list=task_list,
-                execution_log=execution_log
+                execution_log=execution_log,
+                verification_summary=verification_summary,
             )
             logger.info("Requesting code execution evaluation from LLM...")
         
