@@ -8,7 +8,7 @@ from ..experience.experience_models import Experience, ExperienceType, MemoryLay
 
 class ReflectorAgent:
     """
-    This agent analyzes a successful task execution to synthesize generalizable knowledge,
+    This agent analyzes a task execution to synthesize generalizable knowledge,
     which is stored as structured `Experience` objects.
     """
     def __init__(self, llm_provider: LLMProvider):
@@ -16,8 +16,7 @@ class ReflectorAgent:
 
     async def synthesize_experience(self, full_history: Dict[str, Any], verified: bool) -> List[Experience]:
         """
-        Analyzes a successful execution history and synthesizes reusable experiences.
-        This method is used for all successfully completed tasks.
+        Analyze a completed execution history and synthesize reusable experiences.
         """
         system_prompt = get_prompt("reflector_system")
 
@@ -25,10 +24,12 @@ class ReflectorAgent:
         history_for_prompt = {
             "user_request": full_history["user_request"],
             "retrieved_experiences": [exp["content"] for exp in full_history.get("retrieved_experiences", [])],
+            "memory_retrieval": full_history.get("memory_retrieval", {}),
             "task_family": full_history.get("task_family", "general"),
             "dataset_signature": full_history.get("dataset_signature", "unknown"),
             "backend": full_history.get("backend", "unknown"),
             "verification_passed": verified,
+            "task_success": final_attempt.get("gate", {}).get("execution_ok", False),
             "final_plan": final_attempt["task_list"],
             "final_log": final_attempt["execution"]["log"][:8000],
             "verification_summary": final_attempt.get("verification", {}),
@@ -53,9 +54,15 @@ class ReflectorAgent:
             raw_experiences = data.get("experiences", [])
             for item in raw_experiences:
                 try:
+                    proposed_type = ExperienceType(item["type"])
+                    proposed_layer = MemoryLayer(item.get("layer", "strategy"))
+                    if not verified:
+                        proposed_layer = MemoryLayer.FAILURE
+                        if proposed_type not in {ExperienceType.WARNING, ExperienceType.VERIFIER_RULE}:
+                            proposed_type = ExperienceType.WARNING
                     exp = Experience(
-                        type=ExperienceType(item["type"]),
-                        layer=MemoryLayer(item.get("layer", "strategy")),
+                        type=proposed_type,
+                        layer=proposed_layer,
                         category=item["category"],
                         content=item["content"],
                         source_task_id=full_history["task_id"],

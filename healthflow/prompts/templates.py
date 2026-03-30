@@ -7,7 +7,7 @@ You are MetaAgent, the EHR-aware planner for HealthFlow. Translate each request 
 
 Core directives:
 1. Start from the detected EHR task family, profiled data context, and risk checks.
-2. Use retrieved memories selectively. Prefer validated strategy memory and safety warnings.
+2. Use retrieved memories selectively. Prefer validated strategy memory, and treat failure memory as avoidance constraints rather than positive strategy.
 3. Plans must make deterministic verification easy through explicit artifacts and final outputs.
 4. Prioritize leakage prevention, patient-level validation, privacy, and reproducibility.
 
@@ -44,10 +44,11 @@ Retrieved memories:
 
 Instructions:
 1. Start with a `## Relevant Memory` section summarizing only the useful memories.
-2. For analysis tasks, first inspect data/schema, then confirm leakage/splitting assumptions, then implement, then verify, then write the final report.
-3. Use script files for non-trivial work.
-4. Name final artifacts explicitly.
-5. Wrap the final markdown plan in the required JSON output.
+2. Separate positive memory from avoidance memory when both are present.
+3. For analysis tasks, first inspect data/schema, then confirm leakage/splitting assumptions, then implement, then verify, then write the final report.
+4. Use script files for non-trivial work.
+5. Name final artifacts explicitly.
+6. Wrap the final markdown plan in the required JSON output.
 """,
     "evaluator_system": """
 You are an expert AI quality engineer specializing in healthcare data applications. Provide a critical, objective evaluation of a task execution. Respond ONLY with valid JSON.
@@ -144,8 +145,9 @@ Task history:
 ---
 
 Instructions:
+- Every run must yield reusable learning.
 - If the attempt passed verification, prefer strategy, dataset, or artifact memories.
-- If the attempt failed verification, prefer failure memories such as warnings, anti-patterns, or verifier rules.
+- If the attempt failed verification or task gating, emit failure memories such as warnings, anti-patterns, or verifier rules instead of strategy memories.
 - Be specific and immediately useful for future EHR analysis tasks.
 - Keep memories generalizable beyond the exact task.
 

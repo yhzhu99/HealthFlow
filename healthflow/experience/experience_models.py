@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field
 from enum import Enum
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 class ExperienceType(str, Enum):
     """Enumeration for the types of experiences the system can learn."""
@@ -47,3 +48,40 @@ class Experience(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc),
         description="Timestamp of when the experience was created.",
     )
+
+
+class MemoryScoreBreakdown(BaseModel):
+    overlap_score: int = 0
+    task_family_bonus: int = 0
+    dataset_bonus: int = 0
+    validation_bonus: int = 0
+    confidence_bonus: float = 0.0
+    recency_bonus: int = 0
+    total_score: float = 0.0
+
+
+class MemoryAuditEntry(BaseModel):
+    source_task_id: str
+    layer: MemoryLayer
+    validation_status: ValidationStatus
+    category: str
+    content_preview: str
+    conflict_group: Optional[str] = None
+    score: MemoryScoreBreakdown
+    disposition: str
+    rationale: str
+
+
+class MemoryRetrievalAudit(BaseModel):
+    query: str
+    task_family: str
+    dataset_signature: str
+    budgets: Dict[str, int] = Field(default_factory=dict)
+    selected: List[MemoryAuditEntry] = Field(default_factory=list)
+    suppressed_conflicts: List[MemoryAuditEntry] = Field(default_factory=list)
+    suppressed_by_budget: List[MemoryAuditEntry] = Field(default_factory=list)
+
+
+class MemoryRetrievalResult(BaseModel):
+    selected_experiences: List[Experience] = Field(default_factory=list)
+    audit: MemoryRetrievalAudit

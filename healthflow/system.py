@@ -142,22 +142,17 @@ class HealthFlowSystem:
             "dataset": self.config.memory.dataset_k,
             "artifact": max(1, self.config.memory.retrieve_k - self.config.memory.strategy_k - self.config.memory.failure_k - self.config.memory.dataset_k),
         }
-        retrieved_experiences = await self.experience_manager.retrieve_experiences(
+        retrieval_result = await self.experience_manager.retrieve_experiences(
             user_request,
             task_family=data_profile.task_family,
             dataset_signature=data_profile.dataset_signature,
             budgets=memory_budgets,
         )
-        memory_summary = self._summarize_retrieved_experiences(retrieved_experiences)
+        retrieved_experiences = retrieval_result.selected_experiences
+        memory_summary = self._summarize_retrieval_audit(retrieval_result.audit)
         self._write_json(
             task_workspace / "memory_context.json",
-            {
-                "task_family": data_profile.task_family,
-                "dataset_signature": data_profile.dataset_signature,
-                "budgets": memory_budgets,
-                "selected_memories": [exp.model_dump(mode="json") for exp in retrieved_experiences],
-                "summary": memory_summary,
-            },
+            retrieval_result.audit.model_dump(mode="json"),
         )
 
         full_history: Dict[str, Any] = {
@@ -173,6 +168,7 @@ class HealthFlowSystem:
             "tool_bundle": tool_bundle,
             "output_contract": expected_outputs,
             "memory_context_path": str(task_workspace / "memory_context.json"),
+            "memory_retrieval": retrieval_result.audit.model_dump(mode="json"),
             "retrieved_experiences": [exp.model_dump() for exp in retrieved_experiences],
             "attempts": [],
         }
@@ -289,9 +285,7 @@ class HealthFlowSystem:
             )
             logger.warning("[{}] Attempt {} failed: {}", task_id, attempt_num, final_summary)
 
-        should_write_memory = self.config.memory.mode != "frozen_train" and (
-            is_success or self.config.memory.writeback_on_failure
-        )
+        should_write_memory = self.config.memory.mode != "frozen_train"
         if should_write_memory:
             if spinner and live:
                 spinner.text = "Synthesizing memory..."
@@ -354,15 +348,26 @@ class HealthFlowSystem:
             f"The original request was: '{user_request}'"
         )
 
-    def _summarize_retrieved_experiences(self, experiences: list[Any]) -> str:
-        if not experiences:
+    def _summarize_retrieval_audit(self, audit: dict | Any) -> str:
+        selected_entries = getattr(audit, "selected", None)
+        if selected_entries is None and isinstance(audit, dict):
+            selected_entries = audit.get("selected", [])
+        if not selected_entries:
             return "- No prior memory was retrieved for this task."
 
         lines = []
-        for exp in experiences:
-            prefix = "Avoid" if exp.layer.value == "failure" else "Use"
+        for entry in selected_entries:
+            layer = entry.layer.value if hasattr(entry, "layer") else entry["layer"]
+            validation_status = (
+                entry.validation_status.value if hasattr(entry, "validation_status") else entry["validation_status"]
+            )
+            category = entry.category if hasattr(entry, "category") else entry["category"]
+            content_preview = (
+                entry.content_preview if hasattr(entry, "content_preview") else entry["content_preview"]
+            )
+            prefix = "Avoid" if layer == "failure" else "Use"
             lines.append(
-                f"- {prefix}: [{exp.layer.value}/{exp.validation_status.value}] {exp.category} -> {exp.content}"
+                f"- {prefix}: [{layer}/{validation_status}] {category} -> {content_preview}"
             )
         return "\n".join(lines)
 

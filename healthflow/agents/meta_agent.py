@@ -38,7 +38,12 @@ class MetaAgent:
         experience_str = "No relevant past experiences were found."
         if experiences:
             experience_str = "\n".join(
-                f"- **Layer**: {exp.layer.value} | **Type**: {exp.type.value} | **Category**: {exp.category}\n  - **Guideline**: {exp.content}"
+                (
+                    f"- **{'Avoid' if exp.layer.value == 'failure' else 'Use'}** "
+                    f"[{exp.layer.value}/{exp.validation_status.value}] "
+                    f"{exp.type.value} | {exp.category}\n"
+                    f"  - {exp.content}"
+                )
                 for exp in experiences
             )
 
