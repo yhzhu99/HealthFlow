@@ -49,7 +49,7 @@ class HealthFlowSystem:
         self.verifier = WorkspaceVerifier(config.verification.required_report_sections)
 
         self.workspace_dir = Path(config.system.workspace_dir)
-        self.workspace_dir.mkdir(exist_ok=True)
+        self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
     async def run_task(
         self,
@@ -62,7 +62,7 @@ class HealthFlowSystem:
     ) -> dict:
         task_id = str(uuid.uuid4())
         task_workspace = self.workspace_dir / task_id
-        task_workspace.mkdir(exist_ok=True)
+        task_workspace.mkdir(parents=True, exist_ok=True)
 
         if self.config.memory.mode == "reset":
             await self.experience_manager.reset()
@@ -85,9 +85,34 @@ class HealthFlowSystem:
             train_mode,
             reference_answer,
         )
-        result["execution_time"] = time.time() - start_time
+        execution_time = round(time.time() - start_time, 2)
+        result["execution_time"] = execution_time
         result["workspace_path"] = str(task_workspace)
         result["backend"] = self.config.active_executor_name
+        result["reasoning_model"] = self.config.llm.model_name
+        result["memory_mode"] = self.config.memory.mode
+        result["run_result_path"] = str(task_workspace / "run_result.json")
+        result["run_manifest_path"] = str(task_workspace / "run_manifest.json")
+        self._write_json(
+            task_workspace / "run_result.json",
+            result,
+        )
+        self._write_json(
+            task_workspace / "run_manifest.json",
+            {
+                "task_id": task_id,
+                "user_request": user_request,
+                "workspace_path": str(task_workspace),
+                "backend": self.config.active_executor_name,
+                "reasoning_model": self.config.llm.model_name,
+                "memory_mode": self.config.memory.mode,
+                "execution_time": execution_time,
+                "verification_passed": result.get("verification_passed", False),
+                "success": result.get("success", False),
+                "log_path": result.get("log_path"),
+                "prompt_path": result.get("prompt_path"),
+            },
+        )
         return result
 
     async def _run_unified_flow(
@@ -123,6 +148,17 @@ class HealthFlowSystem:
             dataset_signature=data_profile.dataset_signature,
             budgets=memory_budgets,
         )
+        memory_summary = self._summarize_retrieved_experiences(retrieved_experiences)
+        self._write_json(
+            task_workspace / "memory_context.json",
+            {
+                "task_family": data_profile.task_family,
+                "dataset_signature": data_profile.dataset_signature,
+                "budgets": memory_budgets,
+                "selected_memories": [exp.model_dump(mode="json") for exp in retrieved_experiences],
+                "summary": memory_summary,
+            },
+        )
 
         full_history: Dict[str, Any] = {
             "task_id": task_id,
@@ -130,9 +166,13 @@ class HealthFlowSystem:
             "task_family": data_profile.task_family,
             "dataset_signature": data_profile.dataset_signature,
             "backend": self.config.active_executor_name,
+            "reasoning_model": self.config.llm.model_name,
+            "memory_mode": self.config.memory.mode,
             "data_profile": data_profile.to_markdown(),
             "risk_findings": [item.to_bullet() for item in risk_findings],
             "tool_bundle": tool_bundle,
+            "output_contract": expected_outputs,
+            "memory_context_path": str(task_workspace / "memory_context.json"),
             "retrieved_experiences": [exp.model_dump() for exp in retrieved_experiences],
             "attempts": [],
         }
@@ -170,6 +210,8 @@ class HealthFlowSystem:
                 output_contract=expected_outputs,
                 plan_markdown=task_list_md,
                 prior_feedback=previous_feedback,
+                memory_summary=memory_summary,
+                verification_requirements=expected_outputs,
             )
 
             if spinner and live:
@@ -206,14 +248,23 @@ class HealthFlowSystem:
                     "return_code": execution_result.return_code,
                     "log": execution_result.log,
                     "log_path": execution_result.log_path,
+                    "prompt_path": execution_result.prompt_path,
                     "backend": execution_result.backend,
                     "command": execution_result.command,
+                    "duration_seconds": execution_result.duration_seconds,
+                    "timed_out": execution_result.timed_out,
                     "usage": execution_result.usage,
                 },
                 "verification": {
                     "passed": verification.passed,
                     "checks": verification.checks,
                     "artifact_paths": verification.artifact_paths,
+                },
+                "gate": {
+                    "execution_ok": execution_result.success,
+                    "evaluation_threshold_ok": evaluation["score"] >= self.config.evaluation.success_threshold,
+                    "verifier_required": self.config.verification.require_verifier_pass,
+                    "verifier_ok": verification.passed or not self.config.verification.require_verifier_pass,
                 },
                 "evaluation": evaluation,
             }
@@ -238,21 +289,22 @@ class HealthFlowSystem:
             )
             logger.warning("[{}] Attempt {} failed: {}", task_id, attempt_num, final_summary)
 
-        should_write_memory = (
-            self.config.memory.mode == "accumulate_eval"
-            and (is_success or self.config.memory.writeback_on_failure)
+        should_write_memory = self.config.memory.mode != "frozen_train" and (
+            is_success or self.config.memory.writeback_on_failure
         )
         if should_write_memory:
             if spinner and live:
                 spinner.text = "Synthesizing memory..."
-            new_experiences = await self.reflector.synthesize_experience(full_history, verified=verification_passed)
+            new_experiences = await self.reflector.synthesize_experience(
+                full_history,
+                verified=is_success and verification_passed,
+            )
             if new_experiences:
                 await self.experience_manager.save_experiences(new_experiences)
                 full_history["new_experiences"] = [exp.model_dump() for exp in new_experiences]
 
         history_path = task_workspace / "full_history.json"
-        with open(history_path, "w", encoding="utf-8") as handle:
-            json.dump(full_history, handle, indent=2, cls=DateTimeEncoder)
+        self._write_json(history_path, full_history)
 
         return {
             "success": is_success,
@@ -261,6 +313,9 @@ class HealthFlowSystem:
             "task_family": data_profile.task_family,
             "dataset_signature": data_profile.dataset_signature,
             "verification_passed": verification_passed,
+            "log_path": full_history["attempts"][-1]["execution"]["log_path"] if full_history["attempts"] else None,
+            "prompt_path": full_history["attempts"][-1]["execution"]["prompt_path"] if full_history["attempts"] else None,
+            "memory_context_path": str(task_workspace / "memory_context.json"),
         }
 
     def _extract_answer_from_workspace(self, task_workspace: Path, execution_log: str, user_request: str) -> str:
@@ -298,3 +353,19 @@ class HealthFlowSystem:
             "Execution completed. Review the workspace artifacts for details. "
             f"The original request was: '{user_request}'"
         )
+
+    def _summarize_retrieved_experiences(self, experiences: list[Any]) -> str:
+        if not experiences:
+            return "- No prior memory was retrieved for this task."
+
+        lines = []
+        for exp in experiences:
+            prefix = "Avoid" if exp.layer.value == "failure" else "Use"
+            lines.append(
+                f"- {prefix}: [{exp.layer.value}/{exp.validation_status.value}] {exp.category} -> {exp.content}"
+            )
+        return "\n".join(lines)
+
+    def _write_json(self, path: Path, payload: Any) -> None:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, cls=DateTimeEncoder)

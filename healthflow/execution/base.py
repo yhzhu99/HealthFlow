@@ -16,16 +16,23 @@ class ExecutionContext:
     output_contract: List[str] = field(default_factory=list)
     plan_markdown: str = ""
     prior_feedback: Optional[str] = None
+    memory_summary: str = ""
+    verification_requirements: List[str] = field(default_factory=list)
 
     def render_prompt(self) -> str:
         risk_block = "\n".join(f"- {item}" for item in self.risk_checks) or "- No high-risk issues detected."
         tool_block = "\n".join(f"- {item}" for item in self.tool_bundle) or "- Use the minimum required command-line tooling."
         output_block = "\n".join(f"- {item}" for item in self.output_contract) or "- Provide a final answer in stdout."
+        memory_block = self.memory_summary.strip() or "- No prior memory was retrieved for this task."
+        verification_block = (
+            "\n".join(f"- {item}" for item in self.verification_requirements)
+            or "- Produce auditable artifacts that allow deterministic verification."
+        )
 
         prompt = [
             "# HealthFlow Executor Brief",
             "",
-            "You are the execution backend for HealthFlow, an EHR-focused analysis harness.",
+            "You are `healthflow_agent`, the integrated execution backend for HealthFlow.",
             "Work inside the current workspace and keep your process reproducible and auditable.",
             "",
             "## Original Task",
@@ -37,6 +44,9 @@ class ExecutionContext:
             "## Data Profile",
             self.data_profile.strip(),
             "",
+            "## Retrieved Memory",
+            memory_block,
+            "",
             "## Risk Checks",
             risk_block,
             "",
@@ -45,6 +55,9 @@ class ExecutionContext:
             "",
             "## Output Contract",
             output_block,
+            "",
+            "## Verification Gate",
+            verification_block,
             "",
             "## Execution Plan",
             self.plan_markdown.strip() or "No explicit plan provided.",
@@ -58,6 +71,7 @@ class ExecutionContext:
                 "- Inspect data before choosing a method.",
                 "- Avoid printing raw sensitive rows unless strictly necessary for debugging.",
                 "- Prefer small, reproducible scripts and save important artifacts to files.",
+                "- Treat failure memories as avoidance guidance and do not repeat the same mistake.",
                 "- End with a concise final answer that references the produced artifacts.",
             ]
         )
@@ -70,8 +84,11 @@ class ExecutionResult:
     return_code: int
     log: str
     log_path: str
+    prompt_path: str
     backend: str
     command: List[str]
+    duration_seconds: float = 0.0
+    timed_out: bool = False
     usage: Dict[str, Any] = field(default_factory=dict)
 
 

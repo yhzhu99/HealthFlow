@@ -40,66 +40,62 @@ class CLISubprocessExecutor(ExecutorAdapter):
         )
 
         log_content = ""
+        timed_out = False
         try:
-            with open(log_file_path, "w", encoding="utf-8") as log_file:
-
-                async def read_stream(stream, prefix: str):
-                    nonlocal log_content
-                    while True:
-                        line_bytes = await stream.readline()
-                        if not line_bytes:
-                            break
-                        line = line_bytes.decode("utf-8", errors="replace")
-                        log_file.write(f"{prefix}{line}")
-                        log_content += f"{prefix}{line}"
-
-                if self.backend_config.prompt_mode == "stdin" and process.stdin:
-                    process.stdin.write(prompt_text.encode("utf-8"))
-                    await process.stdin.drain()
-                    process.stdin.close()
-
-                await asyncio.gather(
-                    read_stream(process.stdout, "STDOUT: "),
-                    read_stream(process.stderr, "STDERR: "),
-                )
-
             try:
-                await asyncio.wait_for(process.wait(), timeout=self.backend_config.timeout_seconds)
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    process.communicate(
+                        input=prompt_text.encode("utf-8") if self.backend_config.prompt_mode == "stdin" else None
+                    ),
+                    timeout=self.backend_config.timeout_seconds,
+                )
             except asyncio.TimeoutError:
                 logger.error("Backend '{}' timed out after {} seconds", self.backend_name, self.backend_config.timeout_seconds)
-                process.terminate()
-                await process.wait()
-                return ExecutionResult(
-                    success=False,
-                    return_code=-1,
-                    log=f"Process timed out after {self.backend_config.timeout_seconds} seconds\n\n--- Captured Log Before Timeout ---\n{log_content}",
-                    log_path=str(log_file_path),
-                    backend=self.backend_name,
-                    command=command_args,
-                    usage={"wall_time_seconds": round(time.time() - start_time, 2)},
-                )
+                timed_out = True
+                process.kill()
+                stdout_bytes, stderr_bytes = await process.communicate()
+
+            log_content = self._format_combined_log(
+                stdout_bytes.decode("utf-8", errors="replace"),
+                stderr_bytes.decode("utf-8", errors="replace"),
+                timed_out=timed_out,
+            )
+            log_file_path.write_text(log_content, encoding="utf-8")
+            duration_seconds = round(time.time() - start_time, 2)
 
             return ExecutionResult(
-                success=process.returncode == 0,
+                success=process.returncode == 0 and not timed_out,
                 return_code=process.returncode,
                 log=log_content,
                 log_path=str(log_file_path),
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
                 command=command_args,
-                usage={"wall_time_seconds": round(time.time() - start_time, 2)},
+                duration_seconds=duration_seconds,
+                timed_out=timed_out,
+                usage={
+                    "wall_time_seconds": duration_seconds,
+                    "timed_out": timed_out,
+                    "stdout_bytes": len(stdout_bytes),
+                    "stderr_bytes": len(stderr_bytes),
+                },
             )
         except Exception as e:
             logger.error("Executor '{}' failed: {}", self.backend_name, e)
             if process.returncode is None:
                 process.terminate()
+            duration_seconds = round(time.time() - start_time, 2)
             return ExecutionResult(
                 success=False,
                 return_code=-1,
                 log=f"HealthFlow Executor Error: {e}\n\n--- Captured Log Before Error ---\n{log_content}",
                 log_path=str(log_file_path),
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
                 command=command_args,
-                usage={"wall_time_seconds": round(time.time() - start_time, 2)},
+                duration_seconds=duration_seconds,
+                timed_out=timed_out,
+                usage={"wall_time_seconds": duration_seconds, "timed_out": timed_out},
             )
 
     def _build_command(self, prompt_text: str) -> List[str]:
@@ -108,14 +104,32 @@ class CLISubprocessExecutor(ExecutorAdapter):
             command.append(prompt_text)
         return command
 
+    def _format_combined_log(self, stdout: str, stderr: str, timed_out: bool = False) -> str:
+        lines: list[str] = []
+        if timed_out:
+            lines.append(
+                f"STDERR: Process timed out after {self.backend_config.timeout_seconds} seconds.\n"
+            )
+        lines.extend(self._prefix_stream(stdout, "STDOUT: "))
+        lines.extend(self._prefix_stream(stderr, "STDERR: "))
+        return "".join(lines)
+
+    def _prefix_stream(self, content: str, prefix: str) -> List[str]:
+        if not content:
+            return []
+        chunks = content.splitlines(keepends=True)
+        if content and not content.endswith(("\n", "\r")):
+            chunks[-1] = chunks[-1] + "\n"
+        return [f"{prefix}{chunk}" for chunk in chunks]
+
+
+class HealthFlowAgentExecutor(CLISubprocessExecutor):
+    pass
+
 
 class ClaudeCodeExecutor(CLISubprocessExecutor):
     pass
 
 
 class OpenCodeExecutor(CLISubprocessExecutor):
-    pass
-
-
-class PiExecutor(CLISubprocessExecutor):
     pass
