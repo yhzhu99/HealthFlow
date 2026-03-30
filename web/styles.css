@@ -1,0 +1,269 @@
+:root {
+  --bg: #f3efe7;
+  --paper: #fffdf8;
+  --ink: #1d221c;
+  --muted: #5b665a;
+  --line: #d4d0c4;
+  --accent: #1f6f5f;
+  --accent-soft: #dff2ec;
+  --danger: #8f2d2d;
+  --shadow: 0 18px 40px rgba(31, 40, 33, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(31, 111, 95, 0.12), transparent 26rem),
+    linear-gradient(180deg, #f9f4eb 0%, var(--bg) 100%);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.page {
+  width: min(1180px, calc(100vw - 2rem));
+  margin: 0 auto;
+  padding: 2rem 0 4rem;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.3fr 0.9fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.hero-copy,
+.hero-card,
+.panel {
+  background: rgba(255, 253, 248, 0.9);
+  border: 1px solid rgba(212, 208, 196, 0.9);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+}
+
+.hero-copy {
+  padding: 2rem;
+}
+
+.hero-copy h1 {
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  line-height: 0.96;
+  margin: 0.3rem 0 0.9rem;
+}
+
+.lede {
+  margin: 0;
+  color: var(--muted);
+  max-width: 58ch;
+  line-height: 1.6;
+}
+
+.hero-card {
+  padding: 1.6rem;
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.metric {
+  padding: 1rem 1.1rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(31, 111, 95, 0.08), rgba(255, 255, 255, 0.7));
+  border: 1px solid rgba(31, 111, 95, 0.12);
+}
+
+.metric-label,
+.eyebrow,
+.meta-list dt,
+.result-stats span {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.panel {
+  padding: 1.35rem;
+  margin-bottom: 1.2rem;
+}
+
+.panel-head,
+.result-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.panel-head h2,
+.panel-head h3,
+.result-head h2 {
+  margin: 0;
+  font-family: "IBM Plex Serif", Georgia, serif;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.field-wide {
+  grid-column: 1 / -1;
+}
+
+.field span {
+  font-weight: 600;
+}
+
+textarea,
+select,
+input[type="file"] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  padding: 0.85rem 1rem;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 9rem;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.primary,
+.artifact-actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.8rem 1.2rem;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+
+.artifact-actions button {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.primary:not(:disabled):hover,
+.artifact-actions button:hover {
+  transform: translateY(-1px);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(31, 111, 95, 0.1);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.badge.busy {
+  background: rgba(143, 45, 45, 0.1);
+  color: var(--danger);
+}
+
+.error {
+  color: var(--danger);
+  margin: 0;
+}
+
+.result-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 1.2rem;
+  min-width: 18rem;
+}
+
+.result-stats strong {
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.meta-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.meta-list dt {
+  margin-bottom: 0.25rem;
+}
+
+.meta-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.artifact-panel {
+  margin-top: 1rem;
+}
+
+.artifact-text {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 16px;
+  background: #132019;
+  color: #edf6ef;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .hero,
+  .columns,
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .result-stats {
+    min-width: 0;
+  }
+}

@@ -30,6 +30,17 @@ HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
 - **Deterministic verifier**: success is gated by artifact checks such as cohort definition evidence, split evidence, audit artifacts, metrics files, and report sections.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
 
+## UI Architecture
+
+HealthFlow should not become a mainly TypeScript project. The core runtime stays in Python because that is where the orchestration, verifier, memory system, and EHR workflows live.
+
+The web app is now:
+
+- **Python backend**: FastAPI endpoints in `app.py`
+- **Vue 3 frontend**: static assets under `web/`
+
+This keeps the user-facing experience modern without moving the core framework logic out of Python.
+
 ## Workspace Artifacts
 
 Each task creates a workspace under `workspace/<task_id>/` and writes:
@@ -118,8 +129,10 @@ Then edit `config.toml` with the reasoning-model API credentials you want to use
 ### Web UI
 
 ```bash
-streamlit run app.py
+uv run python app.py
 ```
+
+This starts the FastAPI backend on `http://127.0.0.1:8000` and serves the Vue 3 frontend from `web/`.
 
 ### Single Task
 
@@ -175,7 +188,8 @@ Main config sections:
 
 ## Repository Layout
 
-- `app.py`: Streamlit UI
+- `app.py`: FastAPI backend and static frontend host
+- `web/`: Vue 3 frontend assets
 - `run_healthflow.py`: single-task and interactive CLI
 - `run_training.py`: memory bootstrapping and training-style runs
 - `run_benchmark.py`: reproducible benchmark runner with frozen memory default

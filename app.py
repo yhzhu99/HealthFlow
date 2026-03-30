@@ -1,301 +1,150 @@
-# app.py
-# Web UI for the HealthFlow Agentic System.
+from __future__ import annotations
 
-import asyncio
 import json
-import toml
 from pathlib import Path
-from typing import Dict
-import streamlit as st
+from typing import Any, Awaitable, Callable
 
-# Ensure the project root is in the path to import healthflow modules
-import sys
-sys.path.insert(0, str(Path(__file__).parent))
+import toml
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from healthflow.core.config import get_config, setup_logging
 from healthflow.system import HealthFlowSystem
-from healthflow.core.config import (
-    get_config,
-    setup_logging,
-    BackendCLIConfig,
-    default_executor_backends,
-    EHRConfig,
-    EvaluationConfig,
-    ExecutorConfig,
-    HealthFlowConfig,
-    LLMProviderConfig,
-    LoggingConfig,
-    MemoryConfig,
-    SystemConfig,
-    VerificationConfig,
-)
 
-# --- Page Configuration ---
-st.set_page_config(
-    page_title="HealthFlow Agent",
-    page_icon="🌊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
 
-# --- Helper Functions & State Management ---
+PROJECT_ROOT = Path(__file__).parent.resolve()
+WEB_ROOT = PROJECT_ROOT / "web"
+CONFIG_PATH = PROJECT_ROOT / "config.toml"
+DEFAULT_EXPERIENCE_PATH = PROJECT_ROOT / "workspace" / "experience.jsonl"
 
-@st.cache_resource
-def load_config_data():
-    """Loads the config.toml file. Caches the result for performance."""
-    config_path = Path("config.toml")
+
+TaskRunner = Callable[[str, str, str | None, dict[str, bytes]], Awaitable[dict[str, Any]]]
+
+
+def load_config_data(config_path: Path = CONFIG_PATH) -> dict[str, Any]:
     if config_path.exists():
         return toml.load(config_path)
-    st.warning("`config.toml` not found. Relying on Streamlit secrets for configuration.")
     return {}
 
-# Initialize session state variables
-if "running" not in st.session_state:
-    st.session_state.running = False
-if "task_result" not in st.session_state:
-    st.session_state.task_result = None
 
-def get_system_initializer():
-    """Returns the correct system initialization function based on environment."""
-    # IS_DEPLOYED checks if the 'llm' secret exists, a good proxy for cloud deployment
-    is_deployed = hasattr(st.secrets, 'llm') and 'llm' in st.secrets
-
-    if is_deployed:
-        st.session_state.is_deployed = True
-        return initialize_system_from_secrets
-    else:
-        st.session_state.is_deployed = False
-        return initialize_system_from_file
-
-def initialize_system_from_secrets(active_llm_name: str, active_executor_name: str) -> HealthFlowSystem:
-    """Initializes HealthFlowSystem using Streamlit's secrets for deployed apps."""
-    try:
-        llm_config_data = st.secrets.llm[active_llm_name]
-        llm_config = LLMProviderConfig(**llm_config_data)
-        system_config = SystemConfig(**st.secrets.get("system", {}))
-        executor_config = ExecutorConfig(
-            active_backend=active_executor_name,
-            prompt_file_name=st.secrets.get("executor", {}).get("prompt_file_name", "executor_prompt.md"),
-            backends={
-                name: BackendCLIConfig(**data)
-                for name, data in st.secrets.get("executor", {}).get("backends", {}).items()
-            }
-            or default_executor_backends(),
-        )
-        memory_config = MemoryConfig(**st.secrets.get("memory", {}))
-        ehr_config = EHRConfig(**st.secrets.get("ehr", {}))
-        verification_config = VerificationConfig(**st.secrets.get("verification", {}))
-        evaluation_config = EvaluationConfig(**st.secrets.get("evaluation", {}))
-        logging_config = LoggingConfig(**st.secrets.get("logging", {"log_level": "INFO", "log_file": "healthflow_streamlit.log"}))
-        config = HealthFlowConfig(
-            active_llm_name=active_llm_name,
-            active_executor_name=active_executor_name,
-            llm=llm_config,
-            system=system_config,
-            executor=executor_config,
-            memory=memory_config,
-            ehr=ehr_config,
-            verification=verification_config,
-            evaluation=evaluation_config,
-            logging=logging_config,
-        )
-        setup_logging(config)
-        return HealthFlowSystem(config=config, experience_path=Path(config.system.workspace_dir) / "experience.jsonl")
-    except Exception as e:
-        st.error(f"Error initializing from secrets for LLM '{active_llm_name}': {e}")
-        st.stop()
-
-def initialize_system_from_file(active_llm_name: str, active_executor_name: str) -> HealthFlowSystem:
-    """Initializes HealthFlowSystem from local config.toml for development."""
-    try:
-        config = get_config(Path("config.toml"), active_llm_name, active_executor_name)
-        setup_logging(config)
-        return HealthFlowSystem(config=config, experience_path=Path(config.system.workspace_dir) / "experience.jsonl")
-    except Exception as e:
-        st.error(f"Error initializing from config.toml: {e}")
-        st.stop()
-
-def run_healthflow_task_async(system: HealthFlowSystem, task: str, uploaded_files: Dict[str, bytes]):
-    """Wrapper to run the async HealthFlow task from Streamlit's sync context."""
-    return asyncio.run(system.run_task(task, uploaded_files=uploaded_files))
-
-def read_file_from_workspace(workspace_path_str: str, file_glob: str) -> (str, str):
-    """Safely reads a file from the workspace directory, handling glob patterns."""
-    if not workspace_path_str:
-        return None, "Workspace path not available."
-    workspace = Path(workspace_path_str)
-    if not workspace.exists():
-        return None, f"Workspace directory not found at {workspace}"
-
-    # Handle glob patterns like 'task_list_v*.md'
-    files = sorted(list(workspace.glob(file_glob)), reverse=True)
-    if not files:
-        return None, f"No file matching '{file_glob}' found in workspace."
-
-    file_path = files[0] # Get the latest version if multiple
-    try:
-        return file_path.name, file_path.read_text(encoding="utf-8")
-    except Exception as e:
-        return file_path.name, f"Error reading file: {e}"
+def get_option_lists(config_data: dict[str, Any]) -> tuple[list[str], list[str], str]:
+    llm_options = sorted(list(config_data.get("llm", {}).keys()))
+    executor_options = list(config_data.get("executor", {}).get("backends", {}).keys()) or [
+        "healthflow_agent",
+        "claude_code",
+        "opencode",
+    ]
+    default_executor = config_data.get("executor", {}).get("active_backend", "healthflow_agent")
+    return llm_options, executor_options, default_executor
 
 
-def read_text_file(path_str: str) -> (str, str):
-    """Safely read a file when the exact path is already known."""
-    if not path_str:
-        return None, "File path not available."
-    file_path = Path(path_str)
-    if not file_path.exists():
-        return None, f"File not found at {file_path}"
-    try:
-        return file_path.name, file_path.read_text(encoding="utf-8")
-    except Exception as e:
-        return file_path.name, f"Error reading file: {e}"
+def initialize_system_from_file(
+    active_llm_name: str,
+    active_executor_name: str | None,
+    config_path: Path = CONFIG_PATH,
+    experience_path: Path = DEFAULT_EXPERIENCE_PATH,
+) -> HealthFlowSystem:
+    config = get_config(config_path, active_llm_name, active_executor_name)
+    setup_logging(config)
+    return HealthFlowSystem(config=config, experience_path=experience_path)
 
-# --- UI Rendering ---
 
-# --- Sidebar ---
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    initializer = get_system_initializer()
+async def default_task_runner(
+    task: str,
+    active_llm: str,
+    active_executor: str | None,
+    uploaded_files: dict[str, bytes],
+) -> dict[str, Any]:
+    system = initialize_system_from_file(active_llm, active_executor)
+    return await system.run_task(task, uploaded_files=uploaded_files)
 
-    if st.session_state.is_deployed:
-        llm_options = list(st.secrets.llm.keys()) if 'llm' in st.secrets else []
-        executor_options = list(st.secrets.get("executor", {}).get("backends", {}).keys()) or ["healthflow_agent", "claude_code", "opencode"]
-        st.info("☁️ Cloud Mode: Config from Streamlit secrets.")
-    else:
-        config_data_local = load_config_data()
-        llm_options = list(config_data_local.get("llm", {}).keys())
-        executor_options = list(config_data_local.get("executor", {}).get("backends", {}).keys()) or ["healthflow_agent", "claude_code", "opencode"]
-        st.info("💻 Local Mode: Config from `config.toml`.")
 
-    if not llm_options:
-        st.error("No LLM configurations found!")
-        st.stop()
+def create_app(task_runner: TaskRunner | None = None, project_root: Path = PROJECT_ROOT) -> FastAPI:
+    runner = task_runner or default_task_runner
+    web_root = project_root / "web"
+    config_path = project_root / "config.toml"
 
-    active_llm = st.selectbox("Select Reasoning LLM", options=llm_options)
-    active_executor = st.selectbox("Select Executor Backend", options=executor_options)
-    st.markdown("---")
-    st.caption("A Self-Evolving Meta-System for Agentic Healthcare AI.")
-    st.markdown("[GitHub Repository](https://github.com/yhzhu99/HealthFlow)")
-
-# --- Main Page ---
-st.title("🌊 HealthFlow Agent")
-st.markdown("An autonomous AI agent that formulates and executes plans to solve complex healthcare research tasks.")
-
-# --- Input Area ---
-st.subheader("1. Define Your Task")
-task_input = st.text_area(
-    "Describe the research task you want the agent to perform:",
-    height=125,
-    placeholder="e.g., Analyze the uploaded patient data to identify the top 3 risk factors for readmission.",
-    disabled=st.session_state.running,
-)
-
-st.subheader("2. Upload Data (Optional)")
-uploaded_files = st.file_uploader(
-    "Upload CSV, JSON, or text files for the agent to use.",
-    type=["csv", "json", "txt", "md"],
-    accept_multiple_files=True,
-    disabled=st.session_state.running,
-)
-
-st.subheader("3. Run Agent")
-if st.button("🚀 Start Agent Execution", type="primary", disabled=st.session_state.running or not task_input):
-    st.session_state.running = True
-    st.session_state.task_result = None
-
-    files_to_upload = {f.name: f.getvalue() for f in uploaded_files} if uploaded_files else {}
-
-    with st.spinner("HealthFlow is orchestrating... This may take several minutes."):
-        try:
-            system = initializer(active_llm, active_executor)
-            result = run_healthflow_task_async(system, task_input, files_to_upload)
-            st.session_state.task_result = result
-        except Exception as e:
-            st.session_state.task_result = {"error": str(e), "success": False}
-            st.exception(e)
-
-    st.session_state.running = False
-    st.rerun()
-
-# --- Output Area ---
-if st.session_state.task_result:
-    st.markdown("---")
-    st.header("Execution Results")
-    result = st.session_state.task_result
-
-    if result.get("success"):
-        st.success("**Task Completed Successfully!**", icon="✅")
-    else:
-        st.error(f"**Task Failed.**\n\nError: {result.get('error', result.get('final_summary', 'No specific error message.'))}", icon="❌")
-
-    workspace = result.get("workspace_path", "")
-    st.caption(
-        f"Backend: `{result.get('backend', 'unknown')}` | "
-        f"Reasoning model: `{result.get('reasoning_model', 'unknown')}` | "
-        f"Memory mode: `{result.get('memory_mode', 'unknown')}` | "
-        f"Task family: `{result.get('task_family', 'unknown')}` | "
-        f"Verification passed: `{result.get('verification_passed', False)}`"
+    app = FastAPI(
+        title="HealthFlow Web API",
+        description="Vue 3 frontend + Python HealthFlow backend.",
+        version="0.1.0",
     )
 
-    # Create tabs for organized output
-    tab_answer, tab_log, tab_plan, tab_verification, tab_memory, tab_history, tab_summary = st.tabs([
-        "✅ Final Answer", "📄 Execution Log", "🗺️ Final Plan", "🛡️ Verification", "🧠 Memory", "🔍 Full History", "📝 Summary"
-    ])
+    if web_root.exists():
+        app.mount("/static", StaticFiles(directory=web_root), name="static")
 
-    with tab_answer:
-        st.markdown(result.get("answer", "No answer was generated."))
+    @app.get("/api/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
 
-    with tab_log:
-        log_filename, log_content = read_text_file(result.get("log_path", ""))
-        if log_filename:
-            st.code(log_content, language="log", line_numbers=True)
-        else:
-            st.warning(log_content)
+    @app.get("/api/options")
+    async def options() -> dict[str, Any]:
+        config_data = load_config_data(config_path)
+        llm_options, executor_options, default_executor = get_option_lists(config_data)
+        return {
+            "llm_options": llm_options,
+            "executor_options": executor_options,
+            "default_executor": default_executor,
+        }
 
-    with tab_plan:
-        plan_filename, plan_content = read_file_from_workspace(workspace, "task_list_v*.md")
-        if plan_filename:
-            st.markdown(f"**File:** `{plan_filename}`")
-            st.markdown(plan_content)
-        else:
-            st.warning(plan_content)
+    @app.post("/api/run")
+    async def run_task(
+        task: str = Form(...),
+        active_llm: str = Form(...),
+        active_executor: str | None = Form(None),
+        files: list[UploadFile] | None = File(default=None),
+    ) -> dict[str, Any]:
+        uploaded_files: dict[str, bytes] = {}
+        for upload in files or []:
+            uploaded_files[upload.filename] = await upload.read()
+        return await runner(task, active_llm, active_executor, uploaded_files)
 
-    with tab_verification:
-        verification_filename, verification_content = read_text_file(result.get("verification_path", ""))
-        if verification_filename:
+    @app.get("/api/artifact")
+    async def artifact(path: str) -> dict[str, Any]:
+        resolved = (project_root / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
+        try:
+            resolved.relative_to(project_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Artifact path must stay within the HealthFlow project root.") from exc
+
+        if not resolved.exists() or not resolved.is_file():
+            raise HTTPException(status_code=404, detail=f"Artifact not found: {resolved}")
+
+        if resolved.suffix == ".json":
             try:
-                st.json(json.loads(verification_content))
+                return {
+                    "path": str(resolved),
+                    "kind": "json",
+                    "content": json.loads(resolved.read_text(encoding="utf-8")),
+                }
             except json.JSONDecodeError:
-                st.code(verification_content, language="json")
-        else:
-            st.warning(verification_content)
+                pass
 
-    with tab_memory:
-        memory_filename, memory_content = read_text_file(result.get("memory_context_path", ""))
-        if memory_filename:
-            try:
-                st.json(json.loads(memory_content))
-            except json.JSONDecodeError:
-                st.code(memory_content, language="json")
-        else:
-            st.warning(memory_content)
+        return {
+            "path": str(resolved),
+            "kind": "text",
+            "content": resolved.read_text(encoding="utf-8", errors="ignore"),
+        }
 
-    with tab_history:
-        history_filename, history_content = read_file_from_workspace(workspace, "full_history.json")
-        if history_filename:
-            try:
-                history_json = json.loads(history_content)
-                st.json(history_json)
-            except json.JSONDecodeError:
-                st.error("Could not parse full_history.json")
-                st.code(history_content, language="json")
-        else:
-            st.warning(history_content)
+    @app.get("/{full_path:path}")
+    async def index(full_path: str) -> FileResponse:
+        index_file = web_root / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Frontend assets are missing.")
 
-    with tab_summary:
-        st.subheader("Final Outcome")
-        st.write(result.get('final_summary', 'No summary available.'))
-        st.metric(label="Execution Time", value=f"{result.get('execution_time', 0):.2f} seconds")
-        st.info(f"All task artifacts are located in the following directory on the server:\n`{workspace}`")
-        st.caption(f"Structured run manifest: `{result.get('run_manifest_path', 'n/a')}`")
-        st.caption(f"Structured run result: `{result.get('run_result_path', 'n/a')}`")
+    return app
+
+
+app = create_app()
+
+
+def main() -> None:
+    import uvicorn
+
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)
+
+
+if __name__ == "__main__":
+    main()
