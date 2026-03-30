@@ -69,10 +69,12 @@ class WorkspaceVerifier:
         )
 
         report_files = sorted(workspace_dir.glob("*.md"))
+        preferred_report = workspace_dir / "final_report.md"
         report_text = ""
         if report_files:
             artifact_paths.update(str(path) for path in report_files)
-            report_text = report_files[0].read_text(encoding="utf-8", errors="ignore").lower()
+            report_file = preferred_report if preferred_report.exists() else report_files[0]
+            report_text = report_file.read_text(encoding="utf-8", errors="ignore").lower()
             required_sections = list(dict.fromkeys(self.required_report_sections + required_report_sections(task_family)))
             missing_sections = [section for section in required_sections if section.lower() not in report_text]
             self._add_check(
@@ -80,11 +82,11 @@ class WorkspaceVerifier:
                 passed=not missing_sections,
                 name="report_sections",
                 details=(
-                    f"Report sections present in {report_files[0].name}."
+                    f"Report sections present in {report_file.name}."
                     if not missing_sections
                     else f"Missing report sections: {', '.join(missing_sections)}."
                 ),
-                artifact_paths=[str(report_files[0])],
+                artifact_paths=[str(report_file)],
             )
         else:
             self._add_check(

@@ -89,7 +89,14 @@ class TrainingRunner:
                         "result": result,
                         "success": result.get("success", False),
                         "score": self._extract_score_from_result(result),
-                        "workspace_path": result.get("workspace_path")
+                        "workspace_path": result.get("workspace_path"),
+                        "backend": result.get("backend"),
+                        "reasoning_model": result.get("reasoning_model"),
+                        "memory_mode": result.get("memory_mode"),
+                        "verification_passed": result.get("verification_passed"),
+                        "execution_time": result.get("execution_time", 0.0),
+                        "memory_context_path": result.get("memory_context_path"),
+                        "verification_path": result.get("verification_path"),
                     }
                     self.results.append(training_result)
 
@@ -104,7 +111,14 @@ class TrainingRunner:
                         "result": {"success": False, "error": str(e)},
                         "success": False,
                         "score": 0.0,
-                        "workspace_path": None
+                        "workspace_path": None,
+                        "backend": None,
+                        "reasoning_model": None,
+                        "memory_mode": None,
+                        "verification_passed": False,
+                        "execution_time": 0.0,
+                        "memory_context_path": None,
+                        "verification_path": None,
                     }
                     self.results.append(error_result)
 
@@ -182,6 +196,16 @@ class TrainingRunner:
         # Calculate average score
         scores = [r["score"] for r in self.results if isinstance(r["score"], (int, float))]
         avg_score = sum(scores) / len(scores) if scores else 0.0
+        avg_execution_time = (
+            sum(r.get("execution_time", 0.0) for r in self.results) / len(self.results)
+            if self.results
+            else 0.0
+        )
+        verifier_pass_rate = (
+            sum(1 for r in self.results if r.get("verification_passed")) / total_tasks * 100
+            if total_tasks > 0
+            else 0.0
+        )
 
         summary = {
             "total_examples": total_tasks,
@@ -189,6 +213,8 @@ class TrainingRunner:
             "failed_examples": total_tasks - successful_tasks,
             "success_rate": success_rate,
             "average_score": avg_score,
+            "average_execution_time": avg_execution_time,
+            "verifier_pass_rate": verifier_pass_rate,
             "results": self.results
         }
 
@@ -205,6 +231,8 @@ class TrainingRunner:
         table.add_row("Failed", str(summary["failed_examples"]))
         table.add_row("Success Rate", f"{summary['success_rate']:.1f}%")
         table.add_row("Average Score", f"{summary['average_score']:.2f}/10.0")
+        table.add_row("Verifier Pass Rate", f"{summary['verifier_pass_rate']:.1f}%")
+        table.add_row("Average Execution Time", f"{summary['average_execution_time']:.2f}s")
 
         console.print("\n")
         console.print(table)
@@ -291,6 +319,11 @@ async def main_async(
         "failed_examples": summary["failed_examples"],
         "success_rate": summary["success_rate"],
         "average_score": summary["average_score"],
+        "average_execution_time": summary["average_execution_time"],
+        "verifier_pass_rate": summary["verifier_pass_rate"],
+        "backend": system.config.active_executor_name,
+        "reasoning_model": system.config.llm.model_name,
+        "memory_mode": system.config.memory.mode,
         "results_directory": str(results_dir)
     }
 
@@ -312,7 +345,7 @@ def main():
     parser.add_argument("--config", "-c", type=Path, default="config.toml", help="Path to the configuration file")
     parser.add_argument("--experience-path", type=Path, default="workspace/experience.jsonl", help="Path to the experience knowledge base file")
     parser.add_argument("--active-llm", required=True, help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)")
-    parser.add_argument("--active-executor", default=None, help="The executor backend to use (e.g., claude_code, opencode, pi)")
+    parser.add_argument("--active-executor", default=None, help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode)")
 
     args = parser.parse_args()
 

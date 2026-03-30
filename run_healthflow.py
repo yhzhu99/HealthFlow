@@ -42,6 +42,16 @@ def _display_task_result(result: dict):
 {result.get('final_summary', 'No summary available.')}
 
 ---
+[bold]Backend:[/bold] {result.get('backend', 'N/A')}
+[bold]Reasoning Model:[/bold] {result.get('reasoning_model', 'N/A')}
+[bold]Memory Mode:[/bold] {result.get('memory_mode', 'N/A')}
+[bold]Verification Passed:[/bold] {result.get('verification_passed', False)}
+[bold]Log Path:[/bold] {result.get('log_path', 'N/A')}
+[bold]Verification JSON:[/bold] {result.get('verification_path', 'N/A')}
+[bold]Memory Context:[/bold] {result.get('memory_context_path', 'N/A')}
+[bold]Run Result JSON:[/bold] {result.get('run_result_path', 'N/A')}
+
+---
 [bold]Workspace:[/bold] {result.get('workspace_path', 'N/A')}
 [bold]Execution Time:[/bold] {result.get('execution_time', 0):.2f}s
 """
@@ -102,7 +112,7 @@ def run(
     train_mode: bool = typer.Option(False, "--train", help="Enable training mode (CLI only)."),
     reference_answer: str = typer.Option(None, "--reference-answer", help="Reference answer for training mode evaluation."),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
-    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)."),
+    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode)."),
 ):
     """
     Run a single task through the HealthFlow system.
@@ -119,7 +129,7 @@ def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
-    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)."),
+    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode)."),
 ):
     """
     Starts HealthFlow in an interactive, chat-like mode for multiple tasks.

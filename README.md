@@ -1,173 +1,201 @@
-# HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research
+# HealthFlow: EHR-Specific Analysis Harness with Self-Evolving Memory
 
 [![arXiv](https://img.shields.io/badge/arXiv-2508.02621-b31b1b.svg)](https://arxiv.org/abs/2508.02621)
 [![Project Website](https://img.shields.io/badge/Project%20Website-HealthFlow-0066cc.svg)](https://healthflow-agent.netlify.app)
 
-**[📜 Read our ArXiv Paper](https://arxiv.org/abs/2508.02621)**
+HealthFlow is a research framework for **EHR-focused analysis orchestration**. It is not a claim that one raw coding backend is universally strongest. The contribution in this codebase is the **EHR-aware harness** around execution:
 
-> **Authors:** Yinghao Zhu¹²*, Yifan Qi¹*, Zixiang Wang¹, Lei Gu¹, Dehao Sui¹, Haoran Hu¹, Xichen Zhang³, Ziyi He², Junjun He⁴, Liantao Ma¹†, Lequan Yu²†
->
-> ¹Peking University, ²The University of Hong Kong, ³The Hong Kong University of Science and Technology, ⁴Shanghai Artificial Intelligence Laboratory
->
-> *(\* Equal contribution, † Corresponding authors)*
+- EHR task-family profiling and risk detection
+- staged tool exposure instead of prompt dumping
+- hierarchical memory with explicit strategy vs failure separation
+- deterministic verifier gating before success is accepted
+- reproducible workspace contracts and run manifests
 
----
+The default execution backend is `healthflow_agent`, HealthFlow's integrated executor path. `claude_code` and `opencode` remain available as thin compatibility adapters.
 
-HealthFlow is a research framework for **EHR-focused analysis orchestration**. Instead of trying to replace strong coding agents, it wraps them with an EHR-aware harness that profiles uploaded data, checks for leakage risks, retrieves validated memory, enforces deterministic verification, and writes back reusable strategy and failure memories.
+## Core Runtime
 
-The current runtime is **backend-agnostic** at the executor layer. Out of the box it can target `claude`, `opencode`, or `pi`, while keeping the planning, verification, and memory logic shared across backends.
+HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
 
-## ✨ Core Features
+1. **Profile**: inspect uploaded files, classify the EHR task family, detect patient identifiers, target-like columns, time columns, and workflow hints.
+2. **Plan**: retrieve relevant memory, separating reusable strategy from failure-avoidance memory.
+3. **Execute**: run the selected backend inside a task workspace with an explicit output and verification contract.
+4. **Verify**: apply deterministic artifact checks before success is allowed.
+5. **Reflect**: write verified strategy/artifact memory from good runs and failure/verifier-rule memory from bad runs.
 
--   **Backend-Agnostic Execution**: Switch between `claude`, `opencode`, and `pi` without changing the higher-level HealthFlow workflow.
--   **EHR-Aware Harness**: Task-family classification, schema profiling, leakage checks, staged tool exposure, and report contracts tuned for healthcare data science.
--   **Hierarchical Memory**: Dataset, strategy, failure, and artifact memories stored in one JSONL knowledge base with retrieval budgets and conflict handling.
--   **Verifier Gating**: Deterministic workspace checks run before a task is marked successful.
--   **Web-Based Interface**: A Streamlit UI for selecting the reasoning LLM, executor backend, and uploaded data files.
+## What HealthFlow Contributes
 
-## 🚀 How It Works: The Self-Evolving Loop
+- **EHR-specific harness**: cohort semantics, leakage checks, split expectations, temporal validation cues, and report contracts tuned for healthcare data science.
+- **Inspectable memory**: dataset, strategy, failure, and artifact memories are stored in JSONL and retrieved with layer budgets, validation status, and conflict suppression.
+- **Deterministic verifier**: success is gated by artifact checks such as cohort definition evidence, split evidence, audit artifacts, metrics files, and report sections.
+- **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
 
-![HealthFlow Workflow](assets/healthflow_workflow.png)
-*Figure: The self-evolving workflow of HealthFlow, which treats every task as a learning opportunity. The cycle consists of four key stages: **Plan**, **Execute**, **Evaluate**, and **Reflect**, with successful experiences synthesized and saved to a durable knowledge base to **Evolve** the agent's future planning capabilities.*
+## Workspace Artifacts
 
-HealthFlow's runtime centers on a lean **Profile -> Plan -> Execute -> Verify -> Reflect -> Evolve** loop.
+Each task creates a workspace under `workspace/<task_id>/` and writes:
 
-1.  **Profile**: HealthFlow inspects uploaded inputs, classifies the task family, and generates EHR-specific risk checks.
-2.  **Plan (MetaAgent)**: The planner retrieves relevant memories and writes a concrete execution plan with explicit artifacts.
-3.  **Execute (Executor Adapter)**: The plan is handed to the selected backend CLI while HealthFlow captures logs and artifacts.
-4.  **Verify + Evaluate**: Deterministic workspace checks run before LLM-based evaluation.
-5.  **Reflect + Evolve**: Verified successes and failures are distilled into hierarchical memory for future runs.
+- `executor_prompt.md`
+- `<backend>_execution.log`
+- `task_list_v*.md`
+- `full_history.json`
+- `memory_context.json`
+- `verification.json`
+- `run_manifest.json`
+- `run_result.json`
 
-## 🏁 Quick Start
+These files are the main source of truth for rebuttal-oriented inspection.
 
-### 1. Prerequisites
+## Evaluator vs Verifier
 
--   Python 3.12+
--   `uv` (a fast Python package installer and resolver)
--   At least one supported coding CLI installed and available in your `PATH`: `claude`, `opencode`, or `pi`.
+- **Verifier**: deterministic, file- and artifact-based. It checks whether required evidence exists and whether obvious execution failures happened.
+- **Evaluator**: LLM-based quality scoring on top of the verifier output.
 
-### 2. Setup
+HealthFlow only marks a run successful when the execution succeeds, the evaluator score clears the threshold, and the verifier gate passes when verifier gating is required.
+
+## Memory Behavior
+
+HealthFlow uses four memory layers:
+
+- `dataset`
+- `strategy`
+- `failure`
+- `artifact`
+
+Retrieval is auditable:
+
+- verified memories are preferred for positive strategy layers
+- failure memories keep their own retrieval budget
+- contradictory memories are suppressed by `conflict_group`
+- the retrieval audit is saved to `memory_context.json`
+
+Writeback behavior:
+
+- verified runs can produce `dataset`, `strategy`, and `artifact` memories
+- failed or verifier-rejected runs are normalized into `failure` / `verifier_rule` style memory
+- both successful and failed runs can teach future tasks, unless the memory mode is frozen
+
+## Supported Execution Backends
+
+HealthFlow keeps the executor layer backend-agnostic, but the public surface is intentionally small:
+
+- `healthflow_agent` (default)
+- `claude_code`
+- `opencode`
+
+You can still define additional CLI backends in `config.toml`, but the harness logic stays in HealthFlow rather than being baked into one external backend.
+
+## OneEHR-Aware Workflows
+
+HealthFlow can guide and verify OneEHR-style workflows without requiring a hard dependency on OneEHR internals. Modeling-task verifier checks accept artifacts such as:
+
+- `manifest.json`
+- `preprocess/split.json`
+- `test/metrics.json`
+- `analyze/*.json`
+
+This lets HealthFlow act as the orchestration and audit harness around a reproducible EHR CLI workflow.
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.12+
+- `uv`
+- one execution backend available in `PATH`
+  - default: `healthflow-agent`
+  - compatibility: `claude`, `opencode`
+
+### Setup
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-username/healthflow.git
-cd healthflow
-
-# 2. Install dependencies using uv
 uv sync
-
-# 3. Activate the virtual environment
 source .venv/bin/activate
-
-# 4. Create your configuration file from the example
 cp config.toml.example config.toml
 ```
 
-**Next, edit `config.toml`** to add API keys for the LLMs you intend to use for *reasoning* (planning, evaluating, reflecting). You can configure multiple providers.
+Then edit `config.toml` with the reasoning-model API credentials you want to use for planning, evaluation, and reflection.
 
-### 3. Start the WebUI
-
-For a user-friendly web interface, you can launch the Streamlit-based WebUI:
+### Web UI
 
 ```bash
 streamlit run app.py
 ```
 
-This will start the web application, which you can access in your browser at the provided URL (typically `http://localhost:8501`).
-
-### 4. CLI Usage
-
-If you prefer the command-line interface, HealthFlow requires both a reasoning model (`--active-llm`) and optionally an executor backend (`--active-executor`).
-
-#### Running a Single Task
-
-To execute a single, specific task and then exit.
+### Single Task
 
 ```bash
 python run_healthflow.py run \
-  "Analyze the provided patients.csv to identify the top 3 risk factors for readmission." \
+  "Analyze the uploaded patients.csv to identify the top 3 risk factors for readmission." \
   --active-llm deepseek-chat \
-  --active-executor claude_code
+  --active-executor healthflow_agent
 ```
 
-#### Interactive Mode
-
-For a chat-like session where you can run multiple tasks sequentially.
+### Interactive Mode
 
 ```bash
-python run_healthflow.py interactive --active-llm deepseek-chat --active-executor opencode
+python run_healthflow.py interactive \
+  --active-llm deepseek-chat \
+  --active-executor healthflow_agent
 ```
 
-#### Training (Knowledge Bootstrapping)
+### Training
 
-Use this mode to populate the experience memory from a curated dataset with reference answers. This is key to bootstrapping the agent's strategic knowledge.
-
-The training data should be a `.jsonl` file where each line is a JSON object with `qid`, `task`, and `answer` keys.
+Training data must be JSONL with `qid`, `task`, and `answer`.
 
 ```bash
-# Format: python run_training.py <training_file> <dataset_name> --active-llm <llm>
-python run_training.py data/train_set.jsonl ehrflow_train --active-llm deepseek-reasoner
+python run_training.py data/train_set.jsonl ehrflow_train \
+  --active-llm deepseek-reasoner \
+  --active-executor healthflow_agent
 ```
 
-This will run each task, use the reference answer for evaluation, and save learned experiences to `workspace/experience.jsonl`. Detailed logs are saved to `benchmark_results/`.
+### Benchmarking
 
-#### Benchmarking
-
-Evaluate HealthFlow's performance on a benchmark dataset. The dataset format is the same as for training.
+Benchmarking uses the same task JSONL shape, but **defaults to frozen memory behavior** for reproducibility.
 
 ```bash
-# Format: python run_benchmark.py <dataset_file> <dataset_name> --active-llm <llm>
-python run_benchmark.py data/benchmark_set.jsonl ehrflow_eval --active-llm deepseek-reasoner
+python run_benchmark.py data/benchmark_set.jsonl ehrflow_eval \
+  --active-llm deepseek-reasoner \
+  --active-executor healthflow_agent
 ```
 
-Results, including logs for each task and a final summary, will be saved in the `benchmark_results/` directory.
+Results are written under `benchmark_results/` with per-task copies of the workspace artifacts and dataset-level summary JSON.
 
-## 🏗️ Architecture
+## Configuration
 
-The project is designed to be modular and minimalist, serving as a clean research platform.
+Main config sections:
 
--   **`app.py`**: Streamlit-based WebUI entrypoint for a user-friendly browser interface.
--   **`run_healthflow.py`, `run_training.py`, `run_benchmark.py`**: CLI entrypoints for different modes of operation.
--   **`healthflow/`**: The core library code.
-    -   **`system.py`**: The orchestrator tying together profiling, planning, execution, verification, and memory.
-    -   **`agents/`**: LLM-powered planner, evaluator, and reflector agents.
-    -   **`execution/`**: Backend adapters for `claude`, `opencode`, and `pi`.
-    -   **`ehr/`**: Task-family classification, data profiling, and EHR-specific risk checks.
-    -   **`verification/`**: Deterministic workspace verification before success is declared.
-    -   **`experience/`**: Hierarchical memory models and retrieval logic.
-    -   **`tools/`**: Small staged tool-bundle selection instead of large prompt-time tool dumps.
--   **`workspace/`**: The default directory where all runtime artifacts are stored. Each task gets a unique subdirectory containing its plan, logs, and any generated files. The `experience.jsonl` file is also stored here.
--   **`benchmark_results/`**: The output directory for training and benchmarking runs, organized by dataset and model.
--   **`config.toml`**: The central configuration file for LLMs, system settings, and more.
--   **`pyproject.toml`**: Project metadata and dependencies, managed by `uv`.
+- `[llm.*]`: reasoning model providers
+- `[executor]`: default backend and CLI backend definitions
+- `[memory]`: retrieval budgets and memory mode
+- `[ehr]`: profiling controls
+- `[verification]`: deterministic success gating
+- `[evaluation]`: evaluator success threshold
+- `[system]`: workspace and retry settings
+- `[logging]`: log level and log file
 
-## ⚙️ Configuration
+## Repository Layout
 
-All settings are managed in `config.toml`.
+- `app.py`: Streamlit UI
+- `run_healthflow.py`: single-task and interactive CLI
+- `run_training.py`: memory bootstrapping and training-style runs
+- `run_benchmark.py`: reproducible benchmark runner with frozen memory default
+- `healthflow/system.py`: orchestration loop
+- `healthflow/execution/`: executor layer
+- `healthflow/ehr/`: profiling, task-family logic, and risk checks
+- `healthflow/verification/`: deterministic verifier
+- `healthflow/experience/`: hierarchical memory and retrieval audit
+- `healthflow/tools/`: staged tool-bundle selection
 
--   **`[llm.*]`**: Define connection details for different LLM providers (e.g., `[llm.deepseek-chat]`, `[llm.gemini]`). You must provide `base_url`, `api_key`, and `model_name`.
--   **`--active-llm <name>`**: Select the reasoning model used by the planner, evaluator, and reflector.
--   **`--active-executor <name>`**: Select the execution backend used for coding and tool use.
--   **`[executor]`**: Configure supported CLIs and choose the default backend.
--   **`[memory]`**: Configure retrieval budgets and memory writeback mode.
--   **`[ehr]`**: Configure profiling and EHR-specific context building.
--   **`[verification]`**: Configure deterministic success gating.
--   **`[system]`**: Configure system-wide behavior like `max_retries` and `workspace_dir`.
--   **`[evaluation]`**: Set the score threshold for a task to be considered successful after verification.
-   -   **`[logging]`**: Control the log level and file path.
-
-## 📜 Citation
-
-If you use HealthFlow in your research, please cite our paper:
+## Citation
 
 ```bibtex
 @misc{zhu2025healthflow,
-      title={HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research},
-      author={Yinghao Zhu and Yifan Qi and Zixiang Wang and Lei Gu and Dehao Sui and Haoran Hu and Xichen Zhang and Ziyi He and and Junjun He and Liantao Ma and Lequan Yu},
-      year={2025},
-      eprint={2508.02621},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2508.02621},
+  title={HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research},
+  author={Yinghao Zhu and Yifan Qi and Zixiang Wang and Lei Gu and Dehao Sui and Haoran Hu and Xichen Zhang and Ziyi He and and Junjun He and Liantao Ma and Lequan Yu},
+  year={2025},
+  eprint={2508.02621},
+  archivePrefix={arXiv},
+  primaryClass={cs.AI},
+  url={https://arxiv.org/abs/2508.02621},
 }
 ```

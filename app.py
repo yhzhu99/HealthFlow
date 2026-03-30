@@ -109,7 +109,7 @@ def initialize_system_from_file(active_llm_name: str, active_executor_name: str)
     try:
         config = get_config(Path("config.toml"), active_llm_name, active_executor_name)
         setup_logging(config)
-        return HealthFlowSystem(config=config, experience_path=Path("workspace/experience.jsonl"))
+        return HealthFlowSystem(config=config, experience_path=Path(config.system.workspace_dir) / "experience.jsonl")
     except Exception as e:
         st.error(f"Error initializing from config.toml: {e}")
         st.stop()
@@ -137,6 +137,19 @@ def read_file_from_workspace(workspace_path_str: str, file_glob: str) -> (str, s
     except Exception as e:
         return file_path.name, f"Error reading file: {e}"
 
+
+def read_text_file(path_str: str) -> (str, str):
+    """Safely read a file when the exact path is already known."""
+    if not path_str:
+        return None, "File path not available."
+    file_path = Path(path_str)
+    if not file_path.exists():
+        return None, f"File not found at {file_path}"
+    try:
+        return file_path.name, file_path.read_text(encoding="utf-8")
+    except Exception as e:
+        return file_path.name, f"Error reading file: {e}"
+
 # --- UI Rendering ---
 
 # --- Sidebar ---
@@ -146,12 +159,12 @@ with st.sidebar:
 
     if st.session_state.is_deployed:
         llm_options = list(st.secrets.llm.keys()) if 'llm' in st.secrets else []
-        executor_options = list(st.secrets.get("executor", {}).get("backends", {}).keys()) or ["claude_code", "opencode", "pi"]
+        executor_options = list(st.secrets.get("executor", {}).get("backends", {}).keys()) or ["healthflow_agent", "claude_code", "opencode"]
         st.info("☁️ Cloud Mode: Config from Streamlit secrets.")
     else:
         config_data_local = load_config_data()
         llm_options = list(config_data_local.get("llm", {}).keys())
-        executor_options = list(config_data_local.get("executor", {}).get("backends", {}).keys()) or ["claude_code", "opencode", "pi"]
+        executor_options = list(config_data_local.get("executor", {}).get("backends", {}).keys()) or ["healthflow_agent", "claude_code", "opencode"]
         st.info("💻 Local Mode: Config from `config.toml`.")
 
     if not llm_options:
@@ -218,20 +231,22 @@ if st.session_state.task_result:
     workspace = result.get("workspace_path", "")
     st.caption(
         f"Backend: `{result.get('backend', 'unknown')}` | "
+        f"Reasoning model: `{result.get('reasoning_model', 'unknown')}` | "
+        f"Memory mode: `{result.get('memory_mode', 'unknown')}` | "
         f"Task family: `{result.get('task_family', 'unknown')}` | "
         f"Verification passed: `{result.get('verification_passed', False)}`"
     )
 
     # Create tabs for organized output
-    tab_answer, tab_log, tab_plan, tab_history, tab_summary = st.tabs([
-        "✅ Final Answer", "📄 Execution Log", "🗺️ Final Plan", "🔍 Full History", "📝 Summary"
+    tab_answer, tab_log, tab_plan, tab_verification, tab_memory, tab_history, tab_summary = st.tabs([
+        "✅ Final Answer", "📄 Execution Log", "🗺️ Final Plan", "🛡️ Verification", "🧠 Memory", "🔍 Full History", "📝 Summary"
     ])
 
     with tab_answer:
         st.markdown(result.get("answer", "No answer was generated."))
 
     with tab_log:
-        log_filename, log_content = read_file_from_workspace(workspace, "execution.log")
+        log_filename, log_content = read_text_file(result.get("log_path", ""))
         if log_filename:
             st.code(log_content, language="log", line_numbers=True)
         else:
@@ -244,6 +259,26 @@ if st.session_state.task_result:
             st.markdown(plan_content)
         else:
             st.warning(plan_content)
+
+    with tab_verification:
+        verification_filename, verification_content = read_text_file(result.get("verification_path", ""))
+        if verification_filename:
+            try:
+                st.json(json.loads(verification_content))
+            except json.JSONDecodeError:
+                st.code(verification_content, language="json")
+        else:
+            st.warning(verification_content)
+
+    with tab_memory:
+        memory_filename, memory_content = read_text_file(result.get("memory_context_path", ""))
+        if memory_filename:
+            try:
+                st.json(json.loads(memory_content))
+            except json.JSONDecodeError:
+                st.code(memory_content, language="json")
+        else:
+            st.warning(memory_content)
 
     with tab_history:
         history_filename, history_content = read_file_from_workspace(workspace, "full_history.json")
@@ -262,3 +297,5 @@ if st.session_state.task_result:
         st.write(result.get('final_summary', 'No summary available.'))
         st.metric(label="Execution Time", value=f"{result.get('execution_time', 0):.2f} seconds")
         st.info(f"All task artifacts are located in the following directory on the server:\n`{workspace}`")
+        st.caption(f"Structured run manifest: `{result.get('run_manifest_path', 'n/a')}`")
+        st.caption(f"Structured run result: `{result.get('run_result_path', 'n/a')}`")

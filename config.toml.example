@@ -1,8 +1,5 @@
 # HealthFlow Configuration
 
-# LLM Provider Configurations
-# All agents and the shared LLMTaskEvaluator use the same provider for consistency
-
 [llm.openai]
 base_url = "https://api.openai.com/v1"
 api_key = "YOUR_OPENAI_API_KEY"
@@ -20,8 +17,14 @@ model_name = "deepseek-reasoner"
 
 # --- Executor Configuration ---
 [executor]
-active_backend = "claude_code"
+active_backend = "healthflow_agent"
 prompt_file_name = "executor_prompt.md"
+
+[executor.backends.healthflow_agent]
+binary = "healthflow-agent"
+args = ["-p"]
+prompt_mode = "append"
+timeout_seconds = 900
 
 [executor.backends.claude_code]
 binary = "claude"
@@ -35,17 +38,11 @@ args = []
 prompt_mode = "append"
 timeout_seconds = 900
 
-[executor.backends.pi]
-binary = "pi"
-args = []
-prompt_mode = "append"
-timeout_seconds = 900
-
 # --- System Configuration ---
 [system]
-max_retries = 2 # Maximum number of retries for a failing task
-workspace_dir = "workspace" # The directory to store all task-related artifacts and the experience knowledge base
-shell = "/usr/bin/zsh" # Shell to use for subprocess execution (e.g., /usr/bin/bash, /usr/bin/zsh)
+max_retries = 2
+workspace_dir = "workspace"
+shell = "/usr/bin/zsh"
 
 # --- Memory Configuration ---
 [memory]
@@ -69,9 +66,9 @@ required_report_sections = ["Task Summary", "Data Profile", "Method", "Verificat
 
 # --- Evaluation Configuration ---
 [evaluation]
-success_threshold = 6.0 # Score threshold (out of 10) to consider a task successful
+success_threshold = 6.0
 
 # --- Logging Configuration ---
 [logging]
-log_level = "INFO" # Log level: DEBUG, INFO, WARNING, ERROR
-log_file = "healthflow.log" # Path to the log file
+log_level = "INFO"
+log_file = "healthflow.log"
