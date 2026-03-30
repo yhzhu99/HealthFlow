@@ -17,6 +17,7 @@ from healthflow.core.config import (
     get_config,
     setup_logging,
     BackendCLIConfig,
+    default_executor_backends,
     EHRConfig,
     EvaluationConfig,
     ExecutorConfig,
@@ -77,7 +78,8 @@ def initialize_system_from_secrets(active_llm_name: str, active_executor_name: s
             backends={
                 name: BackendCLIConfig(**data)
                 for name, data in st.secrets.get("executor", {}).get("backends", {}).items()
-            },
+            }
+            or default_executor_backends(),
         )
         memory_config = MemoryConfig(**st.secrets.get("memory", {}))
         ehr_config = EHRConfig(**st.secrets.get("ehr", {}))
@@ -214,6 +216,11 @@ if st.session_state.task_result:
         st.error(f"**Task Failed.**\n\nError: {result.get('error', result.get('final_summary', 'No specific error message.'))}", icon="❌")
 
     workspace = result.get("workspace_path", "")
+    st.caption(
+        f"Backend: `{result.get('backend', 'unknown')}` | "
+        f"Task family: `{result.get('task_family', 'unknown')}` | "
+        f"Verification passed: `{result.get('verification_passed', False)}`"
+    )
 
     # Create tabs for organized output
     tab_answer, tab_log, tab_plan, tab_history, tab_summary = st.tabs([

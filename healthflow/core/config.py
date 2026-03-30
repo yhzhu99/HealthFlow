@@ -31,31 +31,37 @@ class SystemConfig(BaseModel):
     shell: str = Field("/usr/bin/zsh", description="Shell to use for subprocess execution.")
 
 
+def default_executor_backends() -> Dict[str, BackendCLIConfig]:
+    return {
+        "claude_code": BackendCLIConfig(
+            binary="claude",
+            args=["--dangerously-skip-permissions", "--print"],
+            prompt_mode="append",
+        ),
+        "opencode": BackendCLIConfig(
+            binary="opencode",
+            args=[],
+            prompt_mode="append",
+        ),
+        "pi": BackendCLIConfig(
+            binary="pi",
+            args=[],
+            prompt_mode="append",
+        ),
+    }
+
+
 class ExecutorConfig(BaseModel):
     active_backend: str = Field("claude_code", description="Executor backend to use for task execution.")
     prompt_file_name: str = Field("executor_prompt.md", description="Prompt file stored inside each workspace.")
     backends: Dict[str, BackendCLIConfig] = Field(
-        default_factory=lambda: {
-            "claude_code": BackendCLIConfig(
-                binary="claude",
-                args=["--dangerously-skip-permissions", "--print"],
-                prompt_mode="append",
-            ),
-            "opencode": BackendCLIConfig(
-                binary="opencode",
-                args=[],
-                prompt_mode="append",
-            ),
-            "pi": BackendCLIConfig(
-                binary="pi",
-                args=[],
-                prompt_mode="append",
-            ),
-        }
+        default_factory=default_executor_backends
     )
 
     @model_validator(mode="after")
     def ensure_active_backend_exists(self):
+        if not self.backends:
+            self.backends = default_executor_backends()
         if self.active_backend not in self.backends:
             raise ValueError(f"Active backend '{self.active_backend}' is not defined under [executor.backends].")
         return self
@@ -142,10 +148,11 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
             raise ValueError(f"Configuration for LLM '{active_llm}' not found under the '[llm]' section.")
 
         executor_section = config_data.get("executor", {})
+        executor_backends = executor_section.get("backends")
         executor_config = ExecutorConfig(
             active_backend=active_executor or executor_section.get("active_backend", "claude_code"),
             prompt_file_name=executor_section.get("prompt_file_name", "executor_prompt.md"),
-            backends=executor_section.get("backends", {}),
+            backends=executor_backends if executor_backends else default_executor_backends(),
         )
 
         config = HealthFlowConfig(

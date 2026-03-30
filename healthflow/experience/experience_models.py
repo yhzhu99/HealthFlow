@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 class ExperienceType(str, Enum):
@@ -43,4 +43,7 @@ class Experience(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score assigned during reflection.")
     conflict_group: Optional[str] = Field(default=None, description="Conflict group identifier for contradictory memories.")
     tags: List[str] = Field(default_factory=list, description="Additional retrieval tags.")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of when the experience was created.")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Timestamp of when the experience was created.",
+    )
