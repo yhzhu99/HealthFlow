@@ -13,34 +13,30 @@
 
 ---
 
-HealthFlow is a research framework designed to orchestrate, evaluate, and learn from powerful, external agentic coders to solve complex healthcare research tasks. Its core innovation lies not in building a coding agent itself, but in creating a **self-evolving meta-system** that learns to become a better strategic planner.
+HealthFlow is a research framework for **EHR-focused analysis orchestration**. Instead of trying to replace strong coding agents, it wraps them with an EHR-aware harness that profiles uploaded data, checks for leakage risks, retrieves validated memory, enforces deterministic verification, and writes back reusable strategy and failure memories.
 
-The system treats every task as a scientific experiment, autonomously refining its own high-level problem-solving policies by distilling successes and failures into a durable, strategic knowledge base. This marks a shift from building better *tool-users* to designing smarter, self-evolving *task-managers*, paving the way for more autonomous and effective AI for scientific discovery.
+The current runtime is **backend-agnostic** at the executor layer. Out of the box it can target `claude`, `opencode`, or `pi`, while keeping the planning, verification, and memory logic shared across backends.
 
 ## ✨ Core Features
 
--   **Web-Based Interface**: A user-friendly Streamlit-based WebUI for easy interaction with the HealthFlow system through your browser.
--   **Meta-Level Evolution**: Goes beyond simple tool use by synthesizing successful task executions into a durable strategic knowledge base (`experience.jsonl`), allowing it to improve its high-level planning over time.
--   **Modular Multi-Agent System**: A robust architecture of specialized agents for Planning (`MetaAgent`), Execution (`ClaudeCodeExecutor`), Evaluation (`EvaluatorAgent`), and Reflection (`ReflectorAgent`).
--   **Knowledge Bootstrapping**: A `train_mode` to build an initial, high-quality experience base from curated problems with reference answers, addressing the "cold start" problem.
--   **Unified Workflow**: A consistent and powerful `Plan -> Execute -> Evaluate -> Reflect` cycle that handles all tasks, from simple questions to complex, multi-step data analysis.
+-   **Backend-Agnostic Execution**: Switch between `claude`, `opencode`, and `pi` without changing the higher-level HealthFlow workflow.
+-   **EHR-Aware Harness**: Task-family classification, schema profiling, leakage checks, staged tool exposure, and report contracts tuned for healthcare data science.
+-   **Hierarchical Memory**: Dataset, strategy, failure, and artifact memories stored in one JSONL knowledge base with retrieval budgets and conflict handling.
+-   **Verifier Gating**: Deterministic workspace checks run before a task is marked successful.
+-   **Web-Based Interface**: A Streamlit UI for selecting the reasoning LLM, executor backend, and uploaded data files.
 
 ## 🚀 How It Works: The Self-Evolving Loop
 
 ![HealthFlow Workflow](assets/healthflow_workflow.png)
 *Figure: The self-evolving workflow of HealthFlow, which treats every task as a learning opportunity. The cycle consists of four key stages: **Plan**, **Execute**, **Evaluate**, and **Reflect**, with successful experiences synthesized and saved to a durable knowledge base to **Evolve** the agent's future planning capabilities.*
 
-HealthFlow's novelty lies in its unified and automated **Plan -> Execute -> Evaluate -> Reflect -> Evolve** cycle. It treats every task as a learning opportunity, enabling it to continuously improve its own strategic capabilities.
+HealthFlow's runtime centers on a lean **Profile -> Plan -> Execute -> Verify -> Reflect -> Evolve** loop.
 
-1.  **Plan (MetaAgent)**: A user's request is analyzed by the `MetaAgent`. It queries the `ExperienceManager` for relevant past experiences and synthesizes them into a detailed, step-by-step markdown plan (`task_list.md`). This plan is context-aware, incorporating learned heuristics and warnings.
-
-2.  **Execute (ClaudeCodeExecutor)**: The system delegates the execution of the plan to a powerful, external agentic coder (e.g., `claude`). It captures the entire terminal output, including commands, standard output, and errors, for analysis.
-
-3.  **Evaluate (EvaluatorAgent)**: The `EvaluatorAgent` assesses the execution outcome against the original request and plan. It provides a quantitative score and qualitative feedback. If the task fails or quality is low, this feedback is used to generate a better plan in the next attempt.
-
-4.  **Reflect (ReflectorAgent)**: Upon *successful* completion of any task, the `ReflectorAgent` analyzes the entire interaction (request, plan, logs, evaluation) to synthesize generalizable knowledge into structured **Experience Objects** (e.g., a `heuristic`, a `warning`, a `code_snippet`).
-
-5.  **Evolve (ExperienceManager)**: These structured experiences are saved to a persistent `experience.jsonl` file. This growing knowledge base is used by the `MetaAgent` during future planning, enabling it to make smarter decisions and create better plans, thus closing the self-improvement loop.
+1.  **Profile**: HealthFlow inspects uploaded inputs, classifies the task family, and generates EHR-specific risk checks.
+2.  **Plan (MetaAgent)**: The planner retrieves relevant memories and writes a concrete execution plan with explicit artifacts.
+3.  **Execute (Executor Adapter)**: The plan is handed to the selected backend CLI while HealthFlow captures logs and artifacts.
+4.  **Verify + Evaluate**: Deterministic workspace checks run before LLM-based evaluation.
+5.  **Reflect + Evolve**: Verified successes and failures are distilled into hierarchical memory for future runs.
 
 ## 🏁 Quick Start
 
@@ -48,7 +44,7 @@ HealthFlow's novelty lies in its unified and automated **Plan -> Execute -> Eval
 
 -   Python 3.12+
 -   `uv` (a fast Python package installer and resolver)
--   [Anthropic's `claude` CLI](https://docs.anthropic.com/claude/docs/claude-code) installed and available in your `PATH`. This is the default execution agent.
+-   At least one supported coding CLI installed and available in your `PATH`: `claude`, `opencode`, or `pi`.
 
 ### 2. Setup
 
@@ -81,14 +77,17 @@ This will start the web application, which you can access in your browser at the
 
 ### 4. CLI Usage
 
-If you prefer the command-line interface, you can use the CLI directly. HealthFlow is controlled via a powerful command-line interface. You must always specify which reasoning LLM to use with the `--active-llm` flag.
+If you prefer the command-line interface, HealthFlow requires both a reasoning model (`--active-llm`) and optionally an executor backend (`--active-executor`).
 
 #### Running a Single Task
 
 To execute a single, specific task and then exit.
 
 ```bash
-python run_healthflow.py run "Analyze the provided 'patients.csv' to identify the top 3 risk factors for readmission. Anonymize any patient identifiers in the output." --active-llm deepseek-chat
+python run_healthflow.py run \
+  "Analyze the provided patients.csv to identify the top 3 risk factors for readmission." \
+  --active-llm deepseek-chat \
+  --active-executor claude_code
 ```
 
 #### Interactive Mode
@@ -96,7 +95,7 @@ python run_healthflow.py run "Analyze the provided 'patients.csv' to identify th
 For a chat-like session where you can run multiple tasks sequentially.
 
 ```bash
-python run_healthflow.py interactive --active-llm deepseek-chat
+python run_healthflow.py interactive --active-llm deepseek-chat --active-executor opencode
 ```
 
 #### Training (Knowledge Bootstrapping)
@@ -130,12 +129,13 @@ The project is designed to be modular and minimalist, serving as a clean researc
 -   **`app.py`**: Streamlit-based WebUI entrypoint for a user-friendly browser interface.
 -   **`run_healthflow.py`, `run_training.py`, `run_benchmark.py`**: CLI entrypoints for different modes of operation.
 -   **`healthflow/`**: The core library code.
-    -   **`system.py`**: Contains `HealthFlowSystem`, the central orchestrator that manages the self-evolving workflow.
-    -   **`agents/`**: LLM-powered agents for high-level reasoning (`MetaAgent`, `EvaluatorAgent`, `ReflectorAgent`).
-    -   **`execution/`**: The `ClaudeCodeExecutor` wrapper for calling the external `claude` CLI tool.
-    -   **`experience/`**: The heart of the self-evolution mechanism. `ExperienceManager` manages the `experience.jsonl` knowledge base, and `experience_models.py` defines its structure.
-    -   **`prompts/`**: A centralized repository of prompt templates that guide the agents.
-    -   **`core/`**: Core components like configuration loading (`config.py`) and the LLM provider wrapper (`llm_provider.py`).
+    -   **`system.py`**: The orchestrator tying together profiling, planning, execution, verification, and memory.
+    -   **`agents/`**: LLM-powered planner, evaluator, and reflector agents.
+    -   **`execution/`**: Backend adapters for `claude`, `opencode`, and `pi`.
+    -   **`ehr/`**: Task-family classification, data profiling, and EHR-specific risk checks.
+    -   **`verification/`**: Deterministic workspace verification before success is declared.
+    -   **`experience/`**: Hierarchical memory models and retrieval logic.
+    -   **`tools/`**: Small staged tool-bundle selection instead of large prompt-time tool dumps.
 -   **`workspace/`**: The default directory where all runtime artifacts are stored. Each task gets a unique subdirectory containing its plan, logs, and any generated files. The `experience.jsonl` file is also stored here.
 -   **`benchmark_results/`**: The output directory for training and benchmarking runs, organized by dataset and model.
 -   **`config.toml`**: The central configuration file for LLMs, system settings, and more.
@@ -146,10 +146,15 @@ The project is designed to be modular and minimalist, serving as a clean researc
 All settings are managed in `config.toml`.
 
 -   **`[llm.*]`**: Define connection details for different LLM providers (e.g., `[llm.deepseek-chat]`, `[llm.gemini]`). You must provide `base_url`, `api_key`, and `model_name`.
--   **`--active-llm <name>`**: This mandatory runtime flag tells HealthFlow which `[llm.*]` block from your `config.toml` to use for the reasoning agents.
--   **`[system]`**: Configure system-wide behavior like `max_retries` and the `workspace_dir`.
--   **`[evaluation]`**: Set the `success_threshold` score for a task to be considered successful.
--   **`[logging]`**: Control the log level and file path.
+-   **`--active-llm <name>`**: Select the reasoning model used by the planner, evaluator, and reflector.
+-   **`--active-executor <name>`**: Select the execution backend used for coding and tool use.
+-   **`[executor]`**: Configure supported CLIs and choose the default backend.
+-   **`[memory]`**: Configure retrieval budgets and memory writeback mode.
+-   **`[ehr]`**: Configure profiling and EHR-specific context building.
+-   **`[verification]`**: Configure deterministic success gating.
+-   **`[system]`**: Configure system-wide behavior like `max_retries` and `workspace_dir`.
+-   **`[evaluation]`**: Set the score threshold for a task to be considered successful after verification.
+   -   **`[logging]`**: Control the log level and file path.
 
 ## 📜 Citation
 
