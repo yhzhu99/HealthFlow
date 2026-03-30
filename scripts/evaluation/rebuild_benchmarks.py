@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import hashlib
 import json
 import math
@@ -460,12 +461,23 @@ def build_paper_audit_outputs() -> dict[str, Any]:
         for row in current_ehr + current_ehr_train
         if classify_extracted_task(row.get("category", ""), f"{row.get('task', '')} {row.get('answer', '')}")[0] != "rewrite"
     ]
-    blank_medagentboard_answers = sum(1 for row in current_mab if not str(row.get("answer", "")).strip())
-    inaccessible_medagentboard_paths = sum(
-        1
+    blank_medagentboard_qids = [row["qid"] for row in current_mab if not str(row.get("answer", "")).strip() and "qid" in row]
+    inaccessible_medagentboard_qids = [
+        row["qid"]
         for row in current_mab
-        if "/home/projects/HealthFlow" in json.dumps(row, ensure_ascii=False) or "MIMIC-IV.parquet" in json.dumps(row, ensure_ascii=False)
-    )
+        if "qid" in row
+        and (
+            "/home/projects/HealthFlow" in json.dumps(row, ensure_ascii=False)
+            or "MIMIC-IV.parquet" in json.dumps(row, ensure_ascii=False)
+        )
+    ]
+    reason_code_counts: Counter[str] = Counter()
+    for reason_codes in extracted_df["reason_codes"].fillna(""):
+        if not str(reason_codes).strip():
+            continue
+        for reason_code in str(reason_codes).split("|"):
+            if reason_code:
+                reason_code_counts[reason_code] += 1
 
     audit_summary = {
         "filtered_rows": int(len(filtered)),
@@ -476,12 +488,13 @@ def build_paper_audit_outputs() -> dict[str, Any]:
         "filter_only_rows_without_markdown": sorted(csv_ids - markdown_ids),
         "selected_without_markdown": sorted(selected_id_set - markdown_ids),
         "recommended_action_counts": extracted_df["recommended_action"].value_counts().to_dict(),
+        "reason_code_counts": dict(reason_code_counts),
         "current_ehrflowbench_eval_tasks": len(current_ehr),
         "current_ehrflowbench_train_tasks": len(current_ehr_train),
         "current_ehrflowbench_flagged_unverifiable_or_inaccessible": len(current_ehr_flagged),
         "current_medagentboard_tasks": len(current_mab),
-        "current_medagentboard_blank_answers": blank_medagentboard_answers,
-        "current_medagentboard_inaccessible_paths": inaccessible_medagentboard_paths,
+        "current_medagentboard_blank_answers": len(blank_medagentboard_qids),
+        "current_medagentboard_inaccessible_paths": len(inaccessible_medagentboard_qids),
     }
 
     ensure_empty_dir(PROVENANCE_ROOT)
@@ -499,7 +512,8 @@ def build_paper_audit_outputs() -> dict[str, Any]:
         PROVENANCE_ROOT / "current_benchmark_audit.json",
         {
             "ehrflowbench_flagged_qids": [row["qid"] for row in current_ehr_flagged if "qid" in row],
-            "medagentboard_blank_answer_qids": [row["qid"] for row in current_mab if not str(row.get("answer", "")).strip()],
+            "medagentboard_blank_answer_qids": blank_medagentboard_qids,
+            "medagentboard_inaccessible_path_qids": inaccessible_medagentboard_qids,
         },
     )
     return audit_summary
@@ -1939,6 +1953,8 @@ The original paper pipeline is preserved as provenance only:
 - markdown directories: {provenance_summary['markdown_directories']}
 - selected ids: {provenance_summary['selected_ids']}
 - extracted tasks: {provenance_summary['extracted_tasks']}
+- extracted task decisions: {provenance_summary['recommended_action_counts']}
+- extracted task reason counts: {provenance_summary['reason_code_counts']}
 - filter-only rows without markdown: {provenance_summary['filter_only_rows_without_markdown']}
 
 The extracted-task audit lives in `data/{PROVENANCE_ROOT_NAME}/extracted_task_audit.csv`.
@@ -1953,8 +1969,9 @@ Canonical scoring is deterministic. The evaluator compares required output files
 
 ## Current benchmark failures addressed
 
-- `medagentboard.jsonl` previously had {provenance_summary['current_medagentboard_blank_answers']} blank answers and {provenance_summary['current_medagentboard_inaccessible_paths']} inaccessible path references.
+- The canonical `medagentboard.jsonl` now has {provenance_summary['current_medagentboard_blank_answers']} blank answers and {provenance_summary['current_medagentboard_inaccessible_paths']} inaccessible path references. Legacy blank-answer items and credential-bound path references were rebuilt or dropped before inclusion.
 - The previous EHRFlowBench files inherited paper-extracted prompts directly; {provenance_summary['current_ehrflowbench_flagged_unverifiable_or_inaccessible']} of the 110 current eval+train rows were flagged as non-verifiable, inaccessible, or paper-metric-only during the rebuild audit.
+- The paper audit reviewed {provenance_summary['extracted_tasks']} extracted tasks from {provenance_summary['selected_ids']} selected papers. {provenance_summary['recommended_action_counts']} and reason counts {provenance_summary['reason_code_counts']} are recorded in the provenance manifest.
 - The filtering corpus contains {provenance_summary['filtered_rows']} rows but only {provenance_summary['markdown_directories']} local markdown directories. IDs {provenance_summary['filter_only_rows_without_markdown']} are now explicitly quarantined in the provenance manifest.
 
 ## Rebuild policy
