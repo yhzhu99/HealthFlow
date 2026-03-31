@@ -1,6 +1,8 @@
 import unittest
+from pathlib import Path
 
 from healthflow.core.config import BackendCLIConfig
+from healthflow.execution.base import ExecutionContext
 from healthflow.execution.cli_adapters import CLISubprocessExecutor, HealthFlowAgentExecutor, PiExecutor
 from healthflow.execution.factory import create_executor_adapter
 
@@ -27,6 +29,21 @@ class ExecutionFactoryTests(unittest.TestCase):
             BackendCLIConfig(binary="pi"),
         )
         self.assertIsInstance(executor, PiExecutor)
+
+    def test_shared_executor_prompt_contains_neutral_workspace_rules(self):
+        context = ExecutionContext(
+            user_request="Build a cohort table.",
+            task_family="cohort_extraction",
+            data_profile="No structured data profile provided.",
+        )
+        prompt = context.render_prompt()
+        self.assertIn("Do not rely on repository-level executor-specific instruction files", prompt)
+        self.assertIn("Save every artifact inside the current workspace", prompt)
+        self.assertIn("Prefer Python and reproducible CLI workflows", prompt)
+
+    def test_repo_root_does_not_depend_on_claude_md(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        self.assertFalse((repo_root / "CLAUDE.md").exists())
 
 
 if __name__ == "__main__":

@@ -91,6 +91,7 @@ HealthFlow keeps the executor layer backend-agnostic, but the public surface is 
 - `pi`
 
 You can still define additional CLI backends in `config.toml`, but the harness logic stays in HealthFlow rather than being baked into one external backend.
+Executor-specific repository instruction files are intentionally avoided at the repo root so backend comparisons use the same injected prompt contract.
 
 ## OneEHR-Aware Workflows
 
