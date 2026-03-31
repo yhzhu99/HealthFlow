@@ -69,7 +69,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
         ),
         "opencode": BackendCLIConfig(
             binary="opencode",
-            args=[],
+            args=["run", "--format", "json"],
             prompt_mode="append",
         ),
         "pi": BackendCLIConfig(
