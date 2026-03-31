@@ -522,25 +522,95 @@ def paper_markdown_root(paper_raw_root: Path) -> Path:
     return local_root
 
 
+PROXY_CATEGORY_PRIORITY = {
+    "cohort definition": 0,
+    "data preprocessing": 1,
+    "data analysis": 2,
+    "feature engineering": 3,
+    "model evaluation": 4,
+    "results reproduction": 5,
+    "report generation": 6,
+}
+
+PROXY_ELIGIBLE_CATEGORIES = {
+    "cohort definition",
+    "data preprocessing",
+    "data analysis",
+    "feature engineering",
+    "model evaluation",
+    "results reproduction",
+    "report generation",
+    "data preprocessing and cohort definition",
+}
+
+PROXY_ACTIONABLE_TOKENS = [
+    "cohort",
+    "patient",
+    "subject",
+    "preprocess",
+    "feature",
+    "summarize",
+    "summary",
+    "count",
+    "average",
+    "distribution",
+    "temporal",
+    "longitudinal",
+    "survival",
+    "mortality",
+    "readmission",
+    "risk",
+    "outcome",
+    "evaluate",
+    "evaluation",
+    "regression",
+    "classification",
+    "predict",
+    "prediction",
+    "visual",
+    "plot",
+    "statistic",
+]
+
+HARD_REJECT_CATEGORY_TOKENS = {
+    "model implementation",
+    "dataset generation",
+}
+
+HARD_REJECT_TEXT_TOKENS = [
+    "loss function",
+    "policy gradient",
+    "discriminator network",
+    "generator network",
+    "attention mechanism",
+    "rule neuron",
+    "transformer layer",
+    "embedding matrix",
+    "backpropagation",
+    "gradient update",
+]
+
+
 def classify_extracted_task(category: str, text: str) -> tuple[str, list[str]]:
     lowered = text.lower()
-    reasons: list[str] = []
+    category_lower = category.lower().strip()
+    constraints: list[str] = []
     if any(token in lowered for token in ["mimic-iii", "mimic-iv", "eicu", "physionet", "clinical note", "discharge summary"]):
-        reasons.append("inaccessible_data")
+        constraints.append("inaccessible_data")
     if any(token in lowered for token in ["auc", "auroc", "auprc", "accuracy", "precision@", "f1", "macro recall", "microauc"]):
-        reasons.append("paper_metric_only")
-    if any(token in lowered for token in ["implement", "loss function", "attention mechanism", "transformer", "knowledge graph", "gan", "gru", "bert"]):
-        reasons.append("non_executable")
+        constraints.append("paper_metric_only")
     if any(token in lowered for token in ["table ", "figure ", "section "]):
-        reasons.append("weak_comparability")
+        constraints.append("weak_comparability")
 
-    if reasons:
-        return "reject", reasons
+    actionable = any(token in lowered for token in PROXY_ACTIONABLE_TOKENS)
+    eligible_category = category_lower in PROXY_ELIGIBLE_CATEGORIES
+    hard_reject_category = any(token in category_lower for token in HARD_REJECT_CATEGORY_TOKENS)
+    hard_reject_text = any(token in lowered for token in HARD_REJECT_TEXT_TOKENS)
 
-    if any(token in lowered for token in ["cohort", "count the number", "calculate the average", "preprocess", "survival analysis"]):
-        return "rewrite", []
-    if category.lower() in {"data analysis", "cohort definition", "data preprocessing"}:
-        return "rewrite", []
+    if hard_reject_category or (hard_reject_text and not actionable and not eligible_category):
+        return "reject", sorted(dict.fromkeys(constraints + ["implementation_only"]))
+    if actionable or eligible_category:
+        return "proxy_candidate", sorted(dict.fromkeys(constraints))
     return "reject", ["non_verifiable"]
 
 
@@ -566,7 +636,10 @@ def build_paper_audit_outputs() -> tuple[pd.DataFrame, dict[str, Any]]:
                 if not line.strip():
                     continue
                 row = json.loads(line)
-                action, reasons = classify_extracted_task(row.get("category", ""), f"{row.get('task', '')} {row.get('answer', '')}")
+                eligibility, constraint_codes = classify_extracted_task(
+                    row.get("category", ""),
+                    f"{row.get('task', '')} {row.get('answer', '')}",
+                )
                 extracted_rows.append(
                     {
                         "paper_id": paper_id,
@@ -575,21 +648,21 @@ def build_paper_audit_outputs() -> tuple[pd.DataFrame, dict[str, Any]]:
                         "category": row.get("category", ""),
                         "task": row.get("task", ""),
                         "answer": row.get("answer", ""),
-                        "recommended_action": action,
-                        "reason_codes": "|".join(reasons),
+                        "proxy_eligibility": eligibility,
+                        "constraint_codes": "|".join(constraint_codes),
                     }
                 )
 
     extracted_df = pd.DataFrame(extracted_rows)
     markdown_ids = set(markdown_dirs)
     selected_id_set = set(selected_ids)
-    reason_code_counts: Counter[str] = Counter()
-    for reason_codes in extracted_df["reason_codes"].fillna(""):
-        if not str(reason_codes).strip():
+    constraint_code_counts: Counter[str] = Counter()
+    for constraint_codes in extracted_df["constraint_codes"].fillna(""):
+        if not str(constraint_codes).strip():
             continue
-        for reason_code in str(reason_codes).split("|"):
-            if reason_code:
-                reason_code_counts[reason_code] += 1
+        for constraint_code in str(constraint_codes).split("|"):
+            if constraint_code:
+                constraint_code_counts[constraint_code] += 1
 
     audit_summary = {
         "selected_ids": int(len(selected_id_set)),
@@ -598,8 +671,8 @@ def build_paper_audit_outputs() -> tuple[pd.DataFrame, dict[str, Any]]:
         "extracted_task_files": int(extracted_df["paper_id"].nunique()),
         "extracted_tasks": int(len(extracted_df)),
         "selected_without_title": sorted(selected_id_set - paper_title_ids),
-        "recommended_action_counts": extracted_df["recommended_action"].value_counts().to_dict(),
-        "reason_code_counts": dict(reason_code_counts),
+        "proxy_eligibility_counts": extracted_df["proxy_eligibility"].value_counts().to_dict(),
+        "constraint_code_counts": dict(constraint_code_counts),
     }
     return extracted_df, audit_summary
 
@@ -634,20 +707,10 @@ def paper_excerpt(text: str, limit: int = 220) -> str:
 
 
 def representative_paper_task(group: pd.DataFrame) -> pd.Series:
-    category_priority = {
-        "cohort definition": 0,
-        "data preprocessing": 1,
-        "data analysis": 2,
-        "feature engineering": 3,
-        "model evaluation": 4,
-        "results reproduction": 5,
-        "model implementation": 6,
-    }
-
     def sort_key(row: pd.Series) -> tuple[int, int, int]:
         return (
-            0 if row["recommended_action"] == "rewrite" else 1,
-            category_priority.get(str(row["category"]).lower(), 9),
+            0 if row["proxy_eligibility"] == "proxy_candidate" else 1,
+            PROXY_CATEGORY_PRIORITY.get(str(row["category"]).lower(), 9),
             int(row["task_index"]),
         )
 
@@ -682,18 +745,47 @@ def assign_ehr_tasks_to_papers(
         for line in (EHRFLOWBENCH_ROOT / "raw" / "papers" / "selected_ids.txt").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    representative_rows: list[pd.Series] = []
     grouped = {paper_id: frame for paper_id, frame in extracted_df.groupby("paper_id", sort=False)}
+    representative_rows: list[pd.Series] = []
+    secondary_rows: list[pd.Series] = []
     for paper_id in selected_ids:
         frame = grouped.get(paper_id)
         if frame is None or frame.empty:
             continue
-        representative_rows.append(representative_paper_task(frame))
-    representative_rows = representative_rows[: len(all_ehr_tasks)]
+        proxy_candidates = frame.loc[frame["proxy_eligibility"] == "proxy_candidate"].copy()
+        if proxy_candidates.empty:
+            continue
+        proxy_candidates = proxy_candidates.sort_values(
+            by=["category", "task_index"],
+            key=lambda column: column.map(lambda value: PROXY_CATEGORY_PRIORITY.get(str(value).lower(), 9))
+            if column.name == "category"
+            else column,
+        )
+        representative = representative_paper_task(proxy_candidates)
+        representative_rows.append(representative)
+        remaining = proxy_candidates.loc[proxy_candidates["task_index"] != representative["task_index"]]
+        secondary_rows.extend(row for _, row in remaining.iterrows())
+
+    candidate_rows: list[pd.Series] = representative_rows
+    if len(candidate_rows) < len(all_ehr_tasks):
+        secondary_rows.sort(
+            key=lambda row: (
+                PROXY_CATEGORY_PRIORITY.get(str(row["category"]).lower(), 9),
+                int(row["task_index"]),
+                str(row["paper_id"]),
+            )
+        )
+        candidate_rows.extend(secondary_rows[: max(0, len(all_ehr_tasks) - len(candidate_rows))])
+    if len(candidate_rows) < len(all_ehr_tasks):
+        raise ValueError(
+            f"Not enough proxy-eligible extracted tasks to map {len(all_ehr_tasks)} benchmark tasks; "
+            f"found {len(candidate_rows)}."
+        )
+    candidate_rows = candidate_rows[: len(all_ehr_tasks)]
 
     family_quota = Counter(task.metadata["task_family"] for task in all_ehr_tasks)
     assignments: list[dict[str, Any]] = []
-    for row in representative_rows:
+    for row in candidate_rows:
         family = next(pref for pref in family_preferences(str(row["category"]), str(row["task"])) if family_quota[pref] > 0)
         family_quota[family] -= 1
         assignments.append(
@@ -703,8 +795,8 @@ def assign_ehr_tasks_to_papers(
                 "task_index": int(row["task_index"]),
                 "category": str(row["category"]),
                 "source_task": str(row["task"]),
-                "recommended_action": str(row["recommended_action"]),
-                "reason_codes": str(row["reason_codes"]),
+                "proxy_eligibility": str(row["proxy_eligibility"]),
+                "constraint_codes": str(row["constraint_codes"]),
                 "assigned_family": family,
             }
         )
@@ -720,8 +812,11 @@ def assign_ehr_tasks_to_papers(
         task = family_tasks[assignment["assigned_family"]].pop(0)
         excerpt = paper_excerpt(assignment["source_task"])
         task.task["task"] = (
-            f"Paper proxy context: reproducibly translate extracted paper task {assignment['task_index']} from "
-            f"\"{assignment['paper_title']}\" ({assignment['category']}). Source objective excerpt: \"{excerpt}\".\n\n"
+            f"Paper proxy context: this benchmark task is a benchmark-local proxy rewrite derived from extracted paper task "
+            f"{assignment['task_index']} in \"{assignment['paper_title']}\" ({assignment['category']}). "
+            "The source paper provides provenance and clinical motivation only; canonical grading is defined by the deterministic "
+            "local prompt and expected artifacts below. "
+            f"Source objective excerpt: \"{excerpt}\".\n\n"
             f"{task.task['task']}"
         )
         task.task["answer"] = simplify_answer_payload(task.task["answer"])
@@ -735,8 +830,14 @@ def assign_ehr_tasks_to_papers(
                 "source_paper_title": assignment["paper_title"],
                 "source_task_index": assignment["task_index"],
                 "source_task_category": assignment["category"],
+                "source_task_eligibility": assignment["proxy_eligibility"],
+                "proxy_constraints": assignment["constraint_codes"],
+                "linkage_mode": "task_proxy",
+                "approval_status": "seeded_for_human_review",
+                "approval_origin": "benchmark_builder_rules",
                 "proxy_dataset": task.metadata["dataset"],
                 "rewrite_type": task.metadata["task_family"],
+                "proxy_rationale": "Benchmark-local deterministic proxy rewrite grounded in the extracted paper task.",
             }
         )
 
@@ -2217,6 +2318,11 @@ def rebuild_ehrflowbench() -> dict[str, int]:
             ],
             "datasets": pd.Series([task.metadata["dataset"] for task in mapped_ehr_tasks]).value_counts().to_dict(),
             "paper_audit_summary": audit_summary,
+            "canonical_provenance_summary": {
+                "linkage_mode_counts": paper_map["linkage_mode"].value_counts().to_dict(),
+                "approval_status_counts": paper_map["approval_status"].value_counts().to_dict(),
+                "source_task_eligibility_counts": paper_map["source_task_eligibility"].value_counts().to_dict(),
+            },
         },
     )
     return {"eval": len(ehr_eval_tasks), "train": len(ehr_train_tasks)}

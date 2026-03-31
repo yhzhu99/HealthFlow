@@ -86,6 +86,9 @@ class BenchmarkRebuildTests(unittest.TestCase):
             self.assertTrue(row["source_paper_id"])
             self.assertTrue(row["source_paper_title"])
             self.assertFalse(str(row["source_paper_title"]).isdigit())
+            self.assertEqual(row["source_task_eligibility"], "proxy_candidate")
+            self.assertEqual(row["linkage_mode"], "task_proxy")
+            self.assertEqual(row["approval_status"], "seeded_for_human_review")
 
     def test_deterministic_comparators_and_file_eval(self):
         self.assertEqual(compare_json({"a": 1.0, "b": [2, 3]}, {"a": 1.0000001, "b": [2, 3]}, 1e-5)[0], True)
