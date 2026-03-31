@@ -196,22 +196,3 @@ def verification_guidance(task_family: str, domain_focus: str = "general") -> li
     if domain_focus == "ehr" and task_family in {"cohort_extraction", "predictive_modeling", "survival_analysis", "time_series_modeling"}:
         suggestions.append("For EHR-style workflows, keep cohort, split, and leakage evidence auditable when applicable.")
     return list(dict.fromkeys(suggestions))
-
-
-def required_report_sections(task_family: str, domain_focus: str = "general") -> list[str]:
-    task_sections = {
-        "report_generation": ["Task Summary", "Method", "Results"],
-        "cohort_extraction": ["Selection Logic"],
-        "predictive_modeling": ["Validation Strategy", "Metrics Summary"],
-        "survival_analysis": ["Temporal Validation", "Metrics Summary"],
-        "time_series_modeling": ["Temporal Validation", "Metrics Summary"],
-    }
-    sections = list(task_sections.get(task_family, []))
-    if domain_focus == "ehr":
-        if task_family == "cohort_extraction":
-            sections.insert(0, "Cohort Definition")
-        if task_family == "predictive_modeling":
-            sections.extend(["Cohort Definition", "Leakage Audit"])
-        if task_family in {"survival_analysis", "time_series_modeling"}:
-            sections.append("Cohort Definition")
-    return list(dict.fromkeys(sections))

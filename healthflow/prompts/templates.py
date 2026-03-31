@@ -94,54 +94,6 @@ Output format:
   "reasoning": "<short justification>"
 }
 """,
-    "evaluator_system_train": """
-You are an expert AI quality engineer for reproducible analysis systems. Provide a critical, objective training-mode evaluation with access to a reference answer. Respond ONLY with valid JSON.
-""",
-    "evaluator_user_train": """
-Evaluate the following task attempt in training mode.
-
-Original user request:
----
-{user_request}
----
-
-Executed plan:
----
-{task_list}
----
-
-Execution log:
----
-{execution_log}
----
-
-Reference answer:
----
-{reference_answer}
----
-
-Deterministic verification result:
----
-{verification_summary}
----
-
-Task metadata:
-- Task family: {task_family}
-- Domain focus: {domain_focus}
-
-Evaluation criteria:
-- Correctness vs reference (70%)
-- Approach quality (15%)
-- Safety and robustness (10%)
-- Verification alignment (5%)
-
-Output format:
-{
-  "score": <float>,
-  "feedback": "<specific feedback>",
-  "reasoning": "<short justification>"
-}
-""",
     "reflector_system": """
 You are a senior AI research scientist specializing in meta-learning and memory synthesis for analysis agents with healthcare-aware specialization. Analyze a task execution and distill reusable memories. Respond ONLY with valid JSON.
 """,

@@ -2,7 +2,7 @@ import json
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 import aiofiles
 from loguru import logger
@@ -10,13 +10,13 @@ from loguru import logger
 from ..core.llm_provider import LLMProvider
 from .experience_models import Experience
 from .experience_models import MemoryAuditEntry, MemoryLayer, MemoryRetrievalAudit, MemoryRetrievalResult
-from .experience_models import MemoryScoreBreakdown, ValidationStatus
+from .experience_models import MemoryScoreBreakdown, RetrievalContext, ValidationStatus
 
 
 class ExperienceManager:
     """
-    Manages the persistent storage and retrieval of structured experiences
-    using a JSONL file. This forms the system's long-term, evolving memory.
+    Manages persistent structured experiences and retrieves context-aware memory
+    for future runs.
     """
 
     def __init__(self, experience_path: Path, llm_provider: LLMProvider = None):
@@ -28,7 +28,6 @@ class ExperienceManager:
         logger.info("ExperienceManager initialized. Knowledge base at: {}", self.experience_path)
 
     async def save_experiences(self, experiences: List[Experience]):
-        """Append new experiences to the JSONL memory file."""
         if not experiences:
             return
 
@@ -39,7 +38,6 @@ class ExperienceManager:
         logger.info("Saved {} new experiences to the knowledge base.", len(experiences))
 
     async def reset(self):
-        """Truncate the memory file."""
         async with aiofiles.open(self.experience_path, mode="w", encoding="utf-8") as handle:
             await handle.write("")
         logger.info("Reset experience memory at {}", self.experience_path)
@@ -47,33 +45,108 @@ class ExperienceManager:
     async def retrieve_experiences(
         self,
         query: str,
-        task_family: str = "general",
-        dataset_signature: str = "unknown",
-        budgets: Dict[str, int] | None = None,
+        retrieval_context: RetrievalContext | None = None,
     ) -> MemoryRetrievalResult:
-        """Retrieve relevant memories and return a structured audit trail."""
-        budgets = budgets or {
-            MemoryLayer.STRATEGY.value: 3,
-            MemoryLayer.FAILURE.value: 2,
-            MemoryLayer.DATASET.value: 1,
-            MemoryLayer.ARTIFACT.value: 1,
-        }
+        context = retrieval_context or RetrievalContext()
+        capacity = self._target_retrieval_capacity(context)
         audit = MemoryRetrievalAudit(
             query=query,
-            task_family=task_family,
-            dataset_signature=dataset_signature,
-            budgets=budgets,
+            task_family=context.task_family,
+            domain_focus=context.domain_focus,
+            dataset_signature=context.dataset_signature,
+            capacity=capacity,
         )
-        audit.applied_precedence_rules.extend(
+        audit.selection_policy.extend(
             [
-                "Verified positive memories outrank unverified positive memories within the same layer.",
-                "Safety-critical failure memories override conflicting strategy memories when they share a conflict group.",
+                "Safety-critical and verifier-supported failure memories are selected first as guardrails.",
+                "At most one dataset-specific anchor memory is selected when an exact dataset match exists.",
+                "Verified strategy and artifact memories outrank unverified positive memories.",
+                "Safety-critical failure memories suppress conflicting non-failure memories.",
             ]
         )
         if not self.experience_path.exists() or self.experience_path.stat().st_size == 0:
             return MemoryRetrievalResult(selected_experiences=[], audit=audit)
 
-        all_experiences: List[Experience] = []
+        all_experiences = await self._load_all_experiences()
+        if not all_experiences:
+            return MemoryRetrievalResult(selected_experiences=[], audit=audit)
+
+        query_words = self._tokenize(query)
+        context_words = self._context_words(context)
+        scored_experiences: list[tuple[MemoryScoreBreakdown, Experience]] = []
+        for exp in all_experiences:
+            score = self._score_experience(exp, query_words, context_words, context)
+            if score.total_score > 0:
+                scored_experiences.append((score, exp))
+
+        scored_experiences.sort(
+            key=lambda item: (item[0].total_score, item[1].confidence, item[1].created_at),
+            reverse=True,
+        )
+        filtered_by_conflict = self._filter_conflicts(scored_experiences, audit)
+        grouped = self._group_by_layer(filtered_by_conflict)
+
+        selected: list[Experience] = []
+        selected_ids: set[int] = set()
+        blocked_conflict_groups: set[str] = set()
+
+        failure_candidates = grouped.get(MemoryLayer.FAILURE.value, [])
+        failure_slots = min(capacity, self._priority_failure_capacity(context))
+        selected_failures = self._select_priority_failures(failure_candidates, failure_slots)
+        for score, exp, rationale in selected_failures:
+            self._record_selection(audit, selected, selected_ids, exp, score, rationale)
+            if exp.safety_critical and exp.conflict_group:
+                blocked_conflict_groups.add(exp.conflict_group)
+
+        remaining_capacity = max(0, capacity - len(selected))
+        if remaining_capacity:
+            dataset_anchor = self._select_dataset_anchor(
+                grouped.get(MemoryLayer.DATASET.value, []),
+                selected_ids,
+                context,
+            )
+            if dataset_anchor:
+                score, exp, rationale = dataset_anchor
+                self._record_selection(audit, selected, selected_ids, exp, score, rationale)
+                remaining_capacity -= 1
+
+        if remaining_capacity:
+            verified_positive = self._select_positive_memories(
+                filtered_by_conflict,
+                selected_ids,
+                blocked_conflict_groups,
+                remaining_capacity,
+                require_verified=True,
+                audit=audit,
+            )
+            for score, exp, rationale in verified_positive:
+                self._record_selection(audit, selected, selected_ids, exp, score, rationale)
+            remaining_capacity -= len(verified_positive)
+
+        if remaining_capacity:
+            fallback_positive = self._select_positive_memories(
+                filtered_by_conflict,
+                selected_ids,
+                blocked_conflict_groups,
+                remaining_capacity,
+                require_verified=False,
+                audit=audit,
+            )
+            for score, exp, rationale in fallback_positive:
+                self._record_selection(audit, selected, selected_ids, exp, score, rationale)
+
+        self._record_remaining_suppressions(filtered_by_conflict, selected_ids, blocked_conflict_groups, audit)
+
+        logger.debug(
+            "Retrieved {} memories for task_family='{}' dataset_signature='{}'",
+            len(selected),
+            context.task_family,
+            context.dataset_signature,
+        )
+        return MemoryRetrievalResult(selected_experiences=selected, audit=audit)
+
+    async def _load_all_experiences(self) -> list[Experience]:
+        all_experiences: list[Experience] = []
         async with aiofiles.open(self.experience_path, mode="r", encoding="utf-8") as handle:
             async for line in handle:
                 if not line.strip():
@@ -82,29 +155,20 @@ class ExperienceManager:
                     all_experiences.append(Experience(**json.loads(line)))
                 except (json.JSONDecodeError, TypeError, ValueError) as exc:
                     logger.warning("Skipping corrupted line in experience.jsonl: {}", exc)
+        return all_experiences
 
-        if not all_experiences:
-            return MemoryRetrievalResult(selected_experiences=[], audit=audit)
-
-        query_words = set(re.findall(r"\b\w+\b", query.lower()))
-        scored_experiences: list[tuple[MemoryScoreBreakdown, Experience]] = []
-        for exp in all_experiences:
-            score = self._score_experience(exp, query_words, task_family, dataset_signature)
-            if score.total_score > 0:
-                scored_experiences.append((score, exp))
-
-        scored_experiences.sort(
-            key=lambda item: (item[0].total_score, item[1].confidence, item[1].created_at),
-            reverse=True,
-        )
-
-        filtered_by_conflict: list[tuple[MemoryScoreBreakdown, Experience]] = []
+    def _filter_conflicts(
+        self,
+        scored_experiences: list[tuple[MemoryScoreBreakdown, Experience]],
+        audit: MemoryRetrievalAudit,
+    ) -> list[tuple[MemoryScoreBreakdown, Experience]]:
+        filtered: list[tuple[MemoryScoreBreakdown, Experience]] = []
         seen_conflicts: dict[str, Experience] = {}
         for score, exp in scored_experiences:
             if exp.conflict_group and exp.conflict_group in seen_conflicts:
                 existing = seen_conflicts[exp.conflict_group]
                 if self._allow_safety_override_pair(existing, exp):
-                    filtered_by_conflict.append((score, exp))
+                    filtered.append((score, exp))
                     continue
                 audit.suppressed_conflicts.append(
                     self._make_audit_entry(
@@ -115,52 +179,92 @@ class ExperienceManager:
                     )
                 )
                 continue
-            filtered_by_conflict.append((score, exp))
+            filtered.append((score, exp))
             if exp.conflict_group:
                 seen_conflicts[exp.conflict_group] = exp
+        return filtered
 
-        grouped: Dict[str, list[tuple[MemoryScoreBreakdown, Experience]]] = defaultdict(list)
+    def _group_by_layer(
+        self,
+        filtered_by_conflict: list[tuple[MemoryScoreBreakdown, Experience]],
+    ) -> dict[str, list[tuple[MemoryScoreBreakdown, Experience]]]:
+        grouped: dict[str, list[tuple[MemoryScoreBreakdown, Experience]]] = defaultdict(list)
         for score, exp in filtered_by_conflict:
             grouped[exp.layer.value].append((score, exp))
+        return grouped
 
-        selected: list[Experience] = []
-        selected_ids: set[int] = set()
-        blocked_conflict_groups: set[str] = set()
+    def _target_retrieval_capacity(self, context: RetrievalContext) -> int:
+        capacity = 3
+        if context.dataset_signature != "unknown":
+            capacity += 1
+        if context.domain_focus == "ehr":
+            capacity += 1
+        if context.risk_findings:
+            capacity += 1
+        if len(context.verification_targets) >= 3:
+            capacity += 1
+        return min(capacity, 6)
 
-        failure_budget = budgets.get(MemoryLayer.FAILURE.value, 0)
-        failure_candidates = grouped.get(MemoryLayer.FAILURE.value, [])
-        selected_failures = self._select_for_layer(MemoryLayer.FAILURE.value, failure_candidates, failure_budget)
-        selected_failure_ids = {id(exp) for _, exp, _ in selected_failures}
-        for score, exp, rationale in selected_failures:
-            selected.append(exp)
-            selected_ids.add(id(exp))
-            if exp.safety_critical and exp.conflict_group:
-                blocked_conflict_groups.add(exp.conflict_group)
-            audit.selected.append(
-                self._make_audit_entry(
-                    exp,
-                    score,
-                    disposition="selected",
-                    rationale=rationale,
-                )
+    def _priority_failure_capacity(self, context: RetrievalContext) -> int:
+        if context.domain_focus == "ehr" or len(context.risk_findings) >= 2:
+            return 2
+        return 1
+
+    def _select_priority_failures(
+        self,
+        candidates: list[tuple[MemoryScoreBreakdown, Experience]],
+        limit: int,
+    ) -> list[tuple[MemoryScoreBreakdown, Experience, str]]:
+        prioritized = [
+            (score, exp)
+            for score, exp in candidates
+            if exp.safety_critical or exp.verifier_supported or exp.applicability_scope == "safety_global"
+        ]
+        if not prioritized:
+            prioritized = candidates[:1] if candidates and limit > 0 else []
+        return [
+            (
+                score,
+                exp,
+                "Selected as a high-priority failure guardrail for the upcoming run.",
             )
-        for score, exp in failure_candidates:
-            if id(exp) not in selected_failure_ids:
-                audit.suppressed_by_budget.append(
-                    self._make_audit_entry(
-                        exp,
-                        score,
-                        disposition="suppressed_budget",
-                        rationale="Not selected because the failure-memory budget was exhausted or a stronger safety-critical failure memory was available.",
-                    )
-                )
+            for score, exp in prioritized[:limit]
+        ]
 
-        for layer_name in [MemoryLayer.STRATEGY.value, MemoryLayer.DATASET.value, MemoryLayer.ARTIFACT.value]:
-            layer_budget = budgets.get(layer_name, 0)
-            layer_candidates = grouped.get(layer_name, [])
-            allowed_candidates: list[tuple[MemoryScoreBreakdown, Experience]] = []
-            for score, exp in layer_candidates:
-                if exp.conflict_group and exp.conflict_group in blocked_conflict_groups:
+    def _select_dataset_anchor(
+        self,
+        candidates: list[tuple[MemoryScoreBreakdown, Experience]],
+        selected_ids: set[int],
+        context: RetrievalContext,
+    ) -> tuple[MemoryScoreBreakdown, Experience, str] | None:
+        if context.dataset_signature == "unknown":
+            return None
+        for score, exp in candidates:
+            if id(exp) in selected_ids:
+                continue
+            if exp.dataset_signature == context.dataset_signature or exp.applicability_scope == "dataset_exact":
+                return (
+                    score,
+                    exp,
+                    "Selected as the dataset-specific anchor memory for this run.",
+                )
+        return None
+
+    def _select_positive_memories(
+        self,
+        filtered_by_conflict: list[tuple[MemoryScoreBreakdown, Experience]],
+        selected_ids: set[int],
+        blocked_conflict_groups: set[str],
+        limit: int,
+        require_verified: bool,
+        audit: MemoryRetrievalAudit,
+    ) -> list[tuple[MemoryScoreBreakdown, Experience, str]]:
+        selected: list[tuple[MemoryScoreBreakdown, Experience, str]] = []
+        for score, exp in filtered_by_conflict:
+            if exp.layer == MemoryLayer.FAILURE or id(exp) in selected_ids:
+                continue
+            if exp.conflict_group and exp.conflict_group in blocked_conflict_groups:
+                if not any(entry.source_task_id == exp.source_task_id for entry in audit.safety_overrides):
                     audit.safety_overrides.append(
                         self._make_audit_entry(
                             exp,
@@ -169,68 +273,70 @@ class ExperienceManager:
                             rationale=f"Suppressed because a safety-critical failure memory already occupies conflict group '{exp.conflict_group}'.",
                         )
                     )
-                    continue
-                allowed_candidates.append((score, exp))
+                continue
+            if require_verified and exp.validation_status != ValidationStatus.VERIFIED:
+                continue
+            if not require_verified and exp.validation_status == ValidationStatus.VERIFIED:
+                continue
+            if exp.validation_status == ValidationStatus.FAILED:
+                continue
+            rationale = (
+                f"Selected from verified {exp.layer.value} memory."
+                if require_verified
+                else f"Selected as unverified {exp.layer.value} fallback after higher-confidence memory was exhausted."
+            )
+            selected.append((score, exp, rationale))
+            if len(selected) >= limit:
+                break
+        return selected
 
-            selected_for_layer = self._select_for_layer(layer_name, allowed_candidates, layer_budget)
-            selected_layer_ids = {id(exp) for _, exp, _ in selected_for_layer}
-            for score, exp, rationale in selected_for_layer:
-                selected.append(exp)
-                selected_ids.add(id(exp))
-                audit.selected.append(
-                    self._make_audit_entry(
-                        exp,
-                        score,
-                        disposition="selected",
-                        rationale=rationale,
-                    )
+    def _record_remaining_suppressions(
+        self,
+        filtered_by_conflict: list[tuple[MemoryScoreBreakdown, Experience]],
+        selected_ids: set[int],
+        blocked_conflict_groups: set[str],
+        audit: MemoryRetrievalAudit,
+    ) -> None:
+        for score, exp in filtered_by_conflict:
+            if id(exp) in selected_ids:
+                continue
+            if exp.conflict_group and exp.conflict_group in blocked_conflict_groups:
+                continue
+            audit.suppressed.append(
+                self._make_audit_entry(
+                    exp,
+                    score,
+                    disposition="suppressed",
+                    rationale="Not selected by the adaptive retrieval controller after higher-priority memories consumed the available capacity.",
                 )
+            )
 
-            for score, exp in allowed_candidates:
-                if id(exp) not in selected_layer_ids:
-                    audit.suppressed_by_budget.append(
-                        self._make_audit_entry(
-                            exp,
-                            score,
-                            disposition="suppressed_budget",
-                            rationale=f"Not selected because the '{layer_name}' layer budget was exhausted or a stronger verified memory was available.",
-                        )
-                    )
-
-        target_count = sum(budgets.values())
-        if len(selected) < target_count:
-            for score, exp in filtered_by_conflict:
-                if exp.layer == MemoryLayer.FAILURE or id(exp) in selected_ids:
-                    continue
-                if exp.conflict_group and exp.conflict_group in blocked_conflict_groups:
-                    continue
-                selected.append(exp)
-                selected_ids.add(id(exp))
-                audit.selected.append(
-                    self._make_audit_entry(
-                        exp,
-                        score,
-                        disposition="selected",
-                        rationale="Selected as cross-layer fallback after the primary layer budgets left free capacity.",
-                    )
-                )
-                if len(selected) >= target_count:
-                    break
-
-        logger.debug(
-            "Retrieved {} memories for task_family='{}' dataset_signature='{}'",
-            len(selected),
-            task_family,
-            dataset_signature,
+    def _record_selection(
+        self,
+        audit: MemoryRetrievalAudit,
+        selected: list[Experience],
+        selected_ids: set[int],
+        exp: Experience,
+        score: MemoryScoreBreakdown,
+        rationale: str,
+    ) -> None:
+        selected.append(exp)
+        selected_ids.add(id(exp))
+        audit.selected.append(
+            self._make_audit_entry(
+                exp,
+                score,
+                disposition="selected",
+                rationale=rationale,
+            )
         )
-        return MemoryRetrievalResult(selected_experiences=selected, audit=audit)
 
     def _score_experience(
         self,
         exp: Experience,
         query_words: set[str],
-        task_family: str,
-        dataset_signature: str,
+        context_words: set[str],
+        context: RetrievalContext,
     ) -> MemoryScoreBreakdown:
         exp_words = set(
             re.findall(
@@ -247,9 +353,10 @@ class ExperienceManager:
             )
         )
         overlap_score = len(query_words.intersection(exp_words))
-        task_family_bonus = 4 if exp.task_family == task_family else 0
-        dataset_bonus = 3 if dataset_signature != "unknown" and exp.dataset_signature == dataset_signature else 0
-        applicability_bonus = self._applicability_bonus(exp, task_family, dataset_signature)
+        context_bonus = min(3, len(context_words.intersection(exp_words)))
+        task_family_bonus = 4 if exp.task_family == context.task_family else 0
+        dataset_bonus = 3 if context.dataset_signature != "unknown" and exp.dataset_signature == context.dataset_signature else 0
+        applicability_bonus = self._applicability_bonus(exp, context.task_family, context.dataset_signature)
         confidence_bonus = round(exp.confidence, 2)
         recency_bonus = 1 if exp.created_at else 0
         validation_bonus = self._validation_bonus(exp)
@@ -260,6 +367,7 @@ class ExperienceManager:
             + task_family_bonus
             + dataset_bonus
             + applicability_bonus
+            + context_bonus
             + validation_bonus
             + verifier_bonus
             + safety_bonus
@@ -271,6 +379,7 @@ class ExperienceManager:
             task_family_bonus=task_family_bonus,
             dataset_bonus=dataset_bonus,
             applicability_bonus=applicability_bonus,
+            context_bonus=context_bonus,
             validation_bonus=validation_bonus,
             verifier_bonus=verifier_bonus,
             safety_bonus=safety_bonus,
@@ -278,6 +387,20 @@ class ExperienceManager:
             recency_bonus=recency_bonus,
             total_score=round(total_score, 2),
         )
+
+    def _context_words(self, context: RetrievalContext) -> set[str]:
+        joined = " ".join(
+            [
+                context.task_family,
+                context.domain_focus,
+                " ".join(context.risk_findings),
+                " ".join(context.verification_targets),
+            ]
+        )
+        return self._tokenize(joined)
+
+    def _tokenize(self, text: str) -> set[str]:
+        return set(re.findall(r"\b\w+\b", text.lower()))
 
     def _applicability_bonus(self, exp: Experience, task_family: str, dataset_signature: str) -> int:
         if exp.applicability_scope == "dataset_exact":
@@ -292,9 +415,8 @@ class ExperienceManager:
 
     def _allow_safety_override_pair(self, existing: Experience, candidate: Experience) -> bool:
         return (
-            existing.layer == MemoryLayer.FAILURE
-            and existing.safety_critical
-            and candidate.layer != MemoryLayer.FAILURE
+            (existing.layer == MemoryLayer.FAILURE and existing.safety_critical and candidate.layer != MemoryLayer.FAILURE)
+            or (candidate.layer == MemoryLayer.FAILURE and candidate.safety_critical and existing.layer != MemoryLayer.FAILURE)
         )
 
     def _validation_bonus(self, exp: Experience) -> int:
@@ -309,55 +431,6 @@ class ExperienceManager:
             ValidationStatus.UNVERIFIED: 1,
             ValidationStatus.FAILED: -2,
         }[exp.validation_status]
-
-    def _select_for_layer(
-        self,
-        layer_name: str,
-        layer_candidates: list[tuple[MemoryScoreBreakdown, Experience]],
-        layer_budget: int,
-    ) -> list[tuple[MemoryScoreBreakdown, Experience, str]]:
-        if layer_budget <= 0 or not layer_candidates:
-            return []
-
-        if layer_name == MemoryLayer.FAILURE.value:
-            return [
-                (
-                    score,
-                    exp,
-                    "Selected within the failure budget to guide future error avoidance.",
-                )
-                for score, exp in layer_candidates[:layer_budget]
-            ]
-
-        verified_candidates = [
-            (score, exp)
-            for score, exp in layer_candidates
-            if exp.validation_status == ValidationStatus.VERIFIED
-        ]
-        fallback_candidates = [
-            (score, exp)
-            for score, exp in layer_candidates
-            if exp.validation_status == ValidationStatus.UNVERIFIED
-        ]
-        selected: list[tuple[MemoryScoreBreakdown, Experience, str]] = [
-            (
-                score,
-                exp,
-                f"Selected from verified {layer_name} memory.",
-            )
-            for score, exp in verified_candidates[:layer_budget]
-        ]
-        remaining_slots = layer_budget - len(selected)
-        if remaining_slots > 0:
-            selected.extend(
-                (
-                    score,
-                    exp,
-                    f"Selected as unverified fallback because the verified {layer_name} pool was smaller than the layer budget.",
-                )
-                for score, exp in fallback_candidates[:remaining_slots]
-            )
-        return selected
 
     def _make_audit_entry(
         self,

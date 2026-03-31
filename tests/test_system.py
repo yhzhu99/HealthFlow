@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from healthflow.core.config import EHRConfig, EvaluationConfig, ExecutorConfig, HealthFlowConfig
+from healthflow.core.config import EvaluationConfig, ExecutorConfig, HealthFlowConfig
 from healthflow.core.config import LLMProviderConfig, LLMRoleConfig, LoggingConfig, MemoryConfig, SystemConfig
-from healthflow.core.config import VerificationConfig, default_executor_backends
+from healthflow.core.config import default_executor_backends
 from healthflow.execution.base import ExecutionResult
 from healthflow.system import HealthFlowSystem
 
@@ -75,9 +75,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 llm_roles=LLMRoleConfig(),
                 system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(mode="frozen_train"),
-                ehr=EHRConfig(),
-                verification=VerificationConfig(),
+                memory=MemoryConfig(write_policy="freeze"),
                 evaluation=EvaluationConfig(success_threshold=8.0),
                 logging=LoggingConfig(),
             )
@@ -105,7 +103,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
             run_result = json.loads(Path(result["run_result_path"]).read_text(encoding="utf-8"))
             self.assertEqual(run_result["backend"], "claude_code")
-            self.assertEqual(run_result["memory_mode"], "frozen_train")
+            self.assertEqual(run_result["memory_write_policy"], "freeze")
 
 
 if __name__ == "__main__":

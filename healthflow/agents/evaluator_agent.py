@@ -23,36 +23,20 @@ class EvaluatorAgent:
         verification_summary: str,
         task_family: str = "general_analysis",
         domain_focus: str = "general",
-        train_mode: bool = False,
-        reference_answer: str = None,
     ) -> dict:
         """
         Evaluates the task's code execution and returns a structured dictionary.
-        In train mode, uses reference_answer as ground truth for evaluation.
         """
-        if train_mode and reference_answer:
-            system_prompt = get_prompt("evaluator_system_train")
-            user_prompt = get_prompt("evaluator_user_train").format(
-                user_request=user_request,
-                task_list=task_list,
-                execution_log=execution_log,
-                reference_answer=reference_answer,
-                verification_summary=verification_summary,
-                task_family=task_family,
-                domain_focus=domain_focus,
-            )
-            logger.info("Requesting training mode evaluation from LLM with reference answer...")
-        else:
-            system_prompt = get_prompt("evaluator_system")
-            user_prompt = get_prompt("evaluator_user").format(
-                user_request=user_request,
-                task_list=task_list,
-                execution_log=execution_log,
-                verification_summary=verification_summary,
-                task_family=task_family,
-                domain_focus=domain_focus,
-            )
-            logger.info("Requesting code execution evaluation from LLM...")
+        system_prompt = get_prompt("evaluator_system")
+        user_prompt = get_prompt("evaluator_user").format(
+            user_request=user_request,
+            task_list=task_list,
+            execution_log=execution_log,
+            verification_summary=verification_summary,
+            task_family=task_family,
+            domain_focus=domain_focus,
+        )
+        logger.info("Requesting code execution evaluation from LLM...")
         
         messages = [
             LLMMessage(role="system", content=system_prompt),

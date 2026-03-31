@@ -17,10 +17,12 @@ from .agents.reflector_agent import ReflectorAgent
 from .core.config import HealthFlowConfig
 from .core.llm_provider import create_llm_provider
 from .ehr import deliverable_guidance, detect_risk_findings, profile_workspace_data, verification_guidance
+from .experience.experience_models import RetrievalContext
 from .execution import ExecutionContext, create_executor_adapter
 from .experience.experience_manager import ExperienceManager
 from .tools import ToolBroker
 from .verification import WorkspaceVerifier
+from .verification.contracts import resolve_verification_contract
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -55,7 +57,7 @@ class HealthFlowSystem:
         self.reflector = ReflectorAgent(provider_for("reflector"))
         self.executor = create_executor_adapter(config.active_executor_name, config.active_executor)
         self.tool_broker = ToolBroker()
-        self.verifier = WorkspaceVerifier(config.verification.required_report_sections)
+        self.verifier = WorkspaceVerifier()
 
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -65,15 +67,13 @@ class HealthFlowSystem:
         user_request: str,
         live: Optional[Live] = None,
         spinner: Optional[Spinner] = None,
-        train_mode: bool = False,
-        reference_answer: str = None,
         uploaded_files: Optional[Dict[str, bytes]] = None,
     ) -> dict:
         task_id = str(uuid.uuid4())
         task_workspace = self.workspace_dir / task_id
         task_workspace.mkdir(parents=True, exist_ok=True)
 
-        if self.config.memory.mode == "reset":
+        if self.config.memory.write_policy == "reset_before_run":
             await self.experience_manager.reset()
 
         if uploaded_files:
@@ -91,8 +91,6 @@ class HealthFlowSystem:
             user_request,
             live,
             spinner,
-            train_mode,
-            reference_answer,
         )
         execution_time = round(time.time() - start_time, 2)
         result["execution_time"] = execution_time
@@ -100,7 +98,7 @@ class HealthFlowSystem:
         result["backend"] = self.config.active_executor_name
         result["reasoning_model"] = self.config.llm_config_for_role("planner").model_name
         result["llm_role_models"] = self._role_model_names()
-        result["memory_mode"] = self.config.memory.mode
+        result["memory_write_policy"] = self.config.memory.write_policy
         result["run_result_path"] = str(task_workspace / "run_result.json")
         result["run_manifest_path"] = str(task_workspace / "run_manifest.json")
         self._write_json(
@@ -116,7 +114,7 @@ class HealthFlowSystem:
                 "backend": self.config.active_executor_name,
                 "reasoning_model": self.config.llm_config_for_role("planner").model_name,
                 "llm_role_models": result.get("llm_role_models"),
-                "memory_mode": self.config.memory.mode,
+                "memory_write_policy": self.config.memory.write_policy,
                 "backend_version": result.get("backend_version"),
                 "executor_metadata": result.get("executor_metadata"),
                 "usage_summary": result.get("usage_summary"),
@@ -137,32 +135,25 @@ class HealthFlowSystem:
         user_request: str,
         live: Optional[Live],
         spinner: Optional[Spinner],
-        train_mode: bool = False,
-        reference_answer: str = None,
     ) -> Dict[str, Any]:
         if spinner and live:
             spinner.text = "Profiling inputs and retrieving memory..."
 
-        data_profile = profile_workspace_data(
-            task_workspace,
-            user_request,
-            max_preview_rows=self.config.ehr.max_preview_rows,
-        )
+        data_profile = profile_workspace_data(task_workspace, user_request)
         risk_findings = detect_risk_findings(user_request, data_profile)
+        verification_contract = resolve_verification_contract(data_profile.task_family, data_profile.domain_focus)
         tool_bundle = self.tool_broker.select_bundle(data_profile.task_family, data_profile)
         suggested_deliverables = deliverable_guidance(data_profile.task_family, data_profile.domain_focus)
         verifier_guidance = verification_guidance(data_profile.task_family, data_profile.domain_focus)
-        memory_budgets = {
-            "strategy": self.config.memory.strategy_k,
-            "failure": self.config.memory.failure_k,
-            "dataset": self.config.memory.dataset_k,
-            "artifact": max(1, self.config.memory.retrieve_k - self.config.memory.strategy_k - self.config.memory.failure_k - self.config.memory.dataset_k),
-        }
         retrieval_result = await self.experience_manager.retrieve_experiences(
             user_request,
-            task_family=data_profile.task_family,
-            dataset_signature=data_profile.dataset_signature,
-            budgets=memory_budgets,
+            retrieval_context=RetrievalContext(
+                task_family=data_profile.task_family,
+                domain_focus=data_profile.domain_focus,
+                dataset_signature=data_profile.dataset_signature,
+                risk_findings=[item.to_bullet() for item in risk_findings],
+                verification_targets=verification_contract.verification_targets,
+            ),
         )
         retrieved_experiences = retrieval_result.selected_experiences
         memory_summary = self._summarize_retrieval_audit(retrieval_result.audit)
@@ -180,12 +171,13 @@ class HealthFlowSystem:
             "backend": self.config.active_executor_name,
             "reasoning_model": self.config.llm_config_for_role("planner").model_name,
             "llm_role_models": self._role_model_names(),
-            "memory_mode": self.config.memory.mode,
+            "memory_write_policy": self.config.memory.write_policy,
             "data_profile": data_profile.to_markdown(),
             "risk_findings": [item.to_bullet() for item in risk_findings],
             "tool_bundle": tool_bundle,
             "deliverable_guidance": suggested_deliverables,
             "verification_guidance": verifier_guidance,
+            "verification_targets": verification_contract.verification_targets,
             "memory_context_path": str(task_workspace / "memory_context.json"),
             "memory_retrieval": retrieval_result.audit.model_dump(mode="json"),
             "retrieved_experiences": [exp.model_dump() for exp in retrieved_experiences],
@@ -255,8 +247,6 @@ class HealthFlowSystem:
                 verification_summary=verification.summary(),
                 task_family=data_profile.task_family,
                 domain_focus=data_profile.domain_focus,
-                train_mode=train_mode,
-                reference_answer=reference_answer,
             )
             evaluation_usage = self._capture_agent_usage(self.evaluator)
 
@@ -286,18 +276,16 @@ class HealthFlowSystem:
                 "gate": {
                     "execution_ok": execution_result.success,
                     "evaluation_threshold_ok": evaluation["score"] >= self.config.evaluation.success_threshold,
-                    "verifier_required": self.config.verification.require_verifier_pass,
-                    "verifier_ok": verification.passed or not self.config.verification.require_verifier_pass,
+                    "verification_blocking_ok": verification.blocking_passed,
                 },
                 "evaluation": evaluation,
                 "evaluation_meta": evaluation_usage,
             }
             full_history["attempts"].append(attempt_history)
 
-            verification_passed = verification.passed
+            verification_passed = verification.blocking_passed
             passed_threshold = evaluation["score"] >= self.config.evaluation.success_threshold
-            verifier_gate_ok = verification.passed or not self.config.verification.require_verifier_pass
-            if execution_result.success and passed_threshold and verifier_gate_ok:
+            if execution_result.success and passed_threshold and verification.blocking_passed:
                 is_success = True
                 final_answer = self._extract_answer_from_workspace(task_workspace, execution_result.log, user_request)
                 final_summary = (
@@ -313,7 +301,7 @@ class HealthFlowSystem:
             )
             logger.warning("[{}] Attempt {} failed: {}", task_id, attempt_num, final_summary)
 
-        should_write_memory = self.config.memory.mode != "frozen_train"
+        should_write_memory = self.config.memory.write_policy != "freeze"
         if should_write_memory:
             if spinner and live:
                 spinner.text = "Synthesizing memory..."
@@ -346,6 +334,7 @@ class HealthFlowSystem:
             "task_family": data_profile.task_family,
             "dataset_signature": data_profile.dataset_signature,
             "verification_passed": verification_passed,
+            "memory_write_policy": self.config.memory.write_policy,
             "backend_version": last_execution.get("backend_version"),
             "executor_metadata": last_execution.get("executor_metadata"),
             "usage_summary": usage_summary,

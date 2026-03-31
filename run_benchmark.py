@@ -105,12 +105,9 @@ def _initialize_system(
     experience_path: Path,
     active_llm: str,
     active_executor: str | None,
-    memory_mode_override: str | None = None,
 ) -> HealthFlowSystem:
     try:
         config = get_config(config_path, active_llm, active_executor)
-        if memory_mode_override:
-            config.memory.mode = memory_mode_override
         setup_logging(config)
         return HealthFlowSystem(config=config, experience_path=experience_path)
     except (ValueError, FileNotFoundError) as exc:
@@ -131,7 +128,7 @@ async def run_benchmark_async(
             f"[bold cyan]HealthFlow Benchmarking[/bold cyan]\n\n"
             f"Dataset: {dataset_path}\n"
             f"Name: {dataset_name}\n"
-            f"Memory mode: frozen_train",
+            f"Memory write policy: from config",
             border_style="cyan",
         )
     )
@@ -147,7 +144,6 @@ async def run_benchmark_async(
         experience_path=experience_path,
         active_llm=active_llm,
         active_executor=active_executor,
-        memory_mode_override="frozen_train",
     )
 
     results_dir = Path("benchmark_results") / dataset_name / system.config.active_executor_name / active_llm
@@ -178,7 +174,7 @@ async def run_benchmark_async(
                     "workspace_path": None,
                     "backend": system.config.active_executor_name,
                     "reasoning_model": system.config.llm_config_for_role("planner").model_name,
-                    "memory_mode": system.config.memory.mode,
+                    "memory_write_policy": system.config.memory.write_policy,
                     "verification_passed": False,
                     "execution_time": 0.0,
                     "log_path": None,
@@ -203,7 +199,7 @@ async def run_benchmark_async(
                 "backend_version": result.get("backend_version"),
                 "executor_metadata": result.get("executor_metadata"),
                 "reasoning_model": result.get("reasoning_model"),
-                "memory_mode": result.get("memory_mode"),
+                "memory_write_policy": result.get("memory_write_policy"),
                 "usage_summary": result.get("usage_summary"),
                 "cost_summary": result.get("cost_summary"),
                 "execution_time": result.get("execution_time", 0.0),
@@ -247,7 +243,7 @@ async def run_benchmark_async(
         "average_execution_time": average_execution_time,
         "backend": system.config.active_executor_name,
         "reasoning_model": system.config.llm_config_for_role("planner").model_name,
-        "memory_mode": system.config.memory.mode,
+        "memory_write_policy": system.config.memory.write_policy,
         "total_llm_estimated_cost_usd": round(llm_cost_total, 8),
         "experience_path": str(experience_path),
         "results_file": str(results_file),
