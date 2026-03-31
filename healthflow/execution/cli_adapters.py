@@ -22,6 +22,7 @@ class CLISubprocessExecutor(ExecutorAdapter):
         prompt_file_path.write_text(prompt_text, encoding="utf-8")
 
         command_args = self._build_command(prompt_text)
+        backend_version = await self._capture_backend_version()
         log_file_path = working_dir / f"{self.backend_name}_execution.log"
         logger.info(
             "Executing backend '{}' in '{}': {}",
@@ -71,11 +72,14 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
                 command=command_args,
+                backend_version=backend_version,
+                executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
                 timed_out=timed_out,
                 usage={
                     "wall_time_seconds": duration_seconds,
                     "timed_out": timed_out,
+                    "prompt_bytes": len(prompt_text.encode("utf-8")),
                     "stdout_bytes": len(stdout_bytes),
                     "stderr_bytes": len(stderr_bytes),
                 },
@@ -93,9 +97,15 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
                 command=command_args,
+                backend_version=backend_version,
+                executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
                 timed_out=timed_out,
-                usage={"wall_time_seconds": duration_seconds, "timed_out": timed_out},
+                usage={
+                    "wall_time_seconds": duration_seconds,
+                    "timed_out": timed_out,
+                    "prompt_bytes": len(prompt_text.encode("utf-8")),
+                },
             )
 
     def _build_command(self, prompt_text: str) -> List[str]:
@@ -103,6 +113,33 @@ class CLISubprocessExecutor(ExecutorAdapter):
         if self.backend_config.prompt_mode == "append":
             command.append(prompt_text)
         return command
+
+    async def _capture_backend_version(self) -> str | None:
+        if not self.backend_config.version_args:
+            return None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                self.backend_config.binary,
+                *self.backend_config.version_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=5)
+            version_text = stdout_bytes.decode("utf-8", errors="replace").strip()
+            if not version_text:
+                version_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+            return version_text or None
+        except Exception:
+            return None
+
+    def _executor_metadata(self) -> dict:
+        return {
+            "binary": self.backend_config.binary,
+            "args": list(self.backend_config.args),
+            "prompt_mode": self.backend_config.prompt_mode,
+            "timeout_seconds": self.backend_config.timeout_seconds,
+            "version_args": list(self.backend_config.version_args),
+        }
 
     def _format_combined_log(self, stdout: str, stderr: str, timed_out: bool = False) -> str:
         lines: list[str] = []
@@ -132,4 +169,8 @@ class ClaudeCodeExecutor(CLISubprocessExecutor):
 
 
 class OpenCodeExecutor(CLISubprocessExecutor):
+    pass
+
+
+class PiExecutor(CLISubprocessExecutor):
     pass

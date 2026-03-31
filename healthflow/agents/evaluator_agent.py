@@ -11,6 +11,9 @@ class EvaluatorAgent:
     """
     def __init__(self, llm_provider: LLMProvider):
         self.llm_provider = llm_provider
+        self.last_usage: dict = {}
+        self.last_model_name: str = llm_provider.model_name
+        self.last_estimated_cost_usd: float | None = None
 
     async def evaluate(
         self,
@@ -54,10 +57,16 @@ class EvaluatorAgent:
     async def _get_evaluation(self, messages: list[LLMMessage]) -> dict:
         """Helper to call LLM and parse evaluation JSON."""
         response = await self.llm_provider.generate(messages, json_mode=True)
+        self.last_usage = response.usage
+        self.last_model_name = response.model_name
+        self.last_estimated_cost_usd = response.estimated_cost_usd
         try:
             eval_data = json.loads(response.content)
             # Basic validation
             if "score" in eval_data and "feedback" in eval_data and "reasoning" in eval_data:
+                eval_data["usage"] = response.usage
+                eval_data["judge_model"] = response.model_name
+                eval_data["estimated_cost_usd"] = response.estimated_cost_usd
                 logger.info(f"Evaluation received successfully. Score: {eval_data['score']}")
                 return eval_data
             else:
@@ -69,5 +78,8 @@ class EvaluatorAgent:
             return {
                 "score": 1.0,
                 "feedback": "Evaluation Agent failed. The LLM's evaluation response was malformed or empty.",
-                "reasoning": "Fallback due to a JSON parsing error."
+                "reasoning": "Fallback due to a JSON parsing error.",
+                "usage": response.usage,
+                "judge_model": response.model_name,
+                "estimated_cost_usd": response.estimated_cost_usd,
             }

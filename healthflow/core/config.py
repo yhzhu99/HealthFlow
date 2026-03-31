@@ -14,6 +14,14 @@ class LLMProviderConfig(BaseModel):
     base_url: str = Field(..., description="Base URL for the LLM API.")
     model_name: str = Field(..., description="Model name to use.")
     timeout: int = Field(180, description="Request timeout in seconds.")
+    input_cost_per_million_tokens: float | None = Field(
+        default=None,
+        description="Optional estimated input-token price in USD per 1M tokens.",
+    )
+    output_cost_per_million_tokens: float | None = Field(
+        default=None,
+        description="Optional estimated output-token price in USD per 1M tokens.",
+    )
 
 
 class BackendCLIConfig(BaseModel):
@@ -23,6 +31,7 @@ class BackendCLIConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     prompt_mode: Literal["append", "stdin"] = "append"
     timeout_seconds: int = 900
+    version_args: List[str] = Field(default_factory=lambda: ["--version"])
 
 
 class SystemConfig(BaseModel):
@@ -45,6 +54,11 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
         ),
         "opencode": BackendCLIConfig(
             binary="opencode",
+            args=[],
+            prompt_mode="append",
+        ),
+        "pi": BackendCLIConfig(
+            binary="pi",
             args=[],
             prompt_mode="append",
         ),

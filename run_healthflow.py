@@ -43,9 +43,12 @@ def _display_task_result(result: dict):
 
 ---
 [bold]Backend:[/bold] {result.get('backend', 'N/A')}
+[bold]Backend Version:[/bold] {result.get('backend_version', 'N/A')}
 [bold]Reasoning Model:[/bold] {result.get('reasoning_model', 'N/A')}
 [bold]Memory Mode:[/bold] {result.get('memory_mode', 'N/A')}
 [bold]Verification Passed:[/bold] {result.get('verification_passed', False)}
+[bold]Usage Summary:[/bold] {result.get('usage_summary', {})}
+[bold]Cost Summary:[/bold] {result.get('cost_summary', {})}
 [bold]Log Path:[/bold] {result.get('log_path', 'N/A')}
 [bold]Verification JSON:[/bold] {result.get('verification_path', 'N/A')}
 [bold]Memory Context:[/bold] {result.get('memory_context_path', 'N/A')}

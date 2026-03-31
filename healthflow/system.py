@@ -106,6 +106,10 @@ class HealthFlowSystem:
                 "backend": self.config.active_executor_name,
                 "reasoning_model": self.config.llm.model_name,
                 "memory_mode": self.config.memory.mode,
+                "backend_version": result.get("backend_version"),
+                "executor_metadata": result.get("executor_metadata"),
+                "usage_summary": result.get("usage_summary"),
+                "cost_summary": result.get("cost_summary"),
                 "execution_time": execution_time,
                 "verification_passed": result.get("verification_passed", False),
                 "success": result.get("success", False),
@@ -177,6 +181,7 @@ class HealthFlowSystem:
         verification_passed = False
         final_answer = "No answer generated."
         final_summary = "Task failed to complete within the allowed attempts."
+        reflection_usage = None
 
         for attempt in range(self.config.system.max_retries + 1):
             attempt_num = attempt + 1
@@ -194,6 +199,7 @@ class HealthFlowSystem:
                 output_contract=expected_outputs,
                 previous_feedback=previous_feedback,
             )
+            planning_usage = self._capture_agent_usage(self.meta_agent)
             task_list_path = task_workspace / f"task_list_v{attempt_num}.md"
             task_list_path.write_text(task_list_md, encoding="utf-8")
 
@@ -235,10 +241,12 @@ class HealthFlowSystem:
                 train_mode=train_mode,
                 reference_answer=reference_answer,
             )
+            evaluation_usage = self._capture_agent_usage(self.evaluator)
 
             attempt_history = {
                 "attempt": attempt_num,
                 "task_list": task_list_md,
+                "planning": planning_usage,
                 "execution": {
                     "success": execution_result.success,
                     "return_code": execution_result.return_code,
@@ -246,6 +254,8 @@ class HealthFlowSystem:
                     "log_path": execution_result.log_path,
                     "prompt_path": execution_result.prompt_path,
                     "backend": execution_result.backend,
+                    "backend_version": execution_result.backend_version,
+                    "executor_metadata": execution_result.executor_metadata,
                     "command": execution_result.command,
                     "duration_seconds": execution_result.duration_seconds,
                     "timed_out": execution_result.timed_out,
@@ -263,6 +273,7 @@ class HealthFlowSystem:
                     "verifier_ok": verification.passed or not self.config.verification.require_verifier_pass,
                 },
                 "evaluation": evaluation,
+                "evaluation_meta": evaluation_usage,
             }
             full_history["attempts"].append(attempt_history)
 
@@ -293,9 +304,12 @@ class HealthFlowSystem:
                 full_history,
                 verified=is_success and verification_passed,
             )
+            reflection_usage = self._capture_agent_usage(self.reflector)
             if new_experiences:
                 await self.experience_manager.save_experiences(new_experiences)
                 full_history["new_experiences"] = [exp.model_dump() for exp in new_experiences]
+        if reflection_usage:
+            full_history["reflection"] = reflection_usage
 
         history_path = task_workspace / "full_history.json"
         self._write_json(history_path, full_history)
@@ -304,6 +318,9 @@ class HealthFlowSystem:
                 task_workspace / "verification.json",
                 full_history["attempts"][-1]["verification"],
             )
+        last_execution = full_history["attempts"][-1]["execution"] if full_history["attempts"] else {}
+        usage_summary = self._summarize_run_usage(full_history["attempts"], reflection_usage)
+        cost_summary = self._summarize_run_costs(usage_summary)
 
         return {
             "success": is_success,
@@ -312,6 +329,10 @@ class HealthFlowSystem:
             "task_family": data_profile.task_family,
             "dataset_signature": data_profile.dataset_signature,
             "verification_passed": verification_passed,
+            "backend_version": last_execution.get("backend_version"),
+            "executor_metadata": last_execution.get("executor_metadata"),
+            "usage_summary": usage_summary,
+            "cost_summary": cost_summary,
             "log_path": full_history["attempts"][-1]["execution"]["log_path"] if full_history["attempts"] else None,
             "prompt_path": full_history["attempts"][-1]["execution"]["prompt_path"] if full_history["attempts"] else None,
             "verification_path": str(task_workspace / "verification.json"),
@@ -380,3 +401,85 @@ class HealthFlowSystem:
     def _write_json(self, path: Path, payload: Any) -> None:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, cls=DateTimeEncoder)
+
+    def _capture_agent_usage(self, agent: Any) -> dict:
+        usage = getattr(agent, "last_usage", {}) or {}
+        return {
+            "model_name": getattr(agent, "last_model_name", self.config.llm.model_name),
+            "usage": usage,
+            "estimated_cost_usd": getattr(agent, "last_estimated_cost_usd", None),
+        }
+
+    def _aggregate_component_records(self, records: list[dict[str, Any]]) -> dict:
+        if not records:
+            return {}
+        numeric_totals: dict[str, float] = {}
+        models: list[str] = []
+        for record in records:
+            model_name = record.get("model_name")
+            if model_name and model_name not in models:
+                models.append(model_name)
+            usage = record.get("usage", {})
+            for key, value in usage.items():
+                if isinstance(value, bool):
+                    continue
+                if isinstance(value, (int, float)):
+                    numeric_totals[key] = numeric_totals.get(key, 0.0) + float(value)
+            estimated_cost = record.get("estimated_cost_usd")
+            if isinstance(estimated_cost, (int, float)):
+                numeric_totals["estimated_cost_usd"] = numeric_totals.get("estimated_cost_usd", 0.0) + float(estimated_cost)
+        aggregated = {
+            key: round(value, 8) if "cost" in key else round(value, 4)
+            for key, value in numeric_totals.items()
+        }
+        aggregated["calls"] = len(records)
+        if models:
+            aggregated["models"] = models
+        return aggregated
+
+    def _aggregate_execution_records(self, attempts: list[dict[str, Any]]) -> dict:
+        if not attempts:
+            return {}
+        totals: dict[str, float] = {}
+        versions: list[str] = []
+        for attempt in attempts:
+            execution = attempt.get("execution", {})
+            version = execution.get("backend_version")
+            if version and version not in versions:
+                versions.append(version)
+            for key, value in execution.get("usage", {}).items():
+                if isinstance(value, bool):
+                    continue
+                if isinstance(value, (int, float)):
+                    totals[key] = totals.get(key, 0.0) + float(value)
+        aggregated = {key: round(value, 4) for key, value in totals.items()}
+        aggregated["calls"] = len(attempts)
+        if versions:
+            aggregated["backend_versions"] = versions
+        return aggregated
+
+    def _summarize_run_usage(self, attempts: list[dict[str, Any]], reflection_usage: dict | None) -> dict:
+        planning_records = [attempt.get("planning", {}) for attempt in attempts if attempt.get("planning")]
+        evaluation_records = [attempt.get("evaluation_meta", {}) for attempt in attempts if attempt.get("evaluation_meta")]
+        summary = {
+            "planning": self._aggregate_component_records(planning_records),
+            "evaluation": self._aggregate_component_records(evaluation_records),
+            "execution": self._aggregate_execution_records(attempts),
+        }
+        if reflection_usage:
+            summary["reflection"] = self._aggregate_component_records([reflection_usage])
+        return summary
+
+    def _summarize_run_costs(self, usage_summary: dict[str, Any]) -> dict:
+        total_estimated_cost_usd = 0.0
+        has_cost = False
+        for component in ["planning", "evaluation", "reflection"]:
+            component_cost = usage_summary.get(component, {}).get("estimated_cost_usd")
+            if isinstance(component_cost, (int, float)):
+                total_estimated_cost_usd += float(component_cost)
+                has_cost = True
+        return {
+            "llm_estimated_cost_usd": round(total_estimated_cost_usd, 8) if has_cost else None,
+            "executor_estimated_cost_usd": None,
+            "total_estimated_cost_usd": round(total_estimated_cost_usd, 8) if has_cost else None,
+        }
