@@ -101,6 +101,7 @@ class HealthFlowSystem:
         result["memory_write_policy"] = self.config.memory.write_policy
         result["run_result_path"] = str(task_workspace / "run_result.json")
         result["run_manifest_path"] = str(task_workspace / "run_manifest.json")
+        result["cost_analysis_path"] = str(task_workspace / "cost_analysis.json")
         self._write_json(
             task_workspace / "run_result.json",
             result,
@@ -119,6 +120,7 @@ class HealthFlowSystem:
                 "executor_metadata": result.get("executor_metadata"),
                 "usage_summary": result.get("usage_summary"),
                 "cost_summary": result.get("cost_summary"),
+                "cost_analysis_path": result.get("cost_analysis_path"),
                 "execution_time": execution_time,
                 "verification_passed": result.get("verification_passed", False),
                 "success": result.get("success", False),
@@ -267,6 +269,7 @@ class HealthFlowSystem:
                     "duration_seconds": execution_result.duration_seconds,
                     "timed_out": execution_result.timed_out,
                     "usage": execution_result.usage,
+                    "telemetry": execution_result.telemetry,
                 },
                 "verification": {
                     "passed": verification.passed,
@@ -326,6 +329,8 @@ class HealthFlowSystem:
         last_execution = full_history["attempts"][-1]["execution"] if full_history["attempts"] else {}
         usage_summary = self._summarize_run_usage(full_history["attempts"], reflection_usage)
         cost_summary = self._summarize_run_costs(usage_summary)
+        cost_analysis = self._summarize_cost_analysis(full_history["attempts"], usage_summary, cost_summary, reflection_usage)
+        self._write_json(task_workspace / "cost_analysis.json", cost_analysis)
 
         return {
             "success": is_success,
@@ -339,6 +344,7 @@ class HealthFlowSystem:
             "executor_metadata": last_execution.get("executor_metadata"),
             "usage_summary": usage_summary,
             "cost_summary": cost_summary,
+            "cost_analysis": cost_analysis,
             "log_path": full_history["attempts"][-1]["execution"]["log_path"] if full_history["attempts"] else None,
             "prompt_path": full_history["attempts"][-1]["execution"]["prompt_path"] if full_history["attempts"] else None,
             "verification_path": str(task_workspace / "verification.json"),
@@ -472,6 +478,10 @@ class HealthFlowSystem:
             return {}
         totals: dict[str, float] = {}
         versions: list[str] = []
+        session_ids: list[str] = []
+        models: list[str] = []
+        tool_names: list[str] = []
+        step_reasons: dict[str, int] = {}
         for attempt in attempts:
             execution = attempt.get("execution", {})
             version = execution.get("backend_version")
@@ -482,10 +492,34 @@ class HealthFlowSystem:
                     continue
                 if isinstance(value, (int, float)):
                     totals[key] = totals.get(key, 0.0) + float(value)
-        aggregated = {key: round(value, 4) for key, value in totals.items()}
+            telemetry = execution.get("telemetry", {})
+            session_id = telemetry.get("session_id")
+            if session_id and session_id not in session_ids:
+                session_ids.append(session_id)
+            for model_name in telemetry.get("models", []):
+                if model_name and model_name not in models:
+                    models.append(model_name)
+            for tool_name in telemetry.get("tool_names", []):
+                if tool_name and tool_name not in tool_names:
+                    tool_names.append(tool_name)
+            for reason, count in telemetry.get("step_reasons", {}).items():
+                if isinstance(count, int):
+                    step_reasons[reason] = step_reasons.get(reason, 0) + count
+        aggregated = {
+            key: round(value, 8) if "cost" in key else round(value, 4)
+            for key, value in totals.items()
+        }
         aggregated["calls"] = len(attempts)
         if versions:
             aggregated["backend_versions"] = versions
+        if session_ids:
+            aggregated["session_ids"] = session_ids
+        if models:
+            aggregated["models"] = models
+        if tool_names:
+            aggregated["tool_names"] = tool_names
+        if step_reasons:
+            aggregated["step_reasons"] = step_reasons
         return aggregated
 
     def _summarize_run_usage(self, attempts: list[dict[str, Any]], reflection_usage: dict | None) -> dict:
@@ -501,15 +535,72 @@ class HealthFlowSystem:
         return summary
 
     def _summarize_run_costs(self, usage_summary: dict[str, Any]) -> dict:
-        total_estimated_cost_usd = 0.0
-        has_cost = False
+        llm_estimated_cost_usd = 0.0
+        has_llm_cost = False
         for component in ["planning", "evaluation", "reflection"]:
             component_cost = usage_summary.get(component, {}).get("estimated_cost_usd")
             if isinstance(component_cost, (int, float)):
-                total_estimated_cost_usd += float(component_cost)
-                has_cost = True
+                llm_estimated_cost_usd += float(component_cost)
+                has_llm_cost = True
+        executor_estimated_cost_usd = usage_summary.get("execution", {}).get("estimated_cost_usd")
+        has_executor_cost = isinstance(executor_estimated_cost_usd, (int, float))
+        total_estimated_cost_usd = (
+            (llm_estimated_cost_usd if has_llm_cost else 0.0)
+            + (float(executor_estimated_cost_usd) if has_executor_cost else 0.0)
+        )
+        has_total_cost = has_llm_cost or has_executor_cost
         return {
-            "llm_estimated_cost_usd": round(total_estimated_cost_usd, 8) if has_cost else None,
-            "executor_estimated_cost_usd": None,
-            "total_estimated_cost_usd": round(total_estimated_cost_usd, 8) if has_cost else None,
+            "llm_estimated_cost_usd": round(llm_estimated_cost_usd, 8) if has_llm_cost else None,
+            "executor_estimated_cost_usd": round(float(executor_estimated_cost_usd), 8) if has_executor_cost else None,
+            "total_estimated_cost_usd": round(total_estimated_cost_usd, 8) if has_total_cost else None,
+        }
+
+    def _summarize_cost_analysis(
+        self,
+        attempts: list[dict[str, Any]],
+        usage_summary: dict[str, Any],
+        cost_summary: dict[str, Any],
+        reflection_usage: dict | None,
+    ) -> dict[str, Any]:
+        attempt_summaries: list[dict[str, Any]] = []
+        for attempt in attempts:
+            planning = self._aggregate_component_records([attempt.get("planning", {})]) if attempt.get("planning") else {}
+            evaluation = (
+                self._aggregate_component_records([attempt.get("evaluation_meta", {})])
+                if attempt.get("evaluation_meta")
+                else {}
+            )
+            execution = self._aggregate_execution_records([{"execution": attempt.get("execution", {})}])
+
+            attempt_total = 0.0
+            has_cost = False
+            for component in [planning, evaluation, execution]:
+                component_cost = component.get("estimated_cost_usd")
+                if isinstance(component_cost, (int, float)):
+                    attempt_total += float(component_cost)
+                    has_cost = True
+
+            attempt_summaries.append(
+                {
+                    "attempt": attempt.get("attempt"),
+                    "planning": planning,
+                    "execution": execution,
+                    "evaluation": evaluation,
+                    "attempt_total_estimated_cost_usd": round(attempt_total, 8) if has_cost else None,
+                }
+            )
+
+        run_total = {
+            "attempts": len(attempts),
+            "planning": usage_summary.get("planning", {}),
+            "execution": usage_summary.get("execution", {}),
+            "evaluation": usage_summary.get("evaluation", {}),
+            "reflection": usage_summary.get("reflection", {}) if reflection_usage else {},
+            "llm_estimated_cost_usd": cost_summary.get("llm_estimated_cost_usd"),
+            "executor_estimated_cost_usd": cost_summary.get("executor_estimated_cost_usd"),
+            "total_estimated_cost_usd": cost_summary.get("total_estimated_cost_usd"),
+        }
+        return {
+            "attempts": attempt_summaries,
+            "run_total": run_total,
         }
