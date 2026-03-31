@@ -32,6 +32,7 @@ HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
 - **Deterministic verifier**: success is gated by artifact checks such as cohort definition evidence, split evidence, audit artifacts, metrics files, and report sections.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
 - **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, and estimated LLM cost.
+- **Role-specific internal models**: planner, evaluator, and reflector can be configured against different reasoning models to reduce single-model coupling.
 
 ## Workspace Artifacts
 
@@ -124,6 +125,17 @@ Then edit `config.toml` with the reasoning-model API credentials you want to use
 
 If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for the active reasoning model in `config.toml`.
 
+To decouple the internal roles, set:
+
+```toml
+[llm_roles]
+planner = "deepseek-reasoner"
+evaluator = "openai"
+reflector = "deepseek-chat"
+```
+
+Any unset role falls back to `--active-llm`.
+
 ### Single Task
 
 ```bash
@@ -174,6 +186,7 @@ Results are written under `benchmark_results/<dataset>/<executor>/<reasoning_mod
 Main config sections:
 
 - `[llm.*]`: reasoning model providers
+- `[llm_roles]`: optional planner/evaluator/reflector model overrides
 - `[executor]`: default backend and CLI backend definitions
 - `[memory]`: retrieval budgets and memory mode
 - `[ehr]`: profiling controls
