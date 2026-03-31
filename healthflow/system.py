@@ -38,12 +38,21 @@ class HealthFlowSystem:
 
     def __init__(self, config: HealthFlowConfig, experience_path: Path):
         self.config = config
-        self.llm_provider = create_llm_provider(config.llm)
+        provider_cache: dict[tuple[str, str], Any] = {}
+
+        def provider_for(role: str):
+            role_config = config.llm_config_for_role(role)
+            provider_key = (role_config.base_url, role_config.model_name)
+            if provider_key not in provider_cache:
+                provider_cache[provider_key] = create_llm_provider(role_config)
+            return provider_cache[provider_key]
+
+        self.llm_provider = provider_for("planner")
         self.experience_manager = ExperienceManager(experience_path, self.llm_provider)
 
-        self.meta_agent = MetaAgent(self.llm_provider)
-        self.evaluator = EvaluatorAgent(self.llm_provider)
-        self.reflector = ReflectorAgent(self.llm_provider)
+        self.meta_agent = MetaAgent(provider_for("planner"))
+        self.evaluator = EvaluatorAgent(provider_for("evaluator"))
+        self.reflector = ReflectorAgent(provider_for("reflector"))
         self.executor = create_executor_adapter(config.active_executor_name, config.active_executor)
         self.tool_broker = ToolBroker()
         self.verifier = WorkspaceVerifier(config.verification.required_report_sections)
@@ -89,7 +98,8 @@ class HealthFlowSystem:
         result["execution_time"] = execution_time
         result["workspace_path"] = str(task_workspace)
         result["backend"] = self.config.active_executor_name
-        result["reasoning_model"] = self.config.llm.model_name
+        result["reasoning_model"] = self.config.llm_config_for_role("planner").model_name
+        result["llm_role_models"] = self._role_model_names()
         result["memory_mode"] = self.config.memory.mode
         result["run_result_path"] = str(task_workspace / "run_result.json")
         result["run_manifest_path"] = str(task_workspace / "run_manifest.json")
@@ -104,7 +114,8 @@ class HealthFlowSystem:
                 "user_request": user_request,
                 "workspace_path": str(task_workspace),
                 "backend": self.config.active_executor_name,
-                "reasoning_model": self.config.llm.model_name,
+                "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+                "llm_role_models": result.get("llm_role_models"),
                 "memory_mode": self.config.memory.mode,
                 "backend_version": result.get("backend_version"),
                 "executor_metadata": result.get("executor_metadata"),
@@ -165,7 +176,8 @@ class HealthFlowSystem:
             "task_family": data_profile.task_family,
             "dataset_signature": data_profile.dataset_signature,
             "backend": self.config.active_executor_name,
-            "reasoning_model": self.config.llm.model_name,
+            "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+            "llm_role_models": self._role_model_names(),
             "memory_mode": self.config.memory.mode,
             "data_profile": data_profile.to_markdown(),
             "risk_findings": [item.to_bullet() for item in risk_findings],
@@ -418,6 +430,13 @@ class HealthFlowSystem:
     def _write_json(self, path: Path, payload: Any) -> None:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, cls=DateTimeEncoder)
+
+    def _role_model_names(self) -> dict[str, str]:
+        return {
+            "planner": getattr(self.meta_agent, "last_model_name", self.config.llm_config_for_role("planner").model_name),
+            "evaluator": getattr(self.evaluator, "last_model_name", self.config.llm_config_for_role("evaluator").model_name),
+            "reflector": getattr(self.reflector, "last_model_name", self.config.llm_config_for_role("reflector").model_name),
+        }
 
     def _capture_agent_usage(self, agent: Any) -> dict:
         usage = getattr(agent, "last_usage", {}) or {}
