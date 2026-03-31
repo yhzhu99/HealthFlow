@@ -3,7 +3,7 @@ from pathlib import Path
 
 from healthflow.core.config import BackendCLIConfig
 from healthflow.execution.base import ExecutionContext
-from healthflow.execution.cli_adapters import CLISubprocessExecutor, ClaudeCodeExecutor, PiExecutor
+from healthflow.execution.cli_adapters import CLISubprocessExecutor, ClaudeCodeExecutor, CodexExecutor, PiExecutor
 from healthflow.execution.factory import create_executor_adapter
 
 
@@ -22,6 +22,13 @@ class ExecutionFactoryTests(unittest.TestCase):
         )
         self.assertIsInstance(executor, CLISubprocessExecutor)
         self.assertNotIsInstance(executor, ClaudeCodeExecutor)
+
+    def test_codex_backend_uses_specialized_executor(self):
+        executor = create_executor_adapter(
+            "codex",
+            BackendCLIConfig(binary="codex", args=["exec"], prompt_mode="stdin"),
+        )
+        self.assertIsInstance(executor, CodexExecutor)
 
     def test_pi_backend_uses_pi_executor(self):
         executor = create_executor_adapter(

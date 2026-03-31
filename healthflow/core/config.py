@@ -56,6 +56,17 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
             args=["--dangerously-skip-permissions", "--print"],
             prompt_mode="append",
         ),
+        "codex": BackendCLIConfig(
+            binary="codex",
+            args=[
+                "exec",
+                "--skip-git-repo-check",
+                "--color",
+                "never",
+                "--dangerously-bypass-approvals-and-sandbox",
+            ],
+            prompt_mode="stdin",
+        ),
         "opencode": BackendCLIConfig(
             binary="opencode",
             args=[],

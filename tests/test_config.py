@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from healthflow.core.config import get_config
 from healthflow.core.config import SystemConfig
-from healthflow.execution.cli_adapters import CLISubprocessExecutor, ClaudeCodeExecutor, PiExecutor
+from healthflow.execution.cli_adapters import CLISubprocessExecutor, ClaudeCodeExecutor, CodexExecutor, PiExecutor
 from healthflow.execution.factory import create_executor_adapter
 
 
@@ -28,6 +28,7 @@ model_name = "model"
             self.assertEqual(config.active_executor_name, "opencode")
             self.assertIn("opencode", config.executor.backends)
             self.assertIn("claude_code", config.executor.backends)
+            self.assertIn("codex", config.executor.backends)
             self.assertIn("pi", config.executor.backends)
             self.assertEqual(config.system.max_attempts, 3)
             self.assertEqual(config.system.workspace_dir, "workspace/tasks")
@@ -67,6 +68,27 @@ active_backend = "pi"
             config = get_config(config_path, "test")
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, PiExecutor)
+
+    def test_named_codex_backend_uses_specialized_executor(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+
+[executor]
+active_backend = "codex"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "test")
+            executor = create_executor_adapter(config.active_executor_name, config.active_executor)
+            self.assertIsInstance(executor, CodexExecutor)
+            self.assertEqual(config.active_executor.binary, "codex")
+            self.assertEqual(config.active_executor.prompt_mode, "stdin")
 
     def test_custom_configured_backend_uses_generic_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
