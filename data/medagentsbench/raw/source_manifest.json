@@ -1,6 +1,6 @@
 {
   "benchmark": "medagentsbench",
-  "description": "Committed hard-set MedAgentsBench subset used for deterministic evaluation.",
+  "description": "Committed hard-set MedAgentsBench subset used for deterministic evaluation, plus vendored raw MedAgentsBench parquet assets from the local Hugging Face cache snapshot.",
   "sources": [
     {
       "name": "MedAgents benchmark repository",
@@ -10,6 +10,36 @@
         "medagentsbench.jsonl"
       ],
       "notes": "This repository vendors the exact hard-set JSONL committed for the canonical benchmark rebuild."
+    },
+    {
+      "name": "super-dainiu/MedAgentsBench Hugging Face snapshot",
+      "url": "https://huggingface.co/datasets/super-dainiu/MedAgentsBench",
+      "access": "Local Hugging Face cache snapshot at /Users/akai/.cache/huggingface/hub/datasets--super-dainiu--MedAgentsBench/snapshots/87e99bf48306788076dced215926e29c835fa892",
+      "local_artifacts": [
+        "README.md",
+        "hf_snapshot_links.tsv",
+        "AfrimedQA/test-00000-of-00001.parquet",
+        "AfrimedQA/test_hard-00000-of-00001.parquet",
+        "MMLU/test-00000-of-00001.parquet",
+        "MMLU/test_hard-00000-of-00001.parquet",
+        "MMLU-Pro/test-00000-of-00001.parquet",
+        "MMLU-Pro/test_hard-00000-of-00001.parquet",
+        "MedBullets/test-00000-of-00001.parquet",
+        "MedBullets/test_hard-00000-of-00001.parquet",
+        "MedExQA/test-00000-of-00001.parquet",
+        "MedExQA/test_hard-00000-of-00001.parquet",
+        "MedMCQA/test-00000-of-00001.parquet",
+        "MedMCQA/test_hard-00000-of-00001.parquet",
+        "MedQA/test-00000-of-00001.parquet",
+        "MedQA/test_hard-00000-of-00001.parquet",
+        "MedXpertQA-R/test-00000-of-00001.parquet",
+        "MedXpertQA-R/test_hard-00000-of-00001.parquet",
+        "MedXpertQA-U/test-00000-of-00001.parquet",
+        "MedXpertQA-U/test_hard-00000-of-00001.parquet",
+        "PubMedQA/test-00000-of-00001.parquet",
+        "PubMedQA/test_hard-00000-of-00001.parquet"
+      ],
+      "notes": "Copied by dereferencing snapshot symlinks so raw/ contains regular files instead of pointers into the Hugging Face cache."
     }
   ],
   "rebuild_entrypoints": [
