@@ -11,16 +11,31 @@ from healthflow.system import HealthFlowSystem
 
 
 class _FakeMetaAgent:
+    def __init__(self):
+        self.last_usage = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}
+        self.last_estimated_cost_usd = 0.0012
+        self.last_model_name = "planner-model"
+
     async def generate_plan(self, **kwargs) -> str:
         return "# Plan\n\n- Inspect data\n- Save required artifacts\n"
 
 
 class _FakeEvaluator:
+    def __init__(self):
+        self.last_usage = {"input_tokens": 50, "output_tokens": 10, "total_tokens": 60}
+        self.last_estimated_cost_usd = 0.0006
+        self.last_model_name = "judge-model"
+
     async def evaluate(self, **kwargs) -> dict:
         return {"score": 9.5, "feedback": "Looks good.", "reasoning": "Artifacts satisfy the contract."}
 
 
 class _FakeReflector:
+    def __init__(self):
+        self.last_usage = {"input_tokens": 25, "output_tokens": 5, "total_tokens": 30}
+        self.last_estimated_cost_usd = 0.0003
+        self.last_model_name = "reflector-model"
+
     async def synthesize_experience(self, full_history, verified: bool):
         return []
 
@@ -48,7 +63,23 @@ class _FakeExecutor:
             command=["claude", "--dangerously-skip-permissions", "--print", "prompt"],
             duration_seconds=0.01,
             timed_out=False,
-            usage={"wall_time_seconds": 0.01, "timed_out": False},
+            usage={
+                "wall_time_seconds": 0.01,
+                "timed_out": False,
+                "input_tokens": 400,
+                "output_tokens": 25,
+                "total_tokens": 425,
+                "tool_call_count": 1,
+                "tool_time_seconds": 0.004,
+                "model_time_seconds": 0.006,
+                "estimated_cost_usd": 0.1234,
+            },
+            telemetry={
+                "session_id": "ses_test",
+                "models": ["openai/gpt-4.1"],
+                "tool_names": ["read"],
+                "step_reasons": {"stop": 1},
+            },
         )
 
 
@@ -75,7 +106,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 llm_roles=LLMRoleConfig(),
                 system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(write_policy="freeze"),
+                memory=MemoryConfig(write_policy="append"),
                 evaluation=EvaluationConfig(success_threshold=8.0),
                 logging=LoggingConfig(),
             )
@@ -98,12 +129,25 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(Path(result["run_manifest_path"]).exists())
             self.assertTrue(Path(result["memory_context_path"]).exists())
             self.assertTrue(Path(result["verification_path"]).exists())
+            self.assertTrue(Path(result["cost_analysis_path"]).exists())
             self.assertEqual(Path(result["workspace_path"]).parent, workspace_dir)
             self.assertTrue(experience_path.parent.exists())
+            self.assertEqual(result["cost_summary"]["llm_estimated_cost_usd"], 0.0021)
+            self.assertEqual(result["cost_summary"]["executor_estimated_cost_usd"], 0.1234)
+            self.assertEqual(result["cost_summary"]["total_estimated_cost_usd"], 0.1255)
+            self.assertEqual(result["usage_summary"]["execution"]["session_ids"], ["ses_test"])
+            self.assertEqual(result["usage_summary"]["execution"]["tool_names"], ["read"])
 
             run_result = json.loads(Path(result["run_result_path"]).read_text(encoding="utf-8"))
             self.assertEqual(run_result["backend"], "claude_code")
-            self.assertEqual(run_result["memory_write_policy"], "freeze")
+            self.assertEqual(run_result["memory_write_policy"], "append")
+            self.assertEqual(run_result["cost_summary"]["executor_estimated_cost_usd"], 0.1234)
+
+            cost_analysis = json.loads(Path(result["cost_analysis_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(cost_analysis["attempts"][0]["execution"]["estimated_cost_usd"], 0.1234)
+            self.assertEqual(cost_analysis["attempts"][0]["attempt_total_estimated_cost_usd"], 0.1252)
+            self.assertEqual(cost_analysis["run_total"]["reflection"]["estimated_cost_usd"], 0.0003)
+            self.assertEqual(cost_analysis["run_total"]["total_estimated_cost_usd"], 0.1255)
 
 
 if __name__ == "__main__":
