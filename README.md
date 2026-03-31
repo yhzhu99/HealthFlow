@@ -13,6 +13,8 @@ HealthFlow is a research framework for **EHR-focused analysis orchestration**. I
 
 The default execution backend is `healthflow_agent`, HealthFlow's integrated executor path. `claude_code` and `opencode` remain available as thin compatibility adapters.
 
+The current release surface is intentionally **backend and CLI only**. A frontend is not shipped in this repo at this stage.
+
 ## Core Runtime
 
 HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
@@ -29,17 +31,6 @@ HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
 - **Inspectable memory**: dataset, strategy, failure, and artifact memories are stored in JSONL and retrieved with layer budgets, validation status, and conflict suppression.
 - **Deterministic verifier**: success is gated by artifact checks such as cohort definition evidence, split evidence, audit artifacts, metrics files, and report sections.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
-
-## UI Architecture
-
-HealthFlow should not become a mainly TypeScript project. The core runtime stays in Python because that is where the orchestration, verifier, memory system, and EHR workflows live.
-
-The web app is now:
-
-- **Python backend**: FastAPI endpoints in `app.py`
-- **Vue 3 frontend**: static assets under `web/`
-
-This keeps the user-facing experience modern without moving the core framework logic out of Python.
 
 ## Workspace Artifacts
 
@@ -126,14 +117,6 @@ cp config.toml.example config.toml
 
 Then edit `config.toml` with the reasoning-model API credentials you want to use for planning, evaluation, and reflection.
 
-### Web UI
-
-```bash
-uv run python app.py
-```
-
-This starts the FastAPI backend on `http://127.0.0.1:8000` and serves the Vue 3 frontend from `web/`.
-
 ### Single Task
 
 ```bash
@@ -188,8 +171,6 @@ Main config sections:
 
 ## Repository Layout
 
-- `app.py`: FastAPI backend and static frontend host
-- `web/`: Vue 3 frontend assets
 - `run_healthflow.py`: single-task and interactive CLI
 - `run_training.py`: memory bootstrapping and training-style runs
 - `run_benchmark.py`: reproducible benchmark runner with frozen memory default

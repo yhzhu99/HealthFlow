@@ -8,16 +8,14 @@ keywords = ["healthcare", "ai", "llm", "agents", "self-evolving", "medical", "ag
 
 dependencies = [
     "aiofiles>=24.1.0",
-    "fastapi>=0.116.1",
     "loguru>=0.7.3",
     "openai>=1.97.1",
+    "pandas>=2.3.0",
     "pydantic>=2.11.7",
-    "python-multipart>=0.0.20",
     "rich>=14.1.0",
     "tenacity>=9.1.2",
     "toml>=0.10.2",
     "typer>=0.16.0",
-    "uvicorn>=0.35.0",
 ]
 
 [project.scripts]
