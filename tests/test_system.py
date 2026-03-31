@@ -37,7 +37,7 @@ class _FakeExecutor:
         (working_dir / "split_evidence.json").write_text('{"train": [1], "val": [], "test": []}', encoding="utf-8")
         (working_dir / "leakage_audit.md").write_text("# Leakage Audit\nNo leakage found.\n", encoding="utf-8")
         (working_dir / "metrics.json").write_text('{"auroc": 0.81}', encoding="utf-8")
-        log_path = working_dir / "healthflow_agent_execution.log"
+        log_path = working_dir / "claude_code_execution.log"
         log_path.write_text("STDOUT: final answer: success\n", encoding="utf-8")
         return ExecutionResult(
             success=True,
@@ -45,8 +45,8 @@ class _FakeExecutor:
             log="STDOUT: final answer: success\n",
             log_path=str(log_path),
             prompt_path=str(working_dir / prompt_file_name),
-            backend="healthflow_agent",
-            command=["healthflow-agent", "-p", "prompt"],
+            backend="claude_code",
+            command=["claude", "--dangerously-skip-permissions", "--print", "prompt"],
             duration_seconds=0.01,
             timed_out=False,
             usage={"wall_time_seconds": 0.01, "timed_out": False},
@@ -60,7 +60,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             workspace_dir = workspace_root / "tasks"
             config = HealthFlowConfig(
                 active_llm_name="test-llm",
-                active_executor_name="healthflow_agent",
+                active_executor_name="claude_code",
                 llm_registry={
                     "test-llm": LLMProviderConfig(
                         api_key="key",
@@ -75,7 +75,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 llm_roles=LLMRoleConfig(),
                 system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-                executor=ExecutorConfig(active_backend="healthflow_agent", backends=default_executor_backends()),
+                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
                 memory=MemoryConfig(mode="frozen_train"),
                 ehr=EHRConfig(),
                 verification=VerificationConfig(),
@@ -95,7 +95,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             )
 
             self.assertTrue(result["success"])
-            self.assertEqual(result["backend"], "healthflow_agent")
+            self.assertEqual(result["backend"], "claude_code")
             self.assertTrue(result["verification_passed"])
             self.assertTrue(Path(result["run_result_path"]).exists())
             self.assertTrue(Path(result["run_manifest_path"]).exists())
@@ -105,7 +105,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(experience_path.parent.exists())
 
             run_result = json.loads(Path(result["run_result_path"]).read_text(encoding="utf-8"))
-            self.assertEqual(run_result["backend"], "healthflow_agent")
+            self.assertEqual(run_result["backend"], "claude_code")
             self.assertEqual(run_result["memory_mode"], "frozen_train")
 
 

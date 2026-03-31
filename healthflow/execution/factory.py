@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from ..core.config import BackendCLIConfig
 from .base import ExecutorAdapter
-from .cli_adapters import CLISubprocessExecutor, ClaudeCodeExecutor, HealthFlowAgentExecutor, OpenCodeExecutor, PiExecutor
+from .cli_adapters import CLISubprocessExecutor, ClaudeCodeExecutor, OpenCodeExecutor, PiExecutor
 
 
 def create_executor_adapter(backend_name: str, backend_config: BackendCLIConfig) -> ExecutorAdapter:
-    if backend_name == "healthflow_agent":
-        return HealthFlowAgentExecutor(backend_name, backend_config)
     if backend_name == "claude_code":
         return ClaudeCodeExecutor(backend_name, backend_config)
     if backend_name == "opencode":

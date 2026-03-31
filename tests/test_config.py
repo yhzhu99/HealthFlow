@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from healthflow.core.config import get_config
 from healthflow.core.config import SystemConfig
-from healthflow.execution.cli_adapters import CLISubprocessExecutor, HealthFlowAgentExecutor, PiExecutor
+from healthflow.execution.cli_adapters import CLISubprocessExecutor, ClaudeCodeExecutor, PiExecutor
 from healthflow.execution.factory import create_executor_adapter
 
 
@@ -25,13 +25,28 @@ model_name = "model"
                 encoding="utf-8",
             )
             config = get_config(config_path, "test")
-            self.assertEqual(config.active_executor_name, "healthflow_agent")
-            self.assertIn("healthflow_agent", config.executor.backends)
+            self.assertEqual(config.active_executor_name, "claude_code")
             self.assertIn("opencode", config.executor.backends)
             self.assertIn("claude_code", config.executor.backends)
             self.assertIn("pi", config.executor.backends)
             self.assertEqual(config.system.max_attempts, 3)
             self.assertEqual(config.system.workspace_dir, "workspace/tasks")
+
+    def test_named_claude_backend_uses_specialized_executor(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "test")
+            executor = create_executor_adapter(config.active_executor_name, config.active_executor)
+            self.assertIsInstance(executor, ClaudeCodeExecutor)
 
     def test_named_pi_backend_uses_specialized_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -76,7 +91,7 @@ timeout_seconds = 30
             config = get_config(config_path, "test")
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
-            self.assertNotIsInstance(executor, HealthFlowAgentExecutor)
+            self.assertNotIsInstance(executor, ClaudeCodeExecutor)
 
     def test_llm_roles_can_override_default_reasoning_model(self):
         with tempfile.TemporaryDirectory() as tmpdir:

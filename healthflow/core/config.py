@@ -51,11 +51,6 @@ class SystemConfig(BaseModel):
 
 def default_executor_backends() -> Dict[str, BackendCLIConfig]:
     return {
-        "healthflow_agent": BackendCLIConfig(
-            binary="healthflow-agent",
-            args=["-p"],
-            prompt_mode="append",
-        ),
         "claude_code": BackendCLIConfig(
             binary="claude",
             args=["--dangerously-skip-permissions", "--print"],
@@ -75,7 +70,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
 
 
 class ExecutorConfig(BaseModel):
-    active_backend: str = Field("healthflow_agent", description="Executor backend to use for task execution.")
+    active_backend: str = Field("claude_code", description="Executor backend to use for task execution.")
     prompt_file_name: str = Field("executor_prompt.md", description="Prompt file stored inside each workspace.")
     backends: Dict[str, BackendCLIConfig] = Field(
         default_factory=default_executor_backends
@@ -213,7 +208,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         executor_section = config_data.get("executor", {})
         executor_backends = executor_section.get("backends")
         executor_config = ExecutorConfig(
-            active_backend=active_executor or executor_section.get("active_backend", "healthflow_agent"),
+            active_backend=active_executor or executor_section.get("active_backend", "claude_code"),
             prompt_file_name=executor_section.get("prompt_file_name", "executor_prompt.md"),
             backends=executor_backends if executor_backends else default_executor_backends(),
         )
