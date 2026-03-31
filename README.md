@@ -189,7 +189,7 @@ python run_training.py data/train_set.jsonl ehrflow_train \
 
 ### Benchmarking
 
-Benchmarking uses the same task JSONL shape, but **defaults to frozen memory behavior** for reproducibility.
+Benchmarking uses the same task JSONL shape and the same core runtime as interactive or single-task execution.
 
 ```bash
 python run_benchmark.py data/ehrflowbench/processed/eval.jsonl ehrflow_eval \
@@ -212,20 +212,20 @@ Main config sections:
 - `[llm.*]`: reasoning model providers, with either `api_key` or `api_key_env`
 - `[llm_roles]`: optional planner/evaluator/reflector model overrides
 - `[executor]`: default backend and CLI backend definitions
-- `[memory]`: retrieval budgets and memory mode
-- `[ehr]`: optional EHR-overlay profiling and risk-check controls
-- `[verification]`: deterministic success gating
+- `[memory]`: runtime write policy only (`append`, `freeze`, or `reset_before_run`)
 - `[evaluation]`: evaluator success threshold
 - `[system]`: workspace, shell, and task-attempt settings (`max_attempts`)
 - `[logging]`: log level and log file
+
+EHR overlays, verification contracts, and retrieval allocation are internal system policy now. They are inferred from the request, profiled workspace inputs, and verifier contracts instead of being configured in `config.toml`.
 
 By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.
 
 ## Repository Layout
 
 - `run_healthflow.py`: single-task and interactive CLI
-- `run_training.py`: memory bootstrapping and training-style runs
-- `run_benchmark.py`: reproducible benchmark runner with frozen memory default
+- `run_training.py`: dataset-style batch runner over task JSONL files
+- `run_benchmark.py`: benchmark runner over task JSONL files
 - `healthflow/system.py`: orchestration loop
 - `healthflow/execution/`: executor layer
 - `healthflow/ehr/`: task-family profiling, domain overlays, and EHR-specific risk logic

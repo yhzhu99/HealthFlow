@@ -79,23 +79,7 @@ shell = "/usr/bin/zsh"
 
 # --- Memory Configuration ---
 [memory]
-mode = "frozen_train" # accumulate_eval | frozen_train | reset
-retrieve_k = 6
-strategy_k = 3
-failure_k = 2
-dataset_k = 1
-writeback_on_failure = true
-
-# --- Optional EHR Overlay Configuration ---
-[ehr]
-enable_profile = true
-enable_risk_checks = true
-max_preview_rows = 3
-
-# --- Verification Configuration ---
-[verification]
-require_verifier_pass = true
-required_report_sections = ["Task Summary", "Data Profile", "Method", "Verification", "Limitations"]
+write_policy = "freeze" # append | freeze | reset_before_run
 
 # --- Evaluation Configuration ---
 [evaluation]
