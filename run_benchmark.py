@@ -100,6 +100,61 @@ def extract_last_attempt_score(result: Dict[str, Any]) -> float:
         return 0.0
 
 
+def aggregate_cost_totals(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    stage_totals = {
+        "planning": 0.0,
+        "execution": 0.0,
+        "evaluation": 0.0,
+        "reflection": 0.0,
+        "total": 0.0,
+    }
+    stage_presence = {key: False for key in stage_totals}
+    llm_total = 0.0
+    executor_total = 0.0
+    overall_total = 0.0
+    has_llm_total = False
+    has_executor_total = False
+    has_overall_total = False
+
+    for item in results:
+        cost_summary = item.get("cost_summary", {}) or {}
+        llm_cost = cost_summary.get("llm_estimated_cost_usd")
+        if isinstance(llm_cost, (int, float)):
+            llm_total += float(llm_cost)
+            has_llm_total = True
+
+        executor_cost = cost_summary.get("executor_estimated_cost_usd")
+        if isinstance(executor_cost, (int, float)):
+            executor_total += float(executor_cost)
+            has_executor_total = True
+
+        total_cost = cost_summary.get("total_estimated_cost_usd")
+        if isinstance(total_cost, (int, float)):
+            overall_total += float(total_cost)
+            has_overall_total = True
+
+        run_total = ((item.get("cost_analysis") or {}).get("run_total") or {})
+        for stage in ["planning", "execution", "evaluation", "reflection"]:
+            stage_cost = (run_total.get(stage) or {}).get("estimated_cost_usd")
+            if isinstance(stage_cost, (int, float)):
+                stage_totals[stage] += float(stage_cost)
+                stage_presence[stage] = True
+        run_total_cost = run_total.get("total_estimated_cost_usd")
+        if isinstance(run_total_cost, (int, float)):
+            stage_totals["total"] += float(run_total_cost)
+            stage_presence["total"] = True
+
+    return {
+        "total_llm_estimated_cost_usd": round(llm_total, 8) if has_llm_total else None,
+        "total_executor_estimated_cost_usd": round(executor_total, 8) if has_executor_total else None,
+        "total_estimated_cost_usd": round(overall_total, 8) if has_overall_total else None,
+        "stage_cost_totals_usd": {
+            stage: round(amount, 8) if stage_presence[stage] else None
+            for stage, amount in stage_totals.items()
+        },
+    }
+
+
 def _initialize_system(
     config_path: Path,
     experience_path: Path,
@@ -202,11 +257,13 @@ async def run_benchmark_async(
                 "memory_write_policy": result.get("memory_write_policy"),
                 "usage_summary": result.get("usage_summary"),
                 "cost_summary": result.get("cost_summary"),
+                "cost_analysis": result.get("cost_analysis"),
                 "execution_time": result.get("execution_time", 0.0),
                 "workspace_path": result.get("workspace_path"),
                 "log_path": result.get("log_path"),
                 "verification_path": result.get("verification_path"),
                 "memory_context_path": result.get("memory_context_path"),
+                "cost_analysis_path": result.get("cost_analysis_path"),
                 "run_result_path": result.get("run_result_path"),
                 "run_manifest_path": result.get("run_manifest_path"),
                 "final_summary": result.get("final_summary"),
@@ -228,10 +285,7 @@ async def run_benchmark_async(
     verifier_passed = sum(1 for item in results if item["verification_passed"])
     average_score = sum(item["score"] for item in results) / len(results) if results else 0.0
     average_execution_time = sum(item["execution_time"] for item in results) / len(results) if results else 0.0
-    llm_cost_total = sum(
-        float(item.get("cost_summary", {}).get("llm_estimated_cost_usd") or 0.0)
-        for item in results
-    )
+    cost_totals = aggregate_cost_totals(results)
     summary = {
         "dataset_name": dataset_name,
         "total_tasks": len(tasks),
@@ -244,7 +298,10 @@ async def run_benchmark_async(
         "backend": system.config.active_executor_name,
         "reasoning_model": system.config.llm_config_for_role("planner").model_name,
         "memory_write_policy": system.config.memory.write_policy,
-        "total_llm_estimated_cost_usd": round(llm_cost_total, 8),
+        "total_llm_estimated_cost_usd": cost_totals["total_llm_estimated_cost_usd"],
+        "total_executor_estimated_cost_usd": cost_totals["total_executor_estimated_cost_usd"],
+        "total_estimated_cost_usd": cost_totals["total_estimated_cost_usd"],
+        "stage_cost_totals_usd": cost_totals["stage_cost_totals_usd"],
         "experience_path": str(experience_path),
         "results_file": str(results_file),
         "output_directory": str(results_dir),
@@ -262,7 +319,9 @@ async def run_benchmark_async(
             f"Success rate: {summary['success_rate']:.1%}\n"
             f"Average score: {average_score:.2f}\n"
             f"Average execution time: {average_execution_time:.2f}s\n\n"
-            f"Estimated LLM cost: ${summary['total_llm_estimated_cost_usd']:.4f}\n\n"
+            f"Estimated LLM cost: ${float(summary['total_llm_estimated_cost_usd'] or 0.0):.4f}\n"
+            f"Estimated executor cost: ${float(summary['total_executor_estimated_cost_usd'] or 0.0):.4f}\n"
+            f"Estimated total cost: ${float(summary['total_estimated_cost_usd'] or 0.0):.4f}\n\n"
             f"Results saved to: {results_file}\n"
             f"Summary saved to: {results_dir / 'summary.json'}",
             border_style="green",

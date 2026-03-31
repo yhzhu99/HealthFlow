@@ -49,6 +49,7 @@ def _display_task_result(result: dict):
 [bold]Verification Passed:[/bold] {result.get('verification_passed', False)}
 [bold]Usage Summary:[/bold] {result.get('usage_summary', {})}
 [bold]Cost Summary:[/bold] {result.get('cost_summary', {})}
+[bold]Cost Analysis JSON:[/bold] {result.get('cost_analysis_path', 'N/A')}
 [bold]Log Path:[/bold] {result.get('log_path', 'N/A')}
 [bold]Verification JSON:[/bold] {result.get('verification_path', 'N/A')}
 [bold]Memory Context:[/bold] {result.get('memory_context_path', 'N/A')}
