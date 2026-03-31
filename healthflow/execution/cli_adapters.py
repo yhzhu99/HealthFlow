@@ -16,10 +16,8 @@ class CLISubprocessExecutor(ExecutorAdapter):
         super().__init__(backend_name)
         self.backend_config = backend_config
 
-    async def execute(self, context: ExecutionContext, working_dir: Path, prompt_file_name: str) -> ExecutionResult:
+    async def execute(self, context: ExecutionContext, working_dir: Path) -> ExecutionResult:
         prompt_text = context.render_prompt()
-        prompt_file_path = working_dir / prompt_file_name
-        prompt_file_path.write_text(prompt_text, encoding="utf-8")
 
         command_args = self._build_command(prompt_text)
         backend_version = await self._capture_backend_version()
@@ -69,7 +67,7 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 return_code=process.returncode,
                 log=log_content,
                 log_path=str(log_file_path),
-                prompt_path=str(prompt_file_path),
+                prompt_path=None,
                 backend=self.backend_name,
                 command=command_args,
                 backend_version=backend_version,
@@ -94,7 +92,7 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 return_code=-1,
                 log=f"HealthFlow Executor Error: {e}\n\n--- Captured Log Before Error ---\n{log_content}",
                 log_path=str(log_file_path),
-                prompt_path=str(prompt_file_path),
+                prompt_path=None,
                 backend=self.backend_name,
                 command=command_args,
                 backend_version=backend_version,

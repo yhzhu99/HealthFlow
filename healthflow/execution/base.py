@@ -95,7 +95,7 @@ class ExecutionResult:
     return_code: int
     log: str
     log_path: str
-    prompt_path: str
+    prompt_path: str | None
     backend: str
     command: List[str]
     backend_version: Optional[str] = None
@@ -110,5 +110,5 @@ class ExecutorAdapter(ABC):
         self.backend_name = backend_name
 
     @abstractmethod
-    async def execute(self, context: ExecutionContext, working_dir: Path, prompt_file_name: str) -> ExecutionResult:
+    async def execute(self, context: ExecutionContext, working_dir: Path) -> ExecutionResult:
         raise NotImplementedError
