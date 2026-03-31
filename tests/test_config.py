@@ -2,7 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from healthflow.core.config import get_config
+from healthflow.core.config import SystemConfig
 from healthflow.execution.cli_adapters import CLISubprocessExecutor, HealthFlowAgentExecutor, PiExecutor
 from healthflow.execution.factory import create_executor_adapter
 
@@ -26,6 +29,7 @@ model_name = "model"
             self.assertIn("opencode", config.executor.backends)
             self.assertIn("claude_code", config.executor.backends)
             self.assertIn("pi", config.executor.backends)
+            self.assertEqual(config.system.max_attempts, 3)
 
     def test_named_pi_backend_uses_specialized_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -95,6 +99,10 @@ evaluator = "judge"
             config = get_config(config_path, "default")
             self.assertEqual(config.llm_config_for_role("planner").model_name, "planner-model")
             self.assertEqual(config.llm_config_for_role("evaluator").model_name, "judge-model")
+
+    def test_system_config_rejects_zero_max_attempts(self):
+        with self.assertRaises(ValidationError):
+            SystemConfig(max_attempts=0)
 
 
 if __name__ == "__main__":
