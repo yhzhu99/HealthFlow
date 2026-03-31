@@ -349,7 +349,7 @@ def main():
         required=True,
         help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.2)",
     )
-    parser.add_argument("--active-executor", default=None, help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode)")
+    parser.add_argument("--active-executor", default=None, help="The executor backend to use (e.g., claude_code, opencode, pi)")
 
     args = parser.parse_args()
 
