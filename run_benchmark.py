@@ -281,7 +281,7 @@ def run(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file"),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to experience file for HealthFlow"),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)"),
-    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode)"),
+    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode, pi)"),
 ):
     asyncio.run(
         run_benchmark_async(

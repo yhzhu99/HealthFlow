@@ -3,7 +3,7 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2508.02621-b31b1b.svg)](https://arxiv.org/abs/2508.02621)
 [![Project Website](https://img.shields.io/badge/Project%20Website-HealthFlow-0066cc.svg)](https://healthflow-agent.netlify.app)
 
-HealthFlow is a research framework for **EHR-focused analysis orchestration**. It is not a claim that one raw coding backend is universally strongest. The contribution in this codebase is the **EHR-aware harness** around execution:
+HealthFlow is a research framework for **EHR-focused analysis orchestration** built around external coding executors. It is not a claim that one raw coding backend is universally strongest, and it is not framed here as a new general self-improvement paradigm. The contribution in this codebase is the **EHR-aware harness** around execution:
 
 - EHR task-family profiling and risk detection
 - staged tool exposure instead of prompt dumping
@@ -11,7 +11,7 @@ HealthFlow is a research framework for **EHR-focused analysis orchestration**. I
 - deterministic verifier gating before success is accepted
 - reproducible workspace contracts and run manifests
 
-The default execution backend is `healthflow_agent`, HealthFlow's integrated executor path. `claude_code` and `opencode` remain available as thin compatibility adapters.
+The default execution backend is `healthflow_agent`, HealthFlow's integrated executor path. `claude_code`, `opencode`, and `pi` remain available as thin compatibility adapters.
 
 The current release surface is intentionally **backend and CLI only**. A frontend is not shipped in this repo at this stage.
 
@@ -31,6 +31,7 @@ HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
 - **Inspectable memory**: dataset, strategy, failure, and artifact memories are stored in JSONL and retrieved with layer budgets, validation status, and conflict suppression.
 - **Deterministic verifier**: success is gated by artifact checks such as cohort definition evidence, split evidence, audit artifacts, metrics files, and report sections.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
+- **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, and estimated LLM cost.
 
 ## Workspace Artifacts
 
@@ -54,6 +55,8 @@ These files are the main source of truth for rebuttal-oriented inspection.
 
 HealthFlow only marks a run successful when the execution succeeds, the evaluator score clears the threshold, and the verifier gate passes when verifier gating is required.
 
+For deterministic benchmarks such as EHRFlowBench and MedAgentBoard, the intended primary metric is file-verified pass rate. The LLM evaluator is secondary metadata for run inspection and error analysis.
+
 ## Memory Behavior
 
 HealthFlow uses four memory layers:
@@ -67,7 +70,8 @@ Retrieval is auditable:
 
 - verified memories are preferred for positive strategy layers
 - failure memories keep their own retrieval budget
-- contradictory memories are suppressed by `conflict_group`
+- contradictory memories are tracked by `conflict_group`
+- safety-critical failure memories suppress conflicting strategy memories before execution
 - the retrieval audit is saved to `memory_context.json`
 
 Writeback behavior:
@@ -83,6 +87,7 @@ HealthFlow keeps the executor layer backend-agnostic, but the public surface is 
 - `healthflow_agent` (default)
 - `claude_code`
 - `opencode`
+- `pi`
 
 You can still define additional CLI backends in `config.toml`, but the harness logic stays in HealthFlow rather than being baked into one external backend.
 
@@ -105,7 +110,7 @@ This lets HealthFlow act as the orchestration and audit harness around a reprodu
 - `uv`
 - one execution backend available in `PATH`
   - default: `healthflow-agent`
-  - compatibility: `claude`, `opencode`
+  - compatibility: `claude`, `opencode`, `pi`
 
 ### Setup
 
@@ -116,6 +121,8 @@ cp config.toml.example config.toml
 ```
 
 Then edit `config.toml` with the reasoning-model API credentials you want to use for planning, evaluation, and reflection.
+
+If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for the active reasoning model in `config.toml`.
 
 ### Single Task
 
@@ -154,7 +161,13 @@ python run_benchmark.py data/ehrflowbench/processed/eval.jsonl ehrflow_eval \
   --active-executor healthflow_agent
 ```
 
-Results are written under `benchmark_results/` with per-task copies of the workspace artifacts and dataset-level summary JSON.
+Results are written under `benchmark_results/<dataset>/<executor>/<reasoning_model>/` with per-task copies of the workspace artifacts and dataset-level summary JSON.
+
+## Benchmark Framing
+
+- **EHRFlowBench** is a paper-derived **proxy benchmark**. The canonical source of truth is the local task prompt plus `processed/expected/<qid>/`, not the original paper metric table.
+- `data/ehrflowbench/processed/paper_map.csv` records provenance, proxy linkage mode, source-task eligibility, and review status for every canonical task.
+- **MedAgentBoard** is a deterministic workflow benchmark grounded entirely in the committed TJH and MIMIC demo data under `data/medagentboard/`.
 
 ## Configuration
 
