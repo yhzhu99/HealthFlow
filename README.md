@@ -27,7 +27,7 @@ HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
 
 ## What HealthFlow Contributes
 
-- **General-first runtime with conditional EHR overlays**: the same loop handles ordinary analysis tasks, while cohort semantics, patient-aware split cues, leakage checks, temporal validation hints, and OneEHR compatibility activate only when supported by the profiled context.
+- **General-first runtime with conditional EHR overlays**: the same loop handles ordinary analysis tasks, while cohort semantics, patient-aware split cues, leakage checks, and temporal validation hints activate only when supported by the profiled context.
 - **Inspectable memory**: dataset, strategy, failure, and artifact memories are stored in JSONL and retrieved with layer budgets, validation status, and conflict suppression.
 - **Deterministic verifier**: success is gated by artifact checks such as split evidence, audit artifacts, metrics files, figures, and optional report structure, with cohort-specific checks reserved for cohort or EHR-style workflows.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
@@ -93,16 +93,11 @@ HealthFlow keeps the executor layer backend-agnostic, but the public surface is 
 You can still define additional CLI backends in `config.toml`, but the harness logic stays in HealthFlow rather than being baked into one external backend.
 Executor-specific repository instruction files are intentionally avoided at the repo root so backend comparisons use the same injected prompt guidance.
 
-## Optional OneEHR Compatibility
+## External CLI Workflows
 
-HealthFlow can guide and verify OneEHR-style workflows without requiring a hard dependency on OneEHR internals. Modeling-task verifier checks accept artifacts such as:
+HealthFlow does not hardcode compatibility for any specific domain package or external tool. Instead, it interacts with external systems through the same backend-agnostic execution layer used for all tasks.
 
-- `manifest.json`
-- `preprocess/split.json`
-- `test/metrics.json`
-- `analyze/*.json`
-
-This lets HealthFlow act as the orchestration and audit harness around a reproducible EHR CLI workflow when that workflow is the right fit.
+When an EHR workflow is best handled by an external CLI, the agent can still invoke that CLI as part of its plan. HealthFlow itself remains responsible only for planning, memory, execution orchestration, and generic verification of the resulting analysis artifacts.
 
 ## Quick Start
 
@@ -146,7 +141,7 @@ python run_healthflow.py run \
   --active-executor healthflow_agent
 ```
 
-The same CLI can also run EHR-focused prompts used in the paper, benchmark rebuilds, and OneEHR-style workflows.
+The same CLI can also run EHR-focused prompts used in the paper, benchmark rebuilds, and arbitrary external-CLI-driven workflows.
 
 ### Interactive Mode
 
