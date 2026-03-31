@@ -343,7 +343,7 @@ def main():
     parser.add_argument("training_file", type=Path, help="Path to the training JSONL file")
     parser.add_argument("dataset_name", help="Name of the dataset (used for output directory structure)")
     parser.add_argument("--config", "-c", type=Path, default="config.toml", help="Path to the configuration file")
-    parser.add_argument("--experience-path", type=Path, default="workspace/experience.jsonl", help="Path to the experience knowledge base file")
+    parser.add_argument("--experience-path", type=Path, default="workspace/memory/experience.jsonl", help="Path to the experience knowledge base file")
     parser.add_argument("--active-llm", required=True, help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)")
     parser.add_argument("--active-executor", default=None, help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode)")
 

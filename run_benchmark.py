@@ -279,7 +279,7 @@ def run(
     dataset_path: Path = typer.Argument(..., help="Path to the dataset .jsonl file"),
     dataset_name: str = typer.Argument(..., help="Name of the dataset (used for output directory)"),
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file"),
-    experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to experience file for HealthFlow"),
+    experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to experience file for HealthFlow"),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)"),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode, pi)"),
 ):

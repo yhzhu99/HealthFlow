@@ -26,6 +26,7 @@ model_name = "model"
             self.assertIn("opencode", config.executor.backends)
             self.assertIn("claude_code", config.executor.backends)
             self.assertIn("pi", config.executor.backends)
+            self.assertEqual(config.system.workspace_dir, "workspace/tasks")
 
     def test_named_pi_backend_uses_specialized_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -36,7 +36,7 @@ class BackendCLIConfig(BaseModel):
 
 class SystemConfig(BaseModel):
     max_retries: int = Field(2, description="Maximum number of retries for a failing task.")
-    workspace_dir: str = Field("workspace", description="Directory for task artifacts.")
+    workspace_dir: str = Field("workspace/tasks", description="Directory for task artifacts.")
     shell: str = Field("/usr/bin/zsh", description="Shell to use for subprocess execution.")
 
 
