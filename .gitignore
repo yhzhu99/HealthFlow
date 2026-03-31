@@ -23,6 +23,8 @@ data/*
 !data/**/*.txt
 !data/**/*.xlsx
 !data/**/*.parquet
+data/ehrflowbench/scripts/upstream/extract_task/assets/
+*.Zone.Identifier
 workspace/
 benchmark_results/
 datasets/

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import subprocess
+import json
 import sys
 from pathlib import Path
 
@@ -13,9 +13,15 @@ def find_healthflow_root() -> Path:
     raise FileNotFoundError("Could not locate HealthFlow root")
 
 
+HEALTHFLOW_ROOT = find_healthflow_root()
+if str(HEALTHFLOW_ROOT) not in sys.path:
+    sys.path.insert(0, str(HEALTHFLOW_ROOT))
+
+from healthflow.benchmarks.ehr_benchmark_builders import rebuild_medagentboard  # noqa: E402
+
+
 def main() -> None:
-    healthflow_root = find_healthflow_root()
-    subprocess.run([sys.executable, str(healthflow_root / "scripts" / "evaluation" / "rebuild_benchmarks.py")], check=True)
+    print(json.dumps(rebuild_medagentboard(), indent=2))
 
 
 if __name__ == "__main__":
