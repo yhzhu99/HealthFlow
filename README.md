@@ -1,11 +1,11 @@
-# HealthFlow: EHR-Specific Analysis Harness with Self-Evolving Memory
+# HealthFlow: General Analysis Orchestration with EHR-Aware Self-Evolving Memory
 
 [![arXiv](https://img.shields.io/badge/arXiv-2508.02621-b31b1b.svg)](https://arxiv.org/abs/2508.02621)
 [![Project Website](https://img.shields.io/badge/Project%20Website-HealthFlow-0066cc.svg)](https://healthflow-agent.netlify.app)
 
-HealthFlow is a research framework for **EHR-focused analysis orchestration** built around external coding executors. It is not a claim that one raw coding backend is universally strongest, and it is not framed here as a new general self-improvement paradigm. The contribution in this codebase is the **EHR-aware harness** around execution:
+HealthFlow is a research framework for **general analysis orchestration with healthcare-aware specialization** built around external coding executors. This repository serves the HealthFlow paper's study of autonomous EHR analysis and self-evolving planning, but the runtime is intentionally **general-first** rather than hard-locked to EHR-only tasks. EHR-specific safeguards are layered in only when the request, data profile, or workflow artifacts justify them.
 
-- EHR task-family profiling and risk detection
+- task-family profiling plus conditional domain-overlay detection
 - staged tool exposure instead of prompt dumping
 - hierarchical memory with explicit strategy vs failure separation
 - deterministic verifier gating before success is accepted
@@ -19,17 +19,17 @@ The current release surface is intentionally **backend and CLI only**. A fronten
 
 HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
 
-1. **Profile**: inspect uploaded files, classify the EHR task family, detect patient identifiers, target-like columns, time columns, and workflow hints.
+1. **Profile**: inspect uploaded files, classify the analysis task family, detect domain signals, and summarize identifiers, targets, time columns, and workflow hints.
 2. **Plan**: retrieve relevant memory, separating reusable strategy from failure-avoidance memory.
-3. **Execute**: run the selected backend inside a task workspace with an explicit output and verification contract.
-4. **Verify**: apply deterministic artifact checks before success is allowed.
+3. **Execute**: run the selected backend inside a task workspace with soft deliverable guidance and auditable verification focus.
+4. **Verify**: apply deterministic artifact checks before success is allowed, with stricter EHR checks only when the profiled context warrants them.
 5. **Reflect**: write verified strategy/artifact memory from good runs and failure/verifier-rule memory from bad runs.
 
 ## What HealthFlow Contributes
 
-- **EHR-specific harness**: cohort semantics, leakage checks, split expectations, temporal validation cues, and report contracts tuned for healthcare data science.
+- **General-first runtime with conditional EHR overlays**: the same loop handles ordinary analysis tasks, while cohort semantics, patient-aware split cues, leakage checks, temporal validation hints, and OneEHR compatibility activate only when supported by the profiled context.
 - **Inspectable memory**: dataset, strategy, failure, and artifact memories are stored in JSONL and retrieved with layer budgets, validation status, and conflict suppression.
-- **Deterministic verifier**: success is gated by artifact checks such as cohort definition evidence, split evidence, audit artifacts, metrics files, and report sections.
+- **Deterministic verifier**: success is gated by artifact checks such as split evidence, audit artifacts, metrics files, figures, and optional report structure, with cohort-specific checks reserved for cohort or EHR-style workflows.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
 - **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, and estimated LLM cost.
 - **Role-specific internal models**: planner, evaluator, and reflector can be configured against different reasoning models to reduce single-model coupling.
@@ -91,9 +91,9 @@ HealthFlow keeps the executor layer backend-agnostic, but the public surface is 
 - `pi`
 
 You can still define additional CLI backends in `config.toml`, but the harness logic stays in HealthFlow rather than being baked into one external backend.
-Executor-specific repository instruction files are intentionally avoided at the repo root so backend comparisons use the same injected prompt contract.
+Executor-specific repository instruction files are intentionally avoided at the repo root so backend comparisons use the same injected prompt guidance.
 
-## OneEHR-Aware Workflows
+## Optional OneEHR Compatibility
 
 HealthFlow can guide and verify OneEHR-style workflows without requiring a hard dependency on OneEHR internals. Modeling-task verifier checks accept artifacts such as:
 
@@ -102,7 +102,7 @@ HealthFlow can guide and verify OneEHR-style workflows without requiring a hard 
 - `test/metrics.json`
 - `analyze/*.json`
 
-This lets HealthFlow act as the orchestration and audit harness around a reproducible EHR CLI workflow.
+This lets HealthFlow act as the orchestration and audit harness around a reproducible EHR CLI workflow when that workflow is the right fit.
 
 ## Quick Start
 
@@ -141,10 +141,12 @@ Any unset role falls back to `--active-llm`.
 
 ```bash
 python run_healthflow.py run \
-  "Analyze the uploaded patients.csv to identify the top 3 risk factors for readmission." \
+  "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
   --active-llm deepseek-chat \
   --active-executor healthflow_agent
 ```
+
+The same CLI can also run EHR-focused prompts used in the paper, benchmark rebuilds, and OneEHR-style workflows.
 
 ### Interactive Mode
 
@@ -190,7 +192,7 @@ Main config sections:
 - `[llm_roles]`: optional planner/evaluator/reflector model overrides
 - `[executor]`: default backend and CLI backend definitions
 - `[memory]`: retrieval budgets and memory mode
-- `[ehr]`: profiling controls
+- `[ehr]`: optional EHR-overlay profiling and risk-check controls
 - `[verification]`: deterministic success gating
 - `[evaluation]`: evaluator success threshold
 - `[system]`: workspace and retry settings
@@ -203,7 +205,7 @@ Main config sections:
 - `run_benchmark.py`: reproducible benchmark runner with frozen memory default
 - `healthflow/system.py`: orchestration loop
 - `healthflow/execution/`: executor layer
-- `healthflow/ehr/`: profiling, task-family logic, and risk checks
+- `healthflow/ehr/`: task-family profiling, domain overlays, and EHR-specific risk logic
 - `healthflow/verification/`: deterministic verifier
 - `healthflow/experience/`: hierarchical memory and retrieval audit
 - `healthflow/tools/`: staged tool-bundle selection

@@ -109,7 +109,7 @@ def _initialize_system(config_path: Path, experience_path: Path, active_llm: str
 
 @app.command()
 def run(
-    task: str = typer.Argument(..., help="The high-level healthcare task for HealthFlow to accomplish."),
+    task: str = typer.Argument(..., help="The high-level analysis task for HealthFlow to accomplish."),
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     train_mode: bool = typer.Option(False, "--train", help="Enable training mode (CLI only)."),

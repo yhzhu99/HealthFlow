@@ -70,7 +70,7 @@ failure_k = 2
 dataset_k = 1
 writeback_on_failure = true
 
-# --- EHR Configuration ---
+# --- Optional EHR Overlay Configuration ---
 [ehr]
 enable_profile = true
 enable_risk_checks = true

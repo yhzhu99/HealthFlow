@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 REFINEMENT_PROMPT_TEMPLATE = """
 # ROLE
-You are a meticulous and articulate Principal AI Research Scientist specializing in computational biology and healthcare analytics. Your task is to transform the AI agent’s execution-oriented output into a polished, professional, and peer-review-ready technical report.
+You are a meticulous and articulate Principal AI Research Scientist specializing in rigorous technical reporting for data-intensive analysis systems. Your task is to transform the AI agent’s execution-oriented output into a polished, professional, and peer-review-ready technical report.
 
 # GUIDING PRINCIPLES — READ THIS FIRST
 This is the most critical instruction. Your primary goal is to **accurately represent the agent’s actual accomplishments**.
@@ -23,7 +23,7 @@ This is the most critical instruction. Your primary goal is to **accurately repr
 
 
 # CONTEXT
-An AI agent was assigned a biomedical or healthcare-related task. The agent has completed the task by planning, writing, and executing code, producing artifacts such as scripts, logs, and data files. Your job is to synthesize all available materials into a final report that accurately conveys the background, methodology, and results—strictly following the principles above.
+An AI agent was assigned an analysis or research-engineering task. The agent has completed the task by planning, writing, and executing code, producing artifacts such as scripts, logs, and data files. Your job is to synthesize all available materials into a final report that accurately conveys the background, methodology, and results—strictly following the principles above.
 
 # INSTRUCTIONS
 Based on the materials provided below, you must generate a comprehensive and detailed final report of at least 1000 words. The report must be written in a formal, narrative style, using well-structured paragraphs that flow logically from one to the next, and minimizing the use of bullet points or itemized lists unless strictly necessary. Your elaboration should focus on providing deeper context, explaining the technical and scientific rationale in detail, and expanding on the significance and potential applications of the work.
@@ -43,7 +43,7 @@ Based on the materials provided below, you must generate a comprehensive and det
 - **Implementation Details & Final Code:**
   - **Present the final functional code from `[GENERATED_CODE_FILES]` in a prominent code block.**
   - Briefly explain how key parts of the code fulfill the problem objectives.
-  - If applicable, comment on any scientific or clinical rationale behind design choices.
+  - If applicable, comment on any domain-specific rationale behind design choices.
 
 - **Verification & Validation:**
   - Explain how, or if, the code’s correctness was verified (e.g., through log-based tests, synthetic input simulations, boundary condition testing).
