@@ -28,14 +28,8 @@ reflector = "deepseek-chat"
 
 # --- Executor Configuration ---
 [executor]
-active_backend = "healthflow_agent"
+active_backend = "claude_code"
 prompt_file_name = "executor_prompt.md"
-
-[executor.backends.healthflow_agent]
-binary = "healthflow-agent"
-args = ["-p"]
-prompt_mode = "append"
-timeout_seconds = 900
 
 [executor.backends.claude_code]
 binary = "claude"

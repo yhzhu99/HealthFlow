@@ -11,7 +11,7 @@ HealthFlow is a research framework for **general analysis orchestration with hea
 - deterministic verifier gating before success is accepted
 - reproducible workspace contracts and run manifests
 
-The default execution backend is `healthflow_agent`, HealthFlow's integrated executor path. `claude_code`, `opencode`, and `pi` remain available as thin compatibility adapters.
+HealthFlow compares external coding agents through a shared executor abstraction. The maintained built-in backends are `claude_code`, `opencode`, and `pi`.
 
 The current release surface is intentionally **backend and CLI only**. A frontend is not shipped in this repo at this stage.
 
@@ -94,8 +94,7 @@ Writeback behavior:
 
 HealthFlow keeps the executor layer backend-agnostic, but the public surface is intentionally small:
 
-- `healthflow_agent` (default)
-- `claude_code`
+- `claude_code` (default)
 - `opencode`
 - `pi`
 
@@ -115,8 +114,8 @@ When an EHR workflow is best handled by an external CLI, the agent can still inv
 - Python 3.12+
 - `uv`
 - one execution backend available in `PATH`
-  - default: `healthflow-agent`
-  - compatibility: `claude`, `opencode`, `pi`
+  - default: `claude`
+  - alternatives: `opencode`, `pi`
 
 ### Setup
 
@@ -165,7 +164,7 @@ Any unset role falls back to `--active-llm`.
 python run_healthflow.py run \
   "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
   --active-llm 'deepseek/deepseek-v3.2' \
-  --active-executor healthflow_agent
+  --active-executor claude_code
 ```
 
 The same CLI can also run EHR-focused prompts used in the paper, benchmark rebuilds, and arbitrary external-CLI-driven workflows.
@@ -175,7 +174,7 @@ The same CLI can also run EHR-focused prompts used in the paper, benchmark rebui
 ```bash
 python run_healthflow.py interactive \
   --active-llm 'deepseek/deepseek-v3.2' \
-  --active-executor healthflow_agent
+  --active-executor claude_code
 ```
 
 ### Training
@@ -185,7 +184,7 @@ Training data must be JSONL with `qid`, `task`, and `answer`.
 ```bash
 python run_training.py data/train_set.jsonl ehrflow_train \
   --active-llm 'deepseek/deepseek-v3.2' \
-  --active-executor healthflow_agent
+  --active-executor claude_code
 ```
 
 ### Benchmarking
@@ -195,7 +194,7 @@ Benchmarking uses the same task JSONL shape, but **defaults to frozen memory beh
 ```bash
 python run_benchmark.py data/ehrflowbench/processed/eval.jsonl ehrflow_eval \
   --active-llm 'deepseek/deepseek-v3.2' \
-  --active-executor healthflow_agent
+  --active-executor claude_code
 ```
 
 Results are written under `benchmark_results/<dataset>/<executor>/<reasoning_model>/` with per-task copies of the workspace artifacts and dataset-level summary JSON.
