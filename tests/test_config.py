@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from pydantic import ValidationError
 
@@ -100,6 +101,62 @@ evaluator = "judge"
             config = get_config(config_path, "default")
             self.assertEqual(config.llm_config_for_role("planner").model_name, "planner-model")
             self.assertEqual(config.llm_config_for_role("evaluator").model_name, "judge-model")
+
+    def test_llm_api_key_can_be_loaded_from_env_variable(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm."openai/gpt-5.2"]
+api_key_env = "ZENMUX_API_KEY"
+base_url = "https://zenmux.ai/api/v1"
+model_name = "openai/gpt-5.2"
+""".strip(),
+                encoding="utf-8",
+            )
+            with patch.dict("os.environ", {"ZENMUX_API_KEY": "env-key"}, clear=False):
+                config = get_config(config_path, "openai/gpt-5.2")
+
+            self.assertEqual(config.llm.api_key, "env-key")
+            self.assertEqual(config.llm.api_key_env, "ZENMUX_API_KEY")
+            self.assertEqual(config.llm.model_name, "openai/gpt-5.2")
+
+    def test_inline_api_key_takes_precedence_over_api_key_env(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "inline-key"
+api_key_env = "ZENMUX_API_KEY"
+base_url = "https://example.com/v1"
+model_name = "model"
+""".strip(),
+                encoding="utf-8",
+            )
+            with patch.dict("os.environ", {"ZENMUX_API_KEY": "env-key"}, clear=False):
+                config = get_config(config_path, "test")
+
+            self.assertEqual(config.llm.api_key, "inline-key")
+
+    def test_missing_env_backed_api_key_raises_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key_env = "ZENMUX_API_KEY"
+base_url = "https://example.com/v1"
+model_name = "model"
+""".strip(),
+                encoding="utf-8",
+            )
+            with patch.dict("os.environ", {}, clear=True):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "ZENMUX_API_KEY",
+                ):
+                    get_config(config_path, "test")
 
     def test_system_config_rejects_zero_max_attempts(self):
         with self.assertRaises(ValidationError):
