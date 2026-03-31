@@ -103,6 +103,7 @@ class ExecutionResult:
     duration_seconds: float = 0.0
     timed_out: bool = False
     usage: Dict[str, Any] = field(default_factory=dict)
+    telemetry: Dict[str, Any] = field(default_factory=dict)
 
 
 class ExecutorAdapter(ABC):
