@@ -40,7 +40,7 @@ class SystemConfig(BaseModel):
         ge=1,
         description="Maximum number of full task attempts in the self-correction loop.",
     )
-    workspace_dir: str = Field("workspace", description="Directory for task artifacts.")
+    workspace_dir: str = Field("workspace/tasks", description="Directory for task artifacts.")
     shell: str = Field("/usr/bin/zsh", description="Shell to use for subprocess execution.")
 
 
