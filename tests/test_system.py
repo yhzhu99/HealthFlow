@@ -56,7 +56,8 @@ class _FakeExecutor:
 class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
     async def test_run_task_writes_structured_runtime_artifacts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            workspace_dir = Path(tmpdir) / "workspace"
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
             config = HealthFlowConfig(
                 active_llm_name="test-llm",
                 active_executor_name="healthflow_agent",
@@ -81,7 +82,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 evaluation=EvaluationConfig(success_threshold=8.0),
                 logging=LoggingConfig(),
             )
-            experience_path = workspace_dir / "experience.jsonl"
+            experience_path = workspace_root / "memory" / "experience.jsonl"
             system = HealthFlowSystem(config=config, experience_path=experience_path)
             system.meta_agent = _FakeMetaAgent()
             system.evaluator = _FakeEvaluator()
@@ -100,6 +101,8 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(Path(result["run_manifest_path"]).exists())
             self.assertTrue(Path(result["memory_context_path"]).exists())
             self.assertTrue(Path(result["verification_path"]).exists())
+            self.assertEqual(Path(result["workspace_path"]).parent, workspace_dir)
+            self.assertTrue(experience_path.parent.exists())
 
             run_result = json.loads(Path(result["run_result_path"]).read_text(encoding="utf-8"))
             self.assertEqual(run_result["backend"], "healthflow_agent")

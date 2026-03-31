@@ -38,7 +38,14 @@ The task-level self-correction budget is controlled by `system.max_attempts`, wh
 
 ## Workspace Artifacts
 
-Each task creates a workspace under `workspace/<task_id>/` and writes:
+Runtime state lives under `workspace/` by default:
+
+- task artifacts: `workspace/tasks/<task_id>/`
+- long-term memory: `workspace/memory/experience.jsonl`
+
+Benchmark datasets remain under `data/`.
+
+Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 
 - `executor_prompt.md`
 - `<backend>_execution.log`
@@ -194,6 +201,8 @@ Main config sections:
 - `[evaluation]`: evaluator success threshold
 - `[system]`: workspace, shell, and task-attempt settings (`max_attempts`)
 - `[logging]`: log level and log file
+
+By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.
 
 ## Repository Layout
 
