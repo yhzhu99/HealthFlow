@@ -198,9 +198,8 @@ class HealthFlowSystem:
         final_summary = "Task failed to complete within the allowed attempts."
         reflection_usage = None
 
-        for attempt in range(self.config.system.max_retries + 1):
-            attempt_num = attempt + 1
-            previous_feedback = full_history["attempts"][-1]["evaluation"]["feedback"] if attempt > 0 else None
+        for attempt_num in range(1, self.config.system.max_attempts + 1):
+            previous_feedback = full_history["attempts"][-1]["evaluation"]["feedback"] if attempt_num > 1 else None
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Planning..."
 

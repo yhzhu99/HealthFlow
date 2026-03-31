@@ -73,7 +73,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                     model_name="test-model",
                 ),
                 llm_roles=LLMRoleConfig(),
-                system=SystemConfig(max_retries=0, workspace_dir=str(workspace_dir)),
+                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
                 executor=ExecutorConfig(active_backend="healthflow_agent", backends=default_executor_backends()),
                 memory=MemoryConfig(mode="frozen_train"),
                 ehr=EHRConfig(),
