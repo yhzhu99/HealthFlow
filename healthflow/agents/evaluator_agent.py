@@ -21,6 +21,8 @@ class EvaluatorAgent:
         task_list: str,
         execution_log: str,
         verification_summary: str,
+        task_family: str = "general_analysis",
+        domain_focus: str = "general",
         train_mode: bool = False,
         reference_answer: str = None,
     ) -> dict:
@@ -36,6 +38,8 @@ class EvaluatorAgent:
                 execution_log=execution_log,
                 reference_answer=reference_answer,
                 verification_summary=verification_summary,
+                task_family=task_family,
+                domain_focus=domain_focus,
             )
             logger.info("Requesting training mode evaluation from LLM with reference answer...")
         else:
@@ -45,6 +49,8 @@ class EvaluatorAgent:
                 task_list=task_list,
                 execution_log=execution_log,
                 verification_summary=verification_summary,
+                task_family=task_family,
+                domain_focus=domain_focus,
             )
             logger.info("Requesting code execution evaluation from LLM...")
         

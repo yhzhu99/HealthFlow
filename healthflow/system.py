@@ -16,7 +16,7 @@ from .agents.meta_agent import MetaAgent
 from .agents.reflector_agent import ReflectorAgent
 from .core.config import HealthFlowConfig
 from .core.llm_provider import create_llm_provider
-from .ehr import detect_risk_findings, output_contract, profile_workspace_data
+from .ehr import deliverable_guidance, detect_risk_findings, profile_workspace_data, verification_guidance
 from .execution import ExecutionContext, create_executor_adapter
 from .experience.experience_manager import ExperienceManager
 from .tools import ToolBroker
@@ -32,8 +32,8 @@ class DateTimeEncoder(json.JSONEncoder):
 
 class HealthFlowSystem:
     """
-    Backend-agnostic HealthFlow runtime with EHR-aware orchestration, verifier gating,
-    and hierarchical long-term memory.
+    Backend-agnostic HealthFlow runtime for general analysis with conditional EHR-aware
+    safeguards, verifier gating, and hierarchical long-term memory.
     """
 
     def __init__(self, config: HealthFlowConfig, experience_path: Path):
@@ -141,7 +141,7 @@ class HealthFlowSystem:
         reference_answer: str = None,
     ) -> Dict[str, Any]:
         if spinner and live:
-            spinner.text = "Profiling EHR inputs and retrieving memory..."
+            spinner.text = "Profiling inputs and retrieving memory..."
 
         data_profile = profile_workspace_data(
             task_workspace,
@@ -150,7 +150,8 @@ class HealthFlowSystem:
         )
         risk_findings = detect_risk_findings(user_request, data_profile)
         tool_bundle = self.tool_broker.select_bundle(data_profile.task_family, data_profile)
-        expected_outputs = output_contract(data_profile.task_family)
+        suggested_deliverables = deliverable_guidance(data_profile.task_family, data_profile.domain_focus)
+        verifier_guidance = verification_guidance(data_profile.task_family, data_profile.domain_focus)
         memory_budgets = {
             "strategy": self.config.memory.strategy_k,
             "failure": self.config.memory.failure_k,
@@ -174,6 +175,7 @@ class HealthFlowSystem:
             "task_id": task_id,
             "user_request": user_request,
             "task_family": data_profile.task_family,
+            "domain_focus": data_profile.domain_focus,
             "dataset_signature": data_profile.dataset_signature,
             "backend": self.config.active_executor_name,
             "reasoning_model": self.config.llm_config_for_role("planner").model_name,
@@ -182,7 +184,8 @@ class HealthFlowSystem:
             "data_profile": data_profile.to_markdown(),
             "risk_findings": [item.to_bullet() for item in risk_findings],
             "tool_bundle": tool_bundle,
-            "output_contract": expected_outputs,
+            "deliverable_guidance": suggested_deliverables,
+            "verification_guidance": verifier_guidance,
             "memory_context_path": str(task_workspace / "memory_context.json"),
             "memory_retrieval": retrieval_result.audit.model_dump(mode="json"),
             "retrieved_experiences": [exp.model_dump() for exp in retrieved_experiences],
@@ -205,10 +208,11 @@ class HealthFlowSystem:
                 user_request=user_request,
                 experiences=retrieved_experiences,
                 task_family=data_profile.task_family,
+                domain_focus=data_profile.domain_focus,
                 data_profile=data_profile.to_markdown(),
                 risk_checks=[item.to_bullet() for item in risk_findings],
                 tool_bundle=tool_bundle,
-                output_contract=expected_outputs,
+                deliverable_guidance=suggested_deliverables,
                 previous_feedback=previous_feedback,
             )
             planning_usage = self._capture_agent_usage(self.meta_agent)
@@ -219,13 +223,14 @@ class HealthFlowSystem:
                 user_request=user_request,
                 task_family=data_profile.task_family,
                 data_profile=data_profile.to_markdown(),
+                domain_focus=data_profile.domain_focus,
                 risk_checks=[item.to_bullet() for item in risk_findings],
                 tool_bundle=tool_bundle,
-                output_contract=expected_outputs,
+                deliverable_guidance=suggested_deliverables,
                 plan_markdown=task_list_md,
                 prior_feedback=previous_feedback,
                 memory_summary=memory_summary,
-                verification_requirements=expected_outputs,
+                verification_guidance=verifier_guidance,
             )
 
             if spinner and live:
@@ -250,6 +255,8 @@ class HealthFlowSystem:
                 task_list=task_list_md,
                 execution_log=execution_result.log,
                 verification_summary=verification.summary(),
+                task_family=data_profile.task_family,
+                domain_focus=data_profile.domain_focus,
                 train_mode=train_mode,
                 reference_answer=reference_answer,
             )

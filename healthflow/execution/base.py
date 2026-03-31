@@ -11,22 +11,26 @@ class ExecutionContext:
     user_request: str
     task_family: str
     data_profile: str
+    domain_focus: str = "general"
     risk_checks: List[str] = field(default_factory=list)
     tool_bundle: List[str] = field(default_factory=list)
-    output_contract: List[str] = field(default_factory=list)
+    deliverable_guidance: List[str] = field(default_factory=list)
     plan_markdown: str = ""
     prior_feedback: Optional[str] = None
     memory_summary: str = ""
-    verification_requirements: List[str] = field(default_factory=list)
+    verification_guidance: List[str] = field(default_factory=list)
 
     def render_prompt(self) -> str:
         risk_block = "\n".join(f"- {item}" for item in self.risk_checks) or "- No high-risk issues detected."
         tool_block = "\n".join(f"- {item}" for item in self.tool_bundle) or "- Use the minimum required command-line tooling."
-        output_block = "\n".join(f"- {item}" for item in self.output_contract) or "- Provide a final answer in stdout."
+        guidance_block = (
+            "\n".join(f"- {item}" for item in self.deliverable_guidance)
+            or "- Provide a concise final answer, and save artifacts only when they materially support the result."
+        )
         memory_block = self.memory_summary.strip() or "- No prior memory was retrieved for this task."
         verification_block = (
-            "\n".join(f"- {item}" for item in self.verification_requirements)
-            or "- Produce auditable artifacts that allow deterministic verification."
+            "\n".join(f"- {item}" for item in self.verification_guidance)
+            or "- Prefer auditable artifacts that make important claims easy to verify."
         )
 
         prompt = [
@@ -39,8 +43,9 @@ class ExecutionContext:
             "## Original Task",
             self.user_request.strip(),
             "",
-            "## Task Family",
-            self.task_family,
+            "## Task Profile",
+            f"- Task family: {self.task_family}",
+            f"- Domain focus: {self.domain_focus}",
             "",
             "## Data Profile",
             self.data_profile.strip(),
@@ -54,10 +59,12 @@ class ExecutionContext:
             "## Preferred Tool Bundle",
             tool_block,
             "",
-            "## Output Contract",
-            output_block,
+            "## Deliverable Guidance",
+            "These are suggested deliverables, not fixed file-level contracts unless the task explicitly asks for them.",
+            guidance_block,
             "",
-            "## Verification Gate",
+            "## Verification Focus",
+            "Prefer auditable evidence for the following points when they are relevant to the task.",
             verification_block,
             "",
             "## Execution Plan",
@@ -75,7 +82,8 @@ class ExecutionContext:
                 "- Avoid printing raw sensitive rows unless strictly necessary for debugging.",
                 "- Prefer small, reproducible scripts and save important artifacts to files.",
                 "- Treat failure memories as avoidance guidance and do not repeat the same mistake.",
-                "- End with a concise final answer that references the produced artifacts.",
+                "- Keep healthcare-specific safeguards only when the request or data actually warrants them.",
+                "- End with a concise final answer that references any produced artifacts.",
             ]
         )
         return "\n".join(prompt).strip()

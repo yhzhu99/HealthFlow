@@ -7,7 +7,7 @@ from healthflow.verification import WorkspaceVerifier
 
 
 class VerificationTests(unittest.TestCase):
-    def test_modeling_workspace_passes_when_required_artifacts_exist(self):
+    def test_ehr_modeling_workspace_passes_when_required_artifacts_exist(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
             (workspace / "data.csv").write_text("subject_id,outcome,age,event_time\n1,0,65,2020-01-01\n", encoding="utf-8")
@@ -19,14 +19,14 @@ class VerificationTests(unittest.TestCase):
             (workspace / "split_evidence.json").write_text('{"train": [1], "val": [], "test": []}', encoding="utf-8")
             (workspace / "leakage_audit.md").write_text("# Leakage Audit\nNo leakage found.\n", encoding="utf-8")
             (workspace / "metrics.json").write_text('{"auroc": 0.81}', encoding="utf-8")
-            profile = profile_workspace_data(workspace, "Train a prediction model on the uploaded cohort.")
+            profile = profile_workspace_data(workspace, "Train a readmission prediction model on the uploaded EHR cohort.")
             verifier = WorkspaceVerifier(["Task Summary", "Data Profile", "Method", "Verification", "Limitations"])
             result = verifier.verify(workspace, profile.task_family, "STDOUT: done", profile)
             self.assertTrue(result.passed)
             self.assertTrue(any(path.endswith("metrics.json") for path in result.artifact_paths))
             self.assertTrue(any(check.name == "split_evidence" and check.passed for check in result.checks))
 
-    def test_verification_fails_without_split_evidence(self):
+    def test_ehr_verification_fails_without_split_evidence(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
             (workspace / "data.csv").write_text("subject_id,outcome\n1,0\n", encoding="utf-8")
@@ -36,7 +36,7 @@ class VerificationTests(unittest.TestCase):
             )
             (workspace / "cohort_definition.json").write_text('{"name": "readmission cohort"}', encoding="utf-8")
             (workspace / "metrics.json").write_text('{"auroc": 0.81}', encoding="utf-8")
-            profile = profile_workspace_data(workspace, "Train a prediction model on the uploaded cohort.")
+            profile = profile_workspace_data(workspace, "Train a readmission prediction model on the uploaded EHR cohort.")
             verifier = WorkspaceVerifier(["Task Summary", "Data Profile", "Method", "Verification", "Limitations"])
             result = verifier.verify(workspace, profile.task_family, "STDOUT: done", profile)
             self.assertFalse(result.passed)
@@ -59,6 +59,18 @@ class VerificationTests(unittest.TestCase):
             result = verifier.verify(workspace, profile.task_family, "STDOUT: done", profile)
             self.assertTrue(result.passed)
             self.assertTrue(any(path.endswith("preprocess/split.json") for path in result.artifact_paths))
+
+    def test_general_modeling_can_pass_without_ehr_cohort_contracts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            (workspace / "sales.csv").write_text("customer_id,target,revenue\n1,120,1000\n2,95,900\n", encoding="utf-8")
+            (workspace / "split_evidence.json").write_text('{"train": [1], "val": [], "test": [2]}', encoding="utf-8")
+            (workspace / "metrics.json").write_text('{"rmse": 5.1}', encoding="utf-8")
+            profile = profile_workspace_data(workspace, "Train a regression model to predict revenue from the uploaded sales data.")
+            verifier = WorkspaceVerifier(["Task Summary", "Data Profile", "Method", "Verification", "Limitations"])
+            result = verifier.verify(workspace, profile.task_family, "STDOUT: done", profile)
+            self.assertTrue(result.passed)
+            self.assertFalse(any(check.name == "cohort_definition" for check in result.checks))
 
 
 if __name__ == "__main__":
