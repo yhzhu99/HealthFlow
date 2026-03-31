@@ -25,14 +25,14 @@ model_name = "model"
                 encoding="utf-8",
             )
             config = get_config(config_path, "test")
-            self.assertEqual(config.active_executor_name, "claude_code")
+            self.assertEqual(config.active_executor_name, "opencode")
             self.assertIn("opencode", config.executor.backends)
             self.assertIn("claude_code", config.executor.backends)
             self.assertIn("pi", config.executor.backends)
             self.assertEqual(config.system.max_attempts, 3)
             self.assertEqual(config.system.workspace_dir, "workspace/tasks")
 
-    def test_named_claude_backend_uses_specialized_executor(self):
+    def test_default_backend_uses_opencode_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
@@ -46,7 +46,8 @@ model_name = "model"
             )
             config = get_config(config_path, "test")
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
-            self.assertIsInstance(executor, ClaudeCodeExecutor)
+            self.assertIsInstance(executor, CLISubprocessExecutor)
+            self.assertNotIsInstance(executor, ClaudeCodeExecutor)
 
     def test_named_pi_backend_uses_specialized_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
