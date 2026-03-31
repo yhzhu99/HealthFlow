@@ -57,8 +57,8 @@ def load_dataset(dataset_path: Path) -> List[Dict[str, Any]]:
     return tasks
 
 
-def create_output_directory(dataset_name: str, active_llm: str, qid: str) -> Path:
-    output_dir = Path("benchmark_results") / dataset_name / active_llm / str(qid)
+def create_output_directory(dataset_name: str, active_executor: str, active_llm: str, qid: str) -> Path:
+    output_dir = Path("benchmark_results") / dataset_name / active_executor / active_llm / str(qid)
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
@@ -150,7 +150,7 @@ async def run_benchmark_async(
         memory_mode_override="frozen_train",
     )
 
-    results_dir = Path("benchmark_results") / dataset_name / active_llm
+    results_dir = Path("benchmark_results") / dataset_name / system.config.active_executor_name / active_llm
     results_dir.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, Any]] = []
 
@@ -165,7 +165,7 @@ async def run_benchmark_async(
                 for key, value in task_data.items()
                 if key not in {"qid", "task", "answer"}
             }
-            output_dir = create_output_directory(dataset_name, active_llm, qid)
+            output_dir = create_output_directory(dataset_name, system.config.active_executor_name, active_llm, qid)
             progress.update(task_progress, description=f"[cyan]Processing task {qid}...")
 
             try:
@@ -200,14 +200,19 @@ async def run_benchmark_async(
                 "score": score,
                 "verification_passed": result.get("verification_passed", False),
                 "backend": result.get("backend"),
+                "backend_version": result.get("backend_version"),
+                "executor_metadata": result.get("executor_metadata"),
                 "reasoning_model": result.get("reasoning_model"),
                 "memory_mode": result.get("memory_mode"),
+                "usage_summary": result.get("usage_summary"),
+                "cost_summary": result.get("cost_summary"),
                 "execution_time": result.get("execution_time", 0.0),
                 "workspace_path": result.get("workspace_path"),
                 "log_path": result.get("log_path"),
                 "verification_path": result.get("verification_path"),
                 "memory_context_path": result.get("memory_context_path"),
                 "run_result_path": result.get("run_result_path"),
+                "run_manifest_path": result.get("run_manifest_path"),
                 "final_summary": result.get("final_summary"),
                 "output_directory": str(output_dir),
             }
@@ -227,6 +232,10 @@ async def run_benchmark_async(
     verifier_passed = sum(1 for item in results if item["verification_passed"])
     average_score = sum(item["score"] for item in results) / len(results) if results else 0.0
     average_execution_time = sum(item["execution_time"] for item in results) / len(results) if results else 0.0
+    llm_cost_total = sum(
+        float(item.get("cost_summary", {}).get("llm_estimated_cost_usd") or 0.0)
+        for item in results
+    )
     summary = {
         "dataset_name": dataset_name,
         "total_tasks": len(tasks),
@@ -239,6 +248,7 @@ async def run_benchmark_async(
         "backend": system.config.active_executor_name,
         "reasoning_model": system.config.llm.model_name,
         "memory_mode": system.config.memory.mode,
+        "total_llm_estimated_cost_usd": round(llm_cost_total, 8),
         "experience_path": str(experience_path),
         "results_file": str(results_file),
         "output_directory": str(results_dir),
@@ -256,6 +266,7 @@ async def run_benchmark_async(
             f"Success rate: {summary['success_rate']:.1%}\n"
             f"Average score: {average_score:.2f}\n"
             f"Average execution time: {average_execution_time:.2f}s\n\n"
+            f"Estimated LLM cost: ${summary['total_llm_estimated_cost_usd']:.4f}\n\n"
             f"Results saved to: {results_file}\n"
             f"Summary saved to: {results_dir / 'summary.json'}",
             border_style="green",

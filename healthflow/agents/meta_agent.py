@@ -14,6 +14,9 @@ class MetaAgent:
     """
     def __init__(self, llm_provider: LLMProvider):
         self.llm_provider = llm_provider
+        self.last_usage: dict = {}
+        self.last_model_name: str = llm_provider.model_name
+        self.last_estimated_cost_usd: float | None = None
 
     async def generate_plan(
         self,
@@ -69,6 +72,9 @@ class MetaAgent:
 
         logger.info("Generating plan with MetaAgent...")
         response = await self.llm_provider.generate(messages, temperature=0.0, json_mode=True)
+        self.last_usage = response.usage
+        self.last_model_name = response.model_name
+        self.last_estimated_cost_usd = response.estimated_cost_usd
 
         try:
             result = json.loads(response.content)

@@ -4,16 +4,22 @@
 base_url = "https://api.openai.com/v1"
 api_key = "YOUR_OPENAI_API_KEY"
 model_name = "gpt-4-turbo-preview"
+input_cost_per_million_tokens = 0.0
+output_cost_per_million_tokens = 0.0
 
 [llm.deepseek-chat]
 base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-chat"
+input_cost_per_million_tokens = 0.0
+output_cost_per_million_tokens = 0.0
 
 [llm.deepseek-reasoner]
 base_url = "https://api.deepseek.com/v1"
 api_key = "YOUR_DEEPSEEK_API_KEY"
 model_name = "deepseek-reasoner"
+input_cost_per_million_tokens = 0.0
+output_cost_per_million_tokens = 0.0
 
 # --- Executor Configuration ---
 [executor]
@@ -34,6 +40,12 @@ timeout_seconds = 900
 
 [executor.backends.opencode]
 binary = "opencode"
+args = []
+prompt_mode = "append"
+timeout_seconds = 900
+
+[executor.backends.pi]
+binary = "pi"
 args = []
 prompt_mode = "append"
 timeout_seconds = 900

@@ -87,6 +87,8 @@ class ExecutionResult:
     prompt_path: str
     backend: str
     command: List[str]
+    backend_version: Optional[str] = None
+    executor_metadata: Dict[str, Any] = field(default_factory=dict)
     duration_seconds: float = 0.0
     timed_out: bool = False
     usage: Dict[str, Any] = field(default_factory=dict)

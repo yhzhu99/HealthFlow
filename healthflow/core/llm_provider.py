@@ -1,7 +1,7 @@
 import httpx
 from openai import AsyncOpenAI
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import Any, List, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 from loguru import logger
 
@@ -15,6 +15,9 @@ class LLMMessage(BaseModel):
 class LLMResponse(BaseModel):
     """Represents a response from the LLM."""
     content: str
+    model_name: str
+    usage: dict[str, Any] = Field(default_factory=dict)
+    estimated_cost_usd: float | None = None
 
 class LLMProvider:
     """
@@ -23,6 +26,7 @@ class LLMProvider:
     """
     def __init__(self, config: LLMProviderConfig):
         """Initializes the provider with a specific LLM's configuration."""
+        self.config = config
         self.client = AsyncOpenAI(
             api_key=config.api_key,
             base_url=config.base_url,
@@ -64,8 +68,15 @@ class LLMProvider:
                 response_format=response_format,
             )
             content = completion.choices[0].message.content or ""
+            usage = self._normalize_usage(getattr(completion, "usage", None))
+            estimated_cost_usd = self._estimate_cost_usd(usage)
             logger.debug(f"LLM response received. Length: {len(content)}")
-            return LLMResponse(content=content)
+            return LLMResponse(
+                content=content,
+                model_name=self.model_name,
+                usage=usage,
+                estimated_cost_usd=estimated_cost_usd,
+            )
         except RetryError as e:
             logger.error(f"LLM API call failed after multiple retries: {e}")
             raise # Re-raise the exception after logging
@@ -73,6 +84,47 @@ class LLMProvider:
             logger.error(f"An unexpected error occurred during LLM API call: {e}")
             # This will trigger a retry if tenacity is configured for it
             raise
+
+    def _normalize_usage(self, usage: Any) -> dict[str, Any]:
+        if usage is None:
+            return {}
+        if hasattr(usage, "model_dump"):
+            usage = usage.model_dump()
+        if not isinstance(usage, dict):
+            return {}
+
+        input_tokens = usage.get("prompt_tokens", usage.get("input_tokens"))
+        output_tokens = usage.get("completion_tokens", usage.get("output_tokens"))
+        total_tokens = usage.get("total_tokens")
+        if total_tokens is None and input_tokens is not None and output_tokens is not None:
+            total_tokens = input_tokens + output_tokens
+
+        normalized = {
+            "input_tokens": int(input_tokens) if input_tokens is not None else None,
+            "output_tokens": int(output_tokens) if output_tokens is not None else None,
+            "total_tokens": int(total_tokens) if total_tokens is not None else None,
+        }
+        return {key: value for key, value in normalized.items() if value is not None}
+
+    def _estimate_cost_usd(self, usage: dict[str, Any]) -> float | None:
+        if not usage:
+            return None
+        if self.config.input_cost_per_million_tokens is None and self.config.output_cost_per_million_tokens is None:
+            return None
+
+        input_tokens = float(usage.get("input_tokens", 0))
+        output_tokens = float(usage.get("output_tokens", 0))
+        input_cost = (
+            input_tokens / 1_000_000.0 * self.config.input_cost_per_million_tokens
+            if self.config.input_cost_per_million_tokens is not None
+            else 0.0
+        )
+        output_cost = (
+            output_tokens / 1_000_000.0 * self.config.output_cost_per_million_tokens
+            if self.config.output_cost_per_million_tokens is not None
+            else 0.0
+        )
+        return round(input_cost + output_cost, 8)
 
 def create_llm_provider(config: LLMProviderConfig) -> LLMProvider:
     """Factory function to create the LLM provider from its specific config."""
