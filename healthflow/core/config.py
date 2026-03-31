@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Literal
@@ -10,7 +11,11 @@ from pydantic import BaseModel, Field, model_validator
 class LLMProviderConfig(BaseModel):
     """Configuration for a single LLM provider."""
 
-    api_key: str = Field(..., description="API key for the LLM provider.")
+    api_key: str = Field(..., description="Resolved API key for the LLM provider.")
+    api_key_env: str | None = Field(
+        default=None,
+        description="Optional environment variable name that stores the API key.",
+    )
     base_url: str = Field(..., description="Base URL for the LLM API.")
     model_name: str = Field(..., description="Model name to use.")
     timeout: int = Field(180, description="Request timeout in seconds.")
@@ -153,19 +158,37 @@ class HealthFlowConfig(BaseModel):
         return self.llm_registry[configured_name]
 
 
+def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> LLMProviderConfig:
+    resolved_config = dict(provider_config)
+    api_key = resolved_config.get("api_key")
+    api_key_env = resolved_config.get("api_key_env")
+
+    if api_key is None:
+        if api_key_env is None:
+            raise ValueError(
+                f"LLM '{provider_name}' must define either 'api_key' or 'api_key_env' under '[llm]'."
+            )
+        resolved_api_key = os.getenv(api_key_env)
+        if not resolved_api_key:
+            raise ValueError(
+                f"LLM '{provider_name}' requires environment variable '{api_key_env}', but it is not set."
+            )
+        resolved_config["api_key"] = resolved_api_key
+
+    return LLMProviderConfig(**resolved_config)
+
+
 def get_config(config_path: Path, active_llm: str, active_executor: str | None = None) -> HealthFlowConfig:
     """
     Loads configuration from a TOML file, validates it, selects the active LLM and
     executor settings, and returns a unified HealthFlowConfig object.
     """
     if not config_path.exists():
-        example_path = Path("config.toml.example")
-        if example_path.exists():
-            raise FileNotFoundError(
-                f"Configuration file not found at '{config_path}'. "
-                f"Please copy '{example_path}' to '{config_path}' and fill in your API key."
-            )
-        raise FileNotFoundError(f"Configuration file not found at '{config_path}'.")
+        raise FileNotFoundError(
+            f"Configuration file not found at '{config_path}'. "
+            "Create it and supply API keys via 'api_key' or 'api_key_env' "
+            "(for example, 'ZENMUX_API_KEY')."
+        )
 
     try:
         config_data = toml.load(config_path)
@@ -178,7 +201,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         if not active_llm_config_data:
             raise ValueError(f"Configuration for LLM '{active_llm}' not found under the '[llm]' section.")
         llm_registry = {
-            name: LLMProviderConfig(**provider_config)
+            name: _resolve_llm_provider_config(name, provider_config)
             for name, provider_config in llm_section.items()
         }
         llm_roles = LLMRoleConfig(**config_data.get("llm_roles", {}))
@@ -199,7 +222,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
             active_llm_name=active_llm,
             active_executor_name=executor_config.active_backend,
             llm_registry=llm_registry,
-            llm=LLMProviderConfig(**active_llm_config_data),
+            llm=llm_registry[active_llm],
             llm_roles=llm_roles,
             system=SystemConfig(**config_data.get("system", {})),
             executor=executor_config,
