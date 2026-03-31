@@ -16,7 +16,7 @@ HEALTHFLOW_ROOT = find_healthflow_root()
 if str(HEALTHFLOW_ROOT) not in sys.path:
     sys.path.insert(0, str(HEALTHFLOW_ROOT))
 
-from healthflow.benchmarks.deterministic_eval import run_cli  # noqa: E402
+from healthflow.benchmarks.first_class_mc_eval import run_cli  # noqa: E402
 
 
 if __name__ == "__main__":
