@@ -1,0 +1,19 @@
+{
+  "benchmark": "medagentsbench",
+  "description": "Committed hard-set MedAgentsBench subset used for deterministic evaluation.",
+  "sources": [
+    {
+      "name": "MedAgents benchmark repository",
+      "url": "https://github.com/gersteinlab/medagents-benchmark",
+      "access": "Public GitHub repository.",
+      "local_artifacts": [
+        "medagentsbench.jsonl"
+      ],
+      "notes": "This repository vendors the exact hard-set JSONL committed for the canonical benchmark rebuild."
+    }
+  ],
+  "rebuild_entrypoints": [
+    "python data/medagentsbench/scripts/rebuild.py",
+    "python data/medagentsbench/scripts/evaluate.py --dataset-path <run_dir> --output-dir <eval_dir>"
+  ]
+}

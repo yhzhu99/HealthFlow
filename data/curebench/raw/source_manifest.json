@@ -1,0 +1,20 @@
+{
+  "benchmark": "curebench",
+  "description": "Committed raw CureBench subsets used to deterministically rebuild the canonical train/eval benchmark splits.",
+  "sources": [
+    {
+      "name": "CURE-Bench Kaggle competition data",
+      "url": "https://www.kaggle.com/competitions/cure-bench/data",
+      "access": "Requires a Kaggle account and acceptance of the competition terms before download.",
+      "local_artifacts": [
+        "curebench_valset.jsonl",
+        "curebench_valset_train.jsonl"
+      ],
+      "notes": "This repository vendors the exact raw JSONL exports used for the canonical deterministic benchmark rebuild."
+    }
+  ],
+  "rebuild_entrypoints": [
+    "python data/curebench/scripts/rebuild.py",
+    "python data/curebench/scripts/evaluate.py --dataset-path <run_dir> --output-dir <eval_dir>"
+  ]
+}

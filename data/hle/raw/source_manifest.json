@@ -1,0 +1,19 @@
+{
+  "benchmark": "hle",
+  "description": "Committed raw HLE export used to derive the deterministic medical multiple-choice subset.",
+  "sources": [
+    {
+      "name": "CAIS HLE dataset",
+      "url": "https://huggingface.co/datasets/cais/hle",
+      "access": "Hosted on Hugging Face. Upstream access requirements may depend on the dataset host state; the canonical raw export used here is vendored in-repo.",
+      "local_artifacts": [
+        "hle.jsonl"
+      ],
+      "notes": "Only rows with a single uppercase multiple-choice answer are kept in the processed benchmark."
+    }
+  ],
+  "rebuild_entrypoints": [
+    "python data/hle/scripts/rebuild.py",
+    "python data/hle/scripts/evaluate.py --dataset-path <run_dir> --output-dir <eval_dir>"
+  ]
+}
