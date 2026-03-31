@@ -1,128 +1,521 @@
 {
-  "benchmark": "curebench",
-  "selection_policy": "Use the committed raw validation and train subsets as the canonical deterministic benchmark inputs.",
-  "splits": [
+  "dataset": "curebench",
+  "source_file": "raw/curebench_valset_phase1.jsonl",
+  "seed": 42,
+  "sample_size": 100,
+  "filters": {
+    "allowed_question_types": [
+      "multi_choice",
+      "open_ended_multi_choice"
+    ]
+  },
+  "source_question_type_counts": {
+    "multi_choice": 183,
+    "open_ended_multi_choice": 230,
+    "open_ended": 46
+  },
+  "candidate_count": 413,
+  "selected_count": 100,
+  "selected_rows": [
     {
-      "split": "eval",
-      "row_count": 100,
-      "qids": [
-        "0NpConxVPMFN",
-        "0jekAqEqsylh",
-        "0xOHfzUCHeUB",
-        "1CW71PEfUO3w",
-        "1oUhlFlHKRar",
-        "2CL48re5Ymei",
-        "4T4a8JGxsPdN",
-        "6f0P2aXi6BuR",
-        "78rb8mSjrZSd",
-        "7Kb9pH1BuKVq",
-        "7YXi98NhIrhP",
-        "8WMX8spTFirm",
-        "8lHsQuZ55RtA",
-        "8v3EbcdMKqHU",
-        "96U1YIRLz3S4",
-        "9HNAMjqLMyAO",
-        "9SIC14KQED3R",
-        "AUKWr9SmYhyi",
-        "AmYhDx2lQmoY",
-        "BoqCCgWIhC2N",
-        "Cb2arHKByQcE",
-        "D0Q2hWgZDkHc",
-        "DJYnbCxWbeU8",
-        "EPGUKZNifNtQ",
-        "Eic83tab2ldk",
-        "FXwZ3tkAwUJz",
-        "GdXT897N4hFB",
-        "Gdqxh1gO6Xss",
-        "GlpDnJvMaWbs",
-        "HYmngsJ6SQDQ",
-        "I4afzU6Ap2Hj",
-        "I7RTo2O85Wzp",
-        "JAjrKcIMqCs9",
-        "JwY4hXr9vZ9f",
-        "KFO7xIOfSAuj",
-        "LbhWroiUSSLQ",
-        "MC9FHS84zIbx",
-        "MdtMwUZ5jkN9",
-        "MyyktgFxM3uA",
-        "NXyjgvs0NhIh",
-        "Ndxj5YI9MsBL",
-        "OVBKYqmRT7Cf",
-        "PgBb1gLHnIFY",
-        "QQ9RY7AZSLan",
-        "QbyW3Ja6BOMb",
-        "S6xqZWAnXkiE",
-        "S8rR9G0u78T2",
-        "SKQ7tohL65cn",
-        "SeNVyra7uLuW",
-        "U9PHZ83RKYV8",
-        "UIOPfPRsOFRk",
-        "VmCeoLbwpomV",
-        "WOsvuiM4Rfs4",
-        "WfWiWK0yULaX",
-        "WqBaoYjA3L87",
-        "Wt6G8F6Qxyyj",
-        "X8m86YEeVpYu",
-        "XrpAg6zeqC4x",
-        "Y4dnTVj1svSo",
-        "YtpSBGsbNuZa",
-        "ZFU0wbRPwuMG",
-        "aUkWUTTiKMPy",
-        "aZh6K1M3fdr9",
-        "bAglZqMMfand",
-        "bLOmytgqgKvC",
-        "cRbl2ruD1WMZ",
-        "dlKfnTKdPf9G",
-        "ep0KXYKj2lYJ",
-        "fJCpjsIeX5In",
-        "fNENKA00h8jO",
-        "fvYvt7BhnFrs",
-        "g6d3RukDWEdj",
-        "gsyLl2Ge7zPw",
-        "hcZukKMtrRZ7",
-        "hisVEgN8wQWx",
-        "iCq0NCBVCYkg",
-        "jWvzRd50HBHy",
-        "kMXCmthQWKhr",
-        "lrl3KR1jMcJC",
-        "myBooDivIEjt",
-        "n872XeXhpIce",
-        "pwRVnkMN1mS2",
-        "q8rmHvOAanln",
-        "qB6uxXE2BBob",
-        "rYhpGH3kQW8P",
-        "rkn2WGUj1inH",
-        "s2Tb5DRLFTyn",
-        "sMLyoU0d3Mrn",
-        "sN6wz556sK8Y",
-        "sREowFmeVh0w",
-        "sukJQfNlj8DK",
-        "vIGwm8qguXYi",
-        "vLLqOGKtUreF",
-        "vPiXAVp07Qga",
-        "vWfJIM5uUsDG",
-        "wnJ6nx17EB1Z",
-        "wzkMQ7uHtlLs",
-        "xFqyj9rw02CP",
-        "xcCeWDF4631Z",
-        "y57Gv9UZlPbn"
-      ]
+      "qid": 1,
+      "source_id": "0GwxPYeoj90n",
+      "source_question_type": "open_ended_multi_choice"
     },
     {
-      "split": "train",
-      "row_count": 10,
-      "qids": [
-        "5WlV4jwibRVk",
-        "D5Vbn5lS2kRh",
-        "DhvhP8s8ImJs",
-        "HztLxQNQqRIv",
-        "T2VQsXsNoXFi",
-        "ZO2WDNaeQKrf",
-        "qR5aqwQ8c3M8",
-        "qmBdSdTv1DpI",
-        "sVLDWBNddIbK",
-        "xf6HN4OBnOfO"
-      ]
+      "qid": 2,
+      "source_id": "1hPNUhXOcSyQ",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 3,
+      "source_id": "1oUhlFlHKRar",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 4,
+      "source_id": "2CL48re5Ymei",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 5,
+      "source_id": "2GVcXij7hZ8B",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 6,
+      "source_id": "2xBlLrIgfF27",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 7,
+      "source_id": "2xd6ghH1mTAY",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 8,
+      "source_id": "3Kchwj4Jz7wt",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 9,
+      "source_id": "5iXHAVVVk7gs",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 10,
+      "source_id": "66k6JlKji7qH",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 11,
+      "source_id": "6wFwF1Rn9ib0",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 12,
+      "source_id": "7Kb9pH1BuKVq",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 13,
+      "source_id": "7YmO7oy74913",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 14,
+      "source_id": "8OCkup9Ka801",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 15,
+      "source_id": "8fl87Li8o8fV",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 16,
+      "source_id": "8lHsQuZ55RtA",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 17,
+      "source_id": "9HNAMjqLMyAO",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 18,
+      "source_id": "9bGxOQSans4Z",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 19,
+      "source_id": "AUKWr9SmYhyi",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 20,
+      "source_id": "BoqCCgWIhC2N",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 21,
+      "source_id": "CJpqu7xtgWTW",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 22,
+      "source_id": "Cb2arHKByQcE",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 23,
+      "source_id": "D19iWnmCz6ME",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 24,
+      "source_id": "Eic83tab2ldk",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 25,
+      "source_id": "FSWxaELf91Q6",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 26,
+      "source_id": "FupdxwfLFawr",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 27,
+      "source_id": "GQJVAHSMIqeF",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 28,
+      "source_id": "GUUN6GRE9Yg0",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 29,
+      "source_id": "GdXT897N4hFB",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 30,
+      "source_id": "GlpDnJvMaWbs",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 31,
+      "source_id": "HQ8jlMkPtWuT",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 32,
+      "source_id": "HUeKL0sxFUTZ",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 33,
+      "source_id": "HYmngsJ6SQDQ",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 34,
+      "source_id": "IBTwA0AnsRhn",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 35,
+      "source_id": "JtkZZ2eDojse",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 36,
+      "source_id": "JwY4hXr9vZ9f",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 37,
+      "source_id": "KEFQPh31oTjK",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 38,
+      "source_id": "KXkWBvqJKGmc",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 39,
+      "source_id": "L15ChSFpmkxV",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 40,
+      "source_id": "LwvCB0Hz0fYP",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 41,
+      "source_id": "MC9FHS84zIbx",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 42,
+      "source_id": "NgidWPtnq33t",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 43,
+      "source_id": "OUTPs0m2REUz",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 44,
+      "source_id": "OhzVvNLVpXly",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 45,
+      "source_id": "POquOjLUeFf5",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 46,
+      "source_id": "PUIIWiIpiUur",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 47,
+      "source_id": "Q32z2DVuo70T",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 48,
+      "source_id": "QDa2yAUjFrHJ",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 49,
+      "source_id": "QQ9RY7AZSLan",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 50,
+      "source_id": "QVqzYhqMqsKc",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 51,
+      "source_id": "R3VRfSTWMvBl",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 52,
+      "source_id": "RqM53KI1SHyE",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 53,
+      "source_id": "RsT4yEVvPchh",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 54,
+      "source_id": "UYErAdkmaCRq",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 55,
+      "source_id": "Uc5NEuhLvAQJ",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 56,
+      "source_id": "WeRy9MPlu5Mh",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 57,
+      "source_id": "WqBaoYjA3L87",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 58,
+      "source_id": "XStstm6cvM81",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 59,
+      "source_id": "XfLNyXbbU1TP",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 60,
+      "source_id": "bAglZqMMfand",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 61,
+      "source_id": "cRbl2ruD1WMZ",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 62,
+      "source_id": "ccrJKpnAXqBO",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 63,
+      "source_id": "dbROsaqBWmgw",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 64,
+      "source_id": "dofxOJuv5AyC",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 65,
+      "source_id": "eNk4M0zpsiD7",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 66,
+      "source_id": "eRORKd8kTZwY",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 67,
+      "source_id": "fvYvt7BhnFrs",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 68,
+      "source_id": "gsyLl2Ge7zPw",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 69,
+      "source_id": "h1xRp2K608us",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 70,
+      "source_id": "hsaKWwtAO0Hc",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 71,
+      "source_id": "huVta5thMi4w",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 72,
+      "source_id": "iCq0NCBVCYkg",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 73,
+      "source_id": "jWvzRd50HBHy",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 74,
+      "source_id": "kMXCmthQWKhr",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 75,
+      "source_id": "ku8SatNgErue",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 76,
+      "source_id": "l8daUdwsIZlM",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 77,
+      "source_id": "lmDcWcfqSnpF",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 78,
+      "source_id": "lwm2qXkSixus",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 79,
+      "source_id": "m5wAed5GouIf",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 80,
+      "source_id": "mUAkbujPizzk",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 81,
+      "source_id": "md2ANeDi62kp",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 82,
+      "source_id": "nWYuIaIPaEDC",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 83,
+      "source_id": "q8rmHvOAanln",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 84,
+      "source_id": "qR5aqwQ8c3M8",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 85,
+      "source_id": "qVHiu9Op4pAo",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 86,
+      "source_id": "s2Tb5DRLFTyn",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 87,
+      "source_id": "sukJQfNlj8DK",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 88,
+      "source_id": "tbXhIzSsJKpt",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 89,
+      "source_id": "te8FuqmxwSEe",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 90,
+      "source_id": "ttfRmSgFyt3L",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 91,
+      "source_id": "uIP3X4zoD8Qu",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 92,
+      "source_id": "vIGwm8qguXYi",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 93,
+      "source_id": "wnJ6nx17EB1Z",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 94,
+      "source_id": "wzkMQ7uHtlLs",
+      "source_question_type": "multi_choice"
+    },
+    {
+      "qid": 95,
+      "source_id": "xFqyj9rw02CP",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 96,
+      "source_id": "xTMxAIMvMomk",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 97,
+      "source_id": "xf6HN4OBnOfO",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 98,
+      "source_id": "yEUDbvu9TlU3",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 99,
+      "source_id": "zYx2p6AcHlUy",
+      "source_question_type": "open_ended_multi_choice"
+    },
+    {
+      "qid": 100,
+      "source_id": "zpjtHEPME7PF",
+      "source_question_type": "open_ended_multi_choice"
     }
   ]
 }
