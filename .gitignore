@@ -8,7 +8,6 @@ TASK.md
 *.json
 *.jsonl
 *.lock
-config.toml
 tmp/
 prompt.md
 data/
