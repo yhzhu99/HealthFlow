@@ -45,7 +45,7 @@ def _display_task_result(result: dict):
 [bold]Backend:[/bold] {result.get('backend', 'N/A')}
 [bold]Backend Version:[/bold] {result.get('backend_version', 'N/A')}
 [bold]Reasoning Model:[/bold] {result.get('reasoning_model', 'N/A')}
-[bold]Memory Mode:[/bold] {result.get('memory_mode', 'N/A')}
+[bold]Memory Write Policy:[/bold] {result.get('memory_write_policy', 'N/A')}
 [bold]Verification Passed:[/bold] {result.get('verification_passed', False)}
 [bold]Usage Summary:[/bold] {result.get('usage_summary', {})}
 [bold]Cost Summary:[/bold] {result.get('cost_summary', {})}
@@ -60,14 +60,13 @@ def _display_task_result(result: dict):
 """
     console.print(Panel(final_report, title=panel_title, border_style=panel_border_style))
 
-async def run_single_task_flow(system: HealthFlowSystem, task: str, train_mode: bool = False, reference_answer: str = None):
+async def run_single_task_flow(system: HealthFlowSystem, task: str):
     """Runs a single task and displays the result with a live spinner."""
-    mode_text = "[bold yellow](Training Mode)[/bold yellow] " if train_mode else ""
-    console.print(Panel(f"[bold cyan]Starting HealthFlow Task[/bold cyan] {mode_text}\n\n[dim]Task:[/dim] {task}", border_style="cyan"))
+    console.print(Panel(f"[bold cyan]Starting HealthFlow Task[/bold cyan]\n\n[dim]Task:[/dim] {task}", border_style="cyan"))
 
     spinner = Spinner("dots", text="HealthFlow is orchestrating...")
     with Live(spinner, console=console, transient=True, refresh_per_second=20) as live:
-        result = await system.run_task(task, live, spinner, train_mode, reference_answer)
+        result = await system.run_task(task, live, spinner)
 
     _display_task_result(result)
     # Exit with a non-zero code if the task failed, useful for scripting/CI
@@ -112,8 +111,6 @@ def run(
     task: str = typer.Argument(..., help="The high-level analysis task for HealthFlow to accomplish."),
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
-    train_mode: bool = typer.Option(False, "--train", help="Enable training mode (CLI only)."),
-    reference_answer: str = typer.Option(None, "--reference-answer", help="Reference answer for training mode evaluation."),
     active_llm: str = typer.Option(
         ...,
         "--active-llm",
@@ -124,12 +121,8 @@ def run(
     """
     Run a single task through the HealthFlow system.
     """
-    if train_mode and reference_answer is None:
-        console.print(Panel("[bold red]Error:[/bold red] Training mode requires --reference-answer parameter.", border_style="red"))
-        raise typer.Exit(code=1)
-
     system = _initialize_system(config_path, experience_path, active_llm, active_executor)
-    asyncio.run(run_single_task_flow(system, task, train_mode, reference_answer))
+    asyncio.run(run_single_task_flow(system, task))
 
 @app.command()
 def interactive(

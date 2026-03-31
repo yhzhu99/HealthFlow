@@ -6,7 +6,6 @@ from .tasking import (
     default_tool_bundle,
     deliverable_guidance,
     detect_domain_focus,
-    required_report_sections,
     verification_guidance,
 )
 
@@ -20,6 +19,5 @@ __all__ = [
     "default_tool_bundle",
     "deliverable_guidance",
     "detect_domain_focus",
-    "required_report_sections",
     "verification_guidance",
 ]

@@ -74,8 +74,6 @@ class TrainingRunner:
                 try:
                     result = await self.system.run_task(
                         user_request=example.task,
-                        train_mode=True,
-                        reference_answer=example.answer
                     )
 
                     if result.get("success", False):
@@ -92,7 +90,7 @@ class TrainingRunner:
                         "workspace_path": result.get("workspace_path"),
                         "backend": result.get("backend"),
                         "reasoning_model": result.get("reasoning_model"),
-                        "memory_mode": result.get("memory_mode"),
+                        "memory_write_policy": result.get("memory_write_policy"),
                         "verification_passed": result.get("verification_passed"),
                         "execution_time": result.get("execution_time", 0.0),
                         "memory_context_path": result.get("memory_context_path"),
@@ -114,7 +112,7 @@ class TrainingRunner:
                         "workspace_path": None,
                         "backend": None,
                         "reasoning_model": None,
-                        "memory_mode": None,
+                        "memory_write_policy": None,
                         "verification_passed": False,
                         "execution_time": 0.0,
                         "memory_context_path": None,
@@ -323,7 +321,7 @@ async def main_async(
         "verifier_pass_rate": summary["verifier_pass_rate"],
         "backend": system.config.active_executor_name,
         "reasoning_model": system.config.llm.model_name,
-        "memory_mode": system.config.memory.mode,
+        "memory_write_policy": system.config.memory.write_policy,
         "results_directory": str(results_dir)
     }
 

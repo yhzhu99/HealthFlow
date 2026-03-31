@@ -101,32 +101,17 @@ class LLMRoleConfig(BaseModel):
     reflector: str | None = Field(default=None, description="Optional model key for the reflector agent.")
 
 
+LEGACY_MEMORY_MODE_MAP = {
+    "accumulate_eval": "append",
+    "frozen_train": "freeze",
+    "reset": "reset_before_run",
+}
+REMOVED_CONFIG_SECTIONS = {"ehr", "verification"}
+REMOVED_MEMORY_KEYS = {"retrieve_k", "strategy_k", "failure_k", "dataset_k", "writeback_on_failure"}
+
+
 class MemoryConfig(BaseModel):
-    mode: Literal["accumulate_eval", "frozen_train", "reset"] = "accumulate_eval"
-    retrieve_k: int = 6
-    strategy_k: int = 3
-    failure_k: int = 2
-    dataset_k: int = 1
-    writeback_on_failure: bool = True
-
-
-class EHRConfig(BaseModel):
-    enable_profile: bool = True
-    enable_risk_checks: bool = True
-    max_preview_rows: int = 3
-
-
-class VerificationConfig(BaseModel):
-    require_verifier_pass: bool = True
-    required_report_sections: List[str] = Field(
-        default_factory=lambda: [
-            "Task Summary",
-            "Data Profile",
-            "Method",
-            "Verification",
-            "Limitations",
-        ]
-    )
+    write_policy: Literal["append", "freeze", "reset_before_run"] = "append"
 
 
 class EvaluationConfig(BaseModel):
@@ -149,8 +134,6 @@ class HealthFlowConfig(BaseModel):
     system: SystemConfig
     executor: ExecutorConfig
     memory: MemoryConfig
-    ehr: EHRConfig
-    verification: VerificationConfig
     evaluation: EvaluationConfig
     logging: LoggingConfig
 
@@ -183,6 +166,48 @@ def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> L
     return LLMProviderConfig(**resolved_config)
 
 
+def _normalize_memory_config(memory_config: dict) -> dict:
+    normalized = dict(memory_config)
+    removed_keys = sorted(key for key in normalized if key in REMOVED_MEMORY_KEYS)
+    if removed_keys:
+        raise ValueError(
+            "The following [memory] keys were removed because retrieval policy is now internal: "
+            f"{', '.join(removed_keys)}. Keep only [memory].write_policy."
+        )
+
+    if "mode" in normalized and "write_policy" in normalized:
+        raise ValueError(
+            "Use either deprecated [memory].mode or [memory].write_policy, not both. "
+            "Prefer [memory].write_policy."
+        )
+
+    if "mode" in normalized:
+        legacy_mode = normalized.pop("mode")
+        if legacy_mode not in LEGACY_MEMORY_MODE_MAP:
+            raise ValueError(
+                f"Unsupported legacy [memory].mode '{legacy_mode}'. "
+                "Supported legacy values are: accumulate_eval, frozen_train, reset."
+            )
+        mapped_value = LEGACY_MEMORY_MODE_MAP[legacy_mode]
+        logger.warning(
+            "Deprecated [memory].mode='{}' detected. Map it to [memory].write_policy='{}' instead.",
+            legacy_mode,
+            mapped_value,
+        )
+        normalized["write_policy"] = mapped_value
+
+    return normalized
+
+
+def _validate_removed_sections(config_data: dict) -> None:
+    removed_sections = sorted(section for section in REMOVED_CONFIG_SECTIONS if section in config_data)
+    if removed_sections:
+        raise ValueError(
+            "The following config sections were removed because task policy is now internal to HealthFlow: "
+            f"{', '.join(f'[{section}]' for section in removed_sections)}."
+        )
+
+
 def get_config(config_path: Path, active_llm: str, active_executor: str | None = None) -> HealthFlowConfig:
     """
     Loads configuration from a TOML file, validates it, selects the active LLM and
@@ -197,6 +222,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
 
     try:
         config_data = toml.load(config_path)
+        _validate_removed_sections(config_data)
 
         if not active_llm:
             raise ValueError("'active_llm' parameter is required")
@@ -230,9 +256,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
             llm_roles=llm_roles,
             system=SystemConfig(**config_data.get("system", {})),
             executor=executor_config,
-            memory=MemoryConfig(**config_data.get("memory", {})),
-            ehr=EHRConfig(**config_data.get("ehr", {})),
-            verification=VerificationConfig(**config_data.get("verification", {})),
+            memory=MemoryConfig(**_normalize_memory_config(config_data.get("memory", {}))),
             evaluation=EvaluationConfig(**config_data.get("evaluation", {})),
             logging=LoggingConfig(**config_data.get("logging", {})),
         )

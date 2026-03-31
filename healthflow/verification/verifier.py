@@ -5,10 +5,7 @@ from pathlib import Path
 from typing import Iterable, List
 
 from ..ehr.models import DataProfile
-from ..ehr.tasking import required_report_sections
-
-
-MODELING_FAMILIES = {"predictive_modeling", "survival_analysis", "time_series_modeling"}
+from .contracts import resolve_verification_contract
 
 
 @dataclass
@@ -16,7 +13,7 @@ class VerificationCheck:
     name: str
     passed: bool
     details: str
-    severity: str = "error"
+    blocking: bool = True
     artifact_paths: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -24,7 +21,7 @@ class VerificationCheck:
             "name": self.name,
             "passed": self.passed,
             "details": self.details,
-            "severity": self.severity,
+            "blocking": self.blocking,
             "artifact_paths": self.artifact_paths,
         }
 
@@ -32,13 +29,15 @@ class VerificationCheck:
 @dataclass
 class VerificationResult:
     passed: bool
+    blocking_passed: bool
     checks: List[VerificationCheck] = field(default_factory=list)
     artifact_paths: List[str] = field(default_factory=list)
 
     def summary(self) -> str:
-        prefix = "passed" if self.passed else "failed"
+        prefix = "passed" if self.blocking_passed else "failed"
         check_text = "; ".join(
-            f"{'PASS' if check.passed else 'FAIL'} {check.name}: {check.details}"
+            f"{'PASS' if check.passed else 'FAIL'} "
+            f"{'BLOCK' if check.blocking else 'ADVISORY'} {check.name}: {check.details}"
             for check in self.checks
         ) or "no checks recorded"
         return f"Verification {prefix}: {check_text}"
@@ -46,18 +45,17 @@ class VerificationResult:
     def to_dict(self) -> dict:
         return {
             "passed": self.passed,
+            "blocking_passed": self.blocking_passed,
             "checks": [check.to_dict() for check in self.checks],
             "artifact_paths": self.artifact_paths,
         }
 
 
 class WorkspaceVerifier:
-    def __init__(self, required_report_sections: list[str]):
-        self.required_report_sections = required_report_sections
-
     def verify(self, workspace_dir: Path, task_family: str, execution_log: str, data_profile: DataProfile) -> VerificationResult:
         checks: list[VerificationCheck] = []
         artifact_paths: set[str] = set()
+        contract = resolve_verification_contract(task_family, data_profile.domain_focus)
 
         self._add_check(
             checks,
@@ -75,10 +73,7 @@ class WorkspaceVerifier:
             artifact_paths.update(str(path) for path in report_files)
             report_file = preferred_report if preferred_report.exists() else report_files[0]
             report_text = report_file.read_text(encoding="utf-8", errors="ignore").lower()
-            required_sections = list(
-                dict.fromkeys(self.required_report_sections + required_report_sections(task_family, data_profile.domain_focus))
-            )
-            missing_sections = [section for section in required_sections if section.lower() not in report_text]
+            missing_sections = [section for section in contract.report_sections if section.lower() not in report_text]
             self._add_check(
                 checks,
                 passed=not missing_sections,
@@ -88,7 +83,7 @@ class WorkspaceVerifier:
                     if not missing_sections
                     else f"Missing report sections: {', '.join(missing_sections)}."
                 ),
-                severity="error" if task_family == "report_generation" else "info",
+                blocking=task_family == "report_generation",
                 artifact_paths=[str(report_file)],
             )
         else:
@@ -101,106 +96,20 @@ class WorkspaceVerifier:
                     if task_family == "report_generation"
                     else "No markdown report file was found; verification relied on saved artifacts and execution logs."
                 ),
-                severity="error" if task_family == "report_generation" else "info",
+                blocking=task_family == "report_generation",
             )
 
-        cohort_paths = self._collect_paths(
-            workspace_dir,
-            ["cohort_definition.*", "**/cohort_definition.*", "cohort.*", "**/cohort.*"],
-        )
-        if task_family == "cohort_extraction" or (
-            data_profile.domain_focus == "ehr" and task_family in MODELING_FAMILIES
-        ):
-            report_mentions_cohort = "cohort definition" in report_text
-            cohort_passed = bool(cohort_paths) or report_mentions_cohort
-            artifact_paths.update(cohort_paths)
+        for expectation in contract.artifact_expectations:
+            matched_paths = self._collect_paths(workspace_dir, list(expectation.glob_patterns))
+            artifact_paths.update(matched_paths)
+            report_mentions = any(token in report_text for token in expectation.report_tokens)
             self._add_check(
                 checks,
-                passed=cohort_passed,
-                name="cohort_definition",
-                details=(
-                    "Cohort definition evidence found."
-                    if cohort_passed
-                    else "Missing cohort definition artifact or report section."
-                ),
-                artifact_paths=cohort_paths,
-            )
-
-        if task_family in MODELING_FAMILIES:
-            split_paths = self._collect_paths(
-                workspace_dir,
-                ["split_evidence.*", "**/split_evidence.*", "split.json", "**/split.json", "data_split.*", "**/data_split.*"],
-            )
-            artifact_paths.update(split_paths)
-            self._add_check(
-                checks,
-                passed=bool(split_paths) or any(
-                    token in report_text for token in ["split evidence", "validation strategy", "train/test split", "train/validation/test"]
-                ),
-                name="split_evidence",
-                details=(
-                    "Train/validation/test split evidence found."
-                    if split_paths or any(
-                        token in report_text for token in ["split evidence", "validation strategy", "train/test split", "train/validation/test"]
-                    )
-                    else "Missing validation split evidence for the modeling task."
-                ),
-                artifact_paths=split_paths,
-            )
-
-            audit_label = "temporal validation" if task_family in {"survival_analysis", "time_series_modeling"} else "validation audit"
-            audit_paths = self._collect_paths(
-                workspace_dir,
-                [
-                    "leakage_audit.*",
-                    "**/leakage_audit.*",
-                    "temporal_audit.*",
-                    "**/temporal_audit.*",
-                    "validation_audit.*",
-                    "**/validation_audit.*",
-                    "causality_audit.*",
-                    "**/causality_audit.*",
-                ],
-            )
-            artifact_paths.update(audit_paths)
-            audit_in_report = audit_label in report_text or "leakage audit" in report_text
-            strict_audit = data_profile.domain_focus == "ehr" or task_family in {"survival_analysis", "time_series_modeling"}
-            self._add_check(
-                checks,
-                passed=bool(audit_paths) or audit_in_report or not strict_audit,
-                name="audit_evidence",
-                details=(
-                    f"{audit_label.title()} evidence found."
-                    if audit_paths or audit_in_report
-                    else f"Missing {audit_label} evidence for the modeling task."
-                ),
-                severity="error" if strict_audit else "info",
-                artifact_paths=audit_paths,
-            )
-
-            metric_files = self._collect_paths(workspace_dir, ["metrics.*", "**/metrics.*"])
-            artifact_paths.update(metric_files)
-            self._add_check(
-                checks,
-                passed=bool(metric_files),
-                name="metrics_artifact",
-                details="Metric artifact found." if metric_files else "Expected a metrics artifact for the modeling task family.",
-                artifact_paths=metric_files,
-            )
-
-        figure_files = self._collect_paths(workspace_dir, ["*.png", "*.pdf", "**/*.png", "**/*.pdf"])
-        if task_family == "visualization":
-            artifact_paths.update(figure_files)
-            self._add_check(
-                checks,
-                passed=bool(figure_files),
-                name="visualization_artifact",
-                details=(
-                    "Visualization artifact found."
-                    if figure_files
-                    else "Expected at least one figure artifact for the visualization task family."
-                ),
-                artifact_paths=figure_files,
+                passed=bool(matched_paths) or report_mentions,
+                name=expectation.name,
+                details=expectation.details_present if matched_paths or report_mentions else expectation.details_missing,
+                blocking=expectation.blocking,
+                artifact_paths=matched_paths,
             )
 
         if not data_profile.schemas:
@@ -209,12 +118,13 @@ class WorkspaceVerifier:
                 passed=True,
                 name="profile_context",
                 details="No uploaded structured inputs were profiled; verification relied on workspace artifacts only.",
-                severity="info",
+                blocking=False,
             )
 
-        passed = all(check.passed or check.severity == "info" for check in checks)
+        blocking_passed = all(check.passed or not check.blocking for check in checks)
         return VerificationResult(
-            passed=passed,
+            passed=blocking_passed,
+            blocking_passed=blocking_passed,
             checks=checks,
             artifact_paths=sorted(artifact_paths),
         )
@@ -232,7 +142,7 @@ class WorkspaceVerifier:
         passed: bool,
         name: str,
         details: str,
-        severity: str = "error",
+        blocking: bool = True,
         artifact_paths: list[str] | None = None,
     ) -> None:
         checks.append(
@@ -240,7 +150,7 @@ class WorkspaceVerifier:
                 name=name,
                 passed=passed,
                 details=details,
-                severity=severity,
+                blocking=blocking,
                 artifact_paths=artifact_paths or [],
             )
         )

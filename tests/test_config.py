@@ -32,6 +32,7 @@ model_name = "model"
             self.assertIn("pi", config.executor.backends)
             self.assertEqual(config.system.max_attempts, 3)
             self.assertEqual(config.system.workspace_dir, "workspace/tasks")
+            self.assertEqual(config.memory.write_policy, "append")
 
     def test_default_backend_uses_opencode_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -195,6 +196,61 @@ model_name = "model"
                     "ZENMUX_API_KEY",
                 ):
                     get_config(config_path, "test")
+
+    def test_legacy_memory_mode_maps_to_write_policy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+
+[memory]
+mode = "frozen_train"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "test")
+            self.assertEqual(config.memory.write_policy, "freeze")
+
+    def test_removed_memory_policy_keys_raise_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+
+[memory]
+write_policy = "append"
+strategy_k = 3
+""".strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "strategy_k"):
+                get_config(config_path, "test")
+
+    def test_removed_policy_sections_raise_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+
+[verification]
+require_verifier_pass = true
+""".strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, r"\[verification\]"):
+                get_config(config_path, "test")
 
     def test_system_config_rejects_zero_max_attempts(self):
         with self.assertRaises(ValidationError):
