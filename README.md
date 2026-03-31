@@ -33,7 +33,7 @@ The task-level self-correction budget is controlled by `system.max_attempts`, wh
 - **Inspectable memory**: dataset, strategy, failure, and artifact memories are stored in JSONL and retrieved with layer budgets, validation status, and conflict suppression.
 - **Deterministic verifier**: success is gated by artifact checks such as split evidence, audit artifacts, metrics files, figures, and optional report structure, with cohort-specific checks reserved for cohort or EHR-style workflows.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
-- **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, and estimated LLM cost.
+- **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, executor usage, and stage-level estimated cost summaries.
 - **Role-specific internal models**: planner, evaluator, and reflector can be configured against different reasoning models to reduce single-model coupling.
 
 ## Workspace Artifacts
@@ -52,6 +52,7 @@ Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 - `full_history.json`
 - `memory_context.json`
 - `verification.json`
+- `cost_analysis.json`
 - `run_manifest.json`
 - `run_result.json`
 
@@ -145,7 +146,7 @@ output_cost_per_million_tokens = 3.00
 
 `api_key` still works for inline secrets, but `api_key_env` is the recommended path. Use quoted TOML table names for model keys that contain `/`.
 
-If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for the active reasoning model in `config.toml`. If those fields are omitted, HealthFlow skips cost estimation for that model.
+If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for the active reasoning model in `config.toml`. If those fields are omitted, HealthFlow skips cost estimation for that model. `opencode` executor runs also record per-step executor token usage and estimated executor cost when the CLI returns structured telemetry.
 
 To decouple the internal roles, set:
 
