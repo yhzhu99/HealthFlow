@@ -64,6 +64,12 @@ class ExperienceManager:
             dataset_signature=dataset_signature,
             budgets=budgets,
         )
+        audit.applied_precedence_rules.extend(
+            [
+                "Verified positive memories outrank unverified positive memories within the same layer.",
+                "Safety-critical failure memories override conflicting strategy memories when they share a conflict group.",
+            ]
+        )
         if not self.experience_path.exists() or self.experience_path.stat().st_size == 0:
             return MemoryRetrievalResult(selected_experiences=[], audit=audit)
 
@@ -93,9 +99,13 @@ class ExperienceManager:
         )
 
         filtered_by_conflict: list[tuple[MemoryScoreBreakdown, Experience]] = []
-        seen_conflicts: set[str] = set()
+        seen_conflicts: dict[str, Experience] = {}
         for score, exp in scored_experiences:
             if exp.conflict_group and exp.conflict_group in seen_conflicts:
+                existing = seen_conflicts[exp.conflict_group]
+                if self._allow_safety_override_pair(existing, exp):
+                    filtered_by_conflict.append((score, exp))
+                    continue
                 audit.suppressed_conflicts.append(
                     self._make_audit_entry(
                         exp,
@@ -107,7 +117,7 @@ class ExperienceManager:
                 continue
             filtered_by_conflict.append((score, exp))
             if exp.conflict_group:
-                seen_conflicts.add(exp.conflict_group)
+                seen_conflicts[exp.conflict_group] = exp
 
         grouped: Dict[str, list[tuple[MemoryScoreBreakdown, Experience]]] = defaultdict(list)
         for score, exp in filtered_by_conflict:
@@ -115,9 +125,54 @@ class ExperienceManager:
 
         selected: list[Experience] = []
         selected_ids: set[int] = set()
-        for layer_name, layer_budget in budgets.items():
+        blocked_conflict_groups: set[str] = set()
+
+        failure_budget = budgets.get(MemoryLayer.FAILURE.value, 0)
+        failure_candidates = grouped.get(MemoryLayer.FAILURE.value, [])
+        selected_failures = self._select_for_layer(MemoryLayer.FAILURE.value, failure_candidates, failure_budget)
+        selected_failure_ids = {id(exp) for _, exp, _ in selected_failures}
+        for score, exp, rationale in selected_failures:
+            selected.append(exp)
+            selected_ids.add(id(exp))
+            if exp.safety_critical and exp.conflict_group:
+                blocked_conflict_groups.add(exp.conflict_group)
+            audit.selected.append(
+                self._make_audit_entry(
+                    exp,
+                    score,
+                    disposition="selected",
+                    rationale=rationale,
+                )
+            )
+        for score, exp in failure_candidates:
+            if id(exp) not in selected_failure_ids:
+                audit.suppressed_by_budget.append(
+                    self._make_audit_entry(
+                        exp,
+                        score,
+                        disposition="suppressed_budget",
+                        rationale="Not selected because the failure-memory budget was exhausted or a stronger safety-critical failure memory was available.",
+                    )
+                )
+
+        for layer_name in [MemoryLayer.STRATEGY.value, MemoryLayer.DATASET.value, MemoryLayer.ARTIFACT.value]:
+            layer_budget = budgets.get(layer_name, 0)
             layer_candidates = grouped.get(layer_name, [])
-            selected_for_layer = self._select_for_layer(layer_name, layer_candidates, layer_budget)
+            allowed_candidates: list[tuple[MemoryScoreBreakdown, Experience]] = []
+            for score, exp in layer_candidates:
+                if exp.conflict_group and exp.conflict_group in blocked_conflict_groups:
+                    audit.safety_overrides.append(
+                        self._make_audit_entry(
+                            exp,
+                            score,
+                            disposition="suppressed_safety_override",
+                            rationale=f"Suppressed because a safety-critical failure memory already occupies conflict group '{exp.conflict_group}'.",
+                        )
+                    )
+                    continue
+                allowed_candidates.append((score, exp))
+
+            selected_for_layer = self._select_for_layer(layer_name, allowed_candidates, layer_budget)
             selected_layer_ids = {id(exp) for _, exp, _ in selected_for_layer}
             for score, exp, rationale in selected_for_layer:
                 selected.append(exp)
@@ -131,7 +186,7 @@ class ExperienceManager:
                     )
                 )
 
-            for score, exp in layer_candidates:
+            for score, exp in allowed_candidates:
                 if id(exp) not in selected_layer_ids:
                     audit.suppressed_by_budget.append(
                         self._make_audit_entry(
@@ -146,6 +201,8 @@ class ExperienceManager:
         if len(selected) < target_count:
             for score, exp in filtered_by_conflict:
                 if exp.layer == MemoryLayer.FAILURE or id(exp) in selected_ids:
+                    continue
+                if exp.conflict_group and exp.conflict_group in blocked_conflict_groups:
                     continue
                 selected.append(exp)
                 selected_ids.add(id(exp))
@@ -192,18 +249,52 @@ class ExperienceManager:
         overlap_score = len(query_words.intersection(exp_words))
         task_family_bonus = 4 if exp.task_family == task_family else 0
         dataset_bonus = 3 if dataset_signature != "unknown" and exp.dataset_signature == dataset_signature else 0
+        applicability_bonus = self._applicability_bonus(exp, task_family, dataset_signature)
         confidence_bonus = round(exp.confidence, 2)
         recency_bonus = 1 if exp.created_at else 0
         validation_bonus = self._validation_bonus(exp)
-        total_score = overlap_score + task_family_bonus + dataset_bonus + validation_bonus + confidence_bonus + recency_bonus
+        verifier_bonus = 2 if exp.verifier_supported else 0
+        safety_bonus = 5 if exp.safety_critical and exp.layer == MemoryLayer.FAILURE else (2 if exp.safety_critical else 0)
+        total_score = (
+            overlap_score
+            + task_family_bonus
+            + dataset_bonus
+            + applicability_bonus
+            + validation_bonus
+            + verifier_bonus
+            + safety_bonus
+            + confidence_bonus
+            + recency_bonus
+        )
         return MemoryScoreBreakdown(
             overlap_score=overlap_score,
             task_family_bonus=task_family_bonus,
             dataset_bonus=dataset_bonus,
+            applicability_bonus=applicability_bonus,
             validation_bonus=validation_bonus,
+            verifier_bonus=verifier_bonus,
+            safety_bonus=safety_bonus,
             confidence_bonus=confidence_bonus,
             recency_bonus=recency_bonus,
             total_score=round(total_score, 2),
+        )
+
+    def _applicability_bonus(self, exp: Experience, task_family: str, dataset_signature: str) -> int:
+        if exp.applicability_scope == "dataset_exact":
+            return 4 if dataset_signature != "unknown" and exp.dataset_signature == dataset_signature else -1
+        if exp.applicability_scope == "safety_global":
+            return 3
+        if exp.applicability_scope == "task_family":
+            return 2 if exp.task_family == task_family else 0
+        if exp.applicability_scope == "workflow_generic":
+            return 1
+        return 0
+
+    def _allow_safety_override_pair(self, existing: Experience, candidate: Experience) -> bool:
+        return (
+            existing.layer == MemoryLayer.FAILURE
+            and existing.safety_critical
+            and candidate.layer != MemoryLayer.FAILURE
         )
 
     def _validation_bonus(self, exp: Experience) -> int:
@@ -282,6 +373,9 @@ class ExperienceManager:
             category=exp.category,
             content_preview=exp.content[:200],
             conflict_group=exp.conflict_group,
+            applicability_scope=exp.applicability_scope,
+            safety_critical=exp.safety_critical,
+            verifier_supported=exp.verifier_supported,
             score=score,
             disposition=disposition,
             rationale=rationale,
