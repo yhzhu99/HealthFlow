@@ -19,6 +19,8 @@ The current release surface is intentionally **backend and CLI only**. A fronten
 
 HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
 
+The task-level self-correction budget is controlled by `system.max_attempts`, which counts total full attempts through the loop rather than "retries plus one".
+
 1. **Profile**: inspect uploaded files, classify the EHR task family, detect patient identifiers, target-like columns, time columns, and workflow hints.
 2. **Plan**: retrieve relevant memory, separating reusable strategy from failure-avoidance memory.
 3. **Execute**: run the selected backend inside a task workspace with an explicit output and verification contract.
@@ -193,7 +195,7 @@ Main config sections:
 - `[ehr]`: profiling controls
 - `[verification]`: deterministic success gating
 - `[evaluation]`: evaluator success threshold
-- `[system]`: workspace and retry settings
+- `[system]`: workspace, shell, and task-attempt settings (`max_attempts`)
 - `[logging]`: log level and log file
 
 ## Repository Layout
