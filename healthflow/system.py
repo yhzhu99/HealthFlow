@@ -392,10 +392,27 @@ class HealthFlowSystem:
             content_preview = (
                 entry.content_preview if hasattr(entry, "content_preview") else entry["content_preview"]
             )
-            prefix = "Avoid" if layer == "failure" else "Use"
-            lines.append(
-                f"- {prefix}: [{layer}/{validation_status}] {category} -> {content_preview}"
+            safety_critical = (
+                entry.safety_critical if hasattr(entry, "safety_critical") else entry.get("safety_critical", False)
             )
+            verifier_supported = (
+                entry.verifier_supported if hasattr(entry, "verifier_supported") else entry.get("verifier_supported", False)
+            )
+            prefix = "Avoid" if layer == "failure" else "Use"
+            flags = []
+            if safety_critical:
+                flags.append("safety")
+            if verifier_supported:
+                flags.append("verifier")
+            flag_text = f" [{'|'.join(flags)}]" if flags else ""
+            lines.append(
+                f"- {prefix}: [{layer}/{validation_status}]{flag_text} {category} -> {content_preview}"
+            )
+        safety_overrides = getattr(audit, "safety_overrides", None)
+        if safety_overrides is None and isinstance(audit, dict):
+            safety_overrides = audit.get("safety_overrides", [])
+        if safety_overrides:
+            lines.append(f"- Safety override count: {len(safety_overrides)} conflicting memories were suppressed.")
         return "\n".join(lines)
 
     def _write_json(self, path: Path, payload: Any) -> None:

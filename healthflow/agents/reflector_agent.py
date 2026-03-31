@@ -79,6 +79,12 @@ class ReflectorAgent:
                         validation_status=ValidationStatus.VERIFIED if verified else ValidationStatus.FAILED,
                         confidence=float(item.get("confidence", 0.6)),
                         conflict_group=item.get("conflict_group"),
+                        applicability_scope=item.get(
+                            "applicability_scope",
+                            "dataset_exact" if full_history.get("dataset_signature", "unknown") != "unknown" else "task_family",
+                        ),
+                        safety_critical=self._is_safety_critical(item, proposed_type, proposed_layer),
+                        verifier_supported=bool(item.get("verifier_supported", verified)),
                         tags=item.get("tags", []),
                     )
                     experiences.append(exp)
@@ -91,3 +97,23 @@ class ReflectorAgent:
             logger.error(f"Failed to parse valid experiences from LLM response. Error: {e}")
             logger.debug(f"Invalid JSON response from LLM: {response.content}")
             return []
+
+    def _is_safety_critical(self, item: dict, proposed_type: ExperienceType, proposed_layer: MemoryLayer) -> bool:
+        if bool(item.get("safety_critical", False)):
+            return True
+        if proposed_layer != MemoryLayer.FAILURE:
+            return False
+        if proposed_type == ExperienceType.VERIFIER_RULE:
+            return True
+        content = str(item.get("content", "")).lower()
+        critical_tokens = [
+            "leakage",
+            "temporal",
+            "patient-level split",
+            "privacy",
+            "identifier",
+            "cohort mismatch",
+            "unsafe",
+            "safety",
+        ]
+        return any(token in content for token in critical_tokens)

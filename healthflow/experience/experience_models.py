@@ -43,6 +43,12 @@ class Experience(BaseModel):
     validation_status: ValidationStatus = Field(default=ValidationStatus.UNVERIFIED, description="Validation state for the memory item.")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score assigned during reflection.")
     conflict_group: Optional[str] = Field(default=None, description="Conflict group identifier for contradictory memories.")
+    applicability_scope: str = Field(
+        default="task_family",
+        description="Scope where the memory is expected to apply, e.g. dataset_exact, task_family, workflow_generic, safety_global.",
+    )
+    safety_critical: bool = Field(default=False, description="Whether the memory should override conflicting strategy memories for safety reasons.")
+    verifier_supported: bool = Field(default=False, description="Whether the memory is backed by deterministic verifier evidence.")
     tags: List[str] = Field(default_factory=list, description="Additional retrieval tags.")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
@@ -54,7 +60,10 @@ class MemoryScoreBreakdown(BaseModel):
     overlap_score: int = 0
     task_family_bonus: int = 0
     dataset_bonus: int = 0
+    applicability_bonus: int = 0
     validation_bonus: int = 0
+    verifier_bonus: int = 0
+    safety_bonus: int = 0
     confidence_bonus: float = 0.0
     recency_bonus: int = 0
     total_score: float = 0.0
@@ -67,6 +76,9 @@ class MemoryAuditEntry(BaseModel):
     category: str
     content_preview: str
     conflict_group: Optional[str] = None
+    applicability_scope: str = "task_family"
+    safety_critical: bool = False
+    verifier_supported: bool = False
     score: MemoryScoreBreakdown
     disposition: str
     rationale: str
@@ -77,7 +89,9 @@ class MemoryRetrievalAudit(BaseModel):
     task_family: str
     dataset_signature: str
     budgets: Dict[str, int] = Field(default_factory=dict)
+    applied_precedence_rules: List[str] = Field(default_factory=list)
     selected: List[MemoryAuditEntry] = Field(default_factory=list)
+    safety_overrides: List[MemoryAuditEntry] = Field(default_factory=list)
     suppressed_conflicts: List[MemoryAuditEntry] = Field(default_factory=list)
     suppressed_by_budget: List[MemoryAuditEntry] = Field(default_factory=list)
 
