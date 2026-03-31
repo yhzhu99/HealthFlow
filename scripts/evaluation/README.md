@@ -1,58 +1,62 @@
 # Deterministic Benchmark Evaluation
 
-The canonical `EHRFlowBench` and `MedAgentBoard` benchmarks are now rebuilt from local, free-to-use data with committed ground-truth artifacts and deterministic scoring.
+Canonical benchmark data now lives under `code/HealthFlow/data/<benchmark>/`.
 
-## Canonical datasets
+## Canonical task files
 
-- `data/ehrflowbench.jsonl`
-- `data/ehrflowbench_train.jsonl`
-- `data/medagentboard.jsonl`
-- `data/TJH.csv`
-- `data/mimic_iv_demo_meds/`
+- `data/ehrflowbench/processed/eval.jsonl`
+- `data/ehrflowbench/processed/train.jsonl`
+- `data/medagentboard/processed/eval.jsonl`
+- `data/curebench/processed/eval.jsonl`
+- `data/curebench/processed/train.jsonl`
+- `data/hle/processed/eval.jsonl`
+- `data/medagentsbench/processed/eval.jsonl`
 
-Each benchmark row includes:
+Every final benchmark row contains only:
 
-- `required_files`
-- `verification_spec`
-- `ground_truth_ref`
-- dataset provenance metadata
+- `qid`
+- `task`
+- `answer`
 
-## Rebuild and provenance
+## Layout
 
-- `rebuild_benchmarks.py`: regenerates the canonical JSONLs, ground-truth artifact folders, and paper-audit outputs.
-- `fetch_mimic_demo_meds.py`: downloads the open PhysioNet `MIMIC-IV demo MEDS` snapshot and verifies checksums.
-- `data/benchmark_ground_truth/`: per-QID expected files.
-- `data/benchmark_provenance/`: audit tables and filter/markdown reconciliation manifests.
+- `raw/`: committed or benchmark-local source inputs
+- `scripts/`: benchmark-local preparation and rebuild entrypoints
+- `processed/`: canonical JSONLs, deterministic expected artifacts, and runtime copies
 
-## Evaluation scripts
+For file-verified benchmarks, expected outputs live under `processed/expected/<qid>/`.
 
-- `ehrflowbencch_evaluation.py`
-- `medagentboard_evaluation.py`
-- `deterministic_benchmark_eval.py`
+## Main scripts
 
-These scripts no longer require LLM judges. They compare an agent's generated files against the committed ground-truth artifacts using exact or tolerance-bounded checks.
+- `rebuild_benchmarks.py`: rebuilds all canonical benchmark folders
+- `deterministic_benchmark_eval.py`: compares generated outputs against `processed/expected/<qid>/`
+- `ehrflowbencch_evaluation.py`: EHRFlowBench entrypoint
+- `medagentboard_evaluation.py`: MedAgentBoard entrypoint
 
 ## Usage
 
-Rebuild the benchmark:
+Rebuild everything:
 
 ```bash
 python scripts/evaluation/rebuild_benchmarks.py
 ```
 
-Re-download and verify the open MEDS demo:
+Refresh EHRFlowBench raw paper inputs, then rebuild:
 
 ```bash
-python scripts/evaluation/fetch_mimic_demo_meds.py
+python data/ehrflowbench/scripts/prepare_raw.py
+python data/ehrflowbench/scripts/rebuild.py
 ```
 
-Evaluate benchmark outputs deterministically:
+Evaluate EHRFlowBench outputs:
 
 ```bash
 python scripts/evaluation/ehrflowbencch_evaluation.py \
   --dataset-path benchmark_results/ehrflowbench/my_model \
   --output-dir benchmark_results/ehrflowbench_eval/my_model
 ```
+
+Evaluate MedAgentBoard outputs:
 
 ```bash
 python scripts/evaluation/medagentboard_evaluation.py \
@@ -62,12 +66,6 @@ python scripts/evaluation/medagentboard_evaluation.py \
 
 Optional arguments:
 
-- `--benchmark-file`: override the canonical JSONL used to supply task metadata.
-- `--answer-path`: override the ground-truth root directory.
-- `--qid-range`: limit evaluation to a subset of QIDs.
-
-## Validation expectations
-
-- Canonical benchmark files must have no blank answers and no inaccessible paths.
-- Every scored task must emit the machine-readable files listed in `required_files`.
-- Plot tasks are scored from structured plot summaries and file existence, not from image pixel diffs.
+- `--benchmark-file`: override the canonical JSONL
+- `--answer-path`: override the `processed/expected/` root
+- `--qid-range`: limit evaluation to selected QIDs

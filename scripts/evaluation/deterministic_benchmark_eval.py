@@ -8,15 +8,15 @@ from typing import Any
 import pandas as pd
 
 
-def find_workspace_root() -> Path:
+def find_healthflow_root() -> Path:
     script_path = Path(__file__).resolve()
     for parent in script_path.parents:
-        if (parent / "data" / "TJH.csv").exists():
+        if (parent / "pyproject.toml").exists() and (parent / "run_benchmark.py").exists():
             return parent
-    raise FileNotFoundError("Could not locate workspace root containing data/TJH.csv")
+    raise FileNotFoundError("Could not locate HealthFlow root")
 
 
-WORKSPACE_ROOT = find_workspace_root()
+HEALTHFLOW_ROOT = find_healthflow_root()
 
 
 def parse_qid_range(spec: str | None) -> set[str] | None:
@@ -95,11 +95,9 @@ def normalized_csv(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     normalized = frame.copy()
     normalized = normalized.loc[:, columns]
     normalized = normalized.fillna("")
-    sort_keys = list(columns)
     string_keys = normalized.astype(str)
-    order = string_keys.sort_values(by=sort_keys).index
-    normalized = normalized.loc[order].reset_index(drop=True)
-    return normalized
+    order = string_keys.sort_values(by=list(columns)).index
+    return normalized.loc[order].reset_index(drop=True)
 
 
 def compare_csv(expected_path: Path, actual_path: Path, tolerance: float) -> tuple[bool, str]:
@@ -127,24 +125,25 @@ def compare_csv(expected_path: Path, actual_path: Path, tolerance: float) -> tup
     return True, "csv matches"
 
 
-def compare_file(expected_path: Path, actual_path: Path, spec: dict[str, Any]) -> tuple[bool, str]:
-    compare_mode = spec.get("compare", "exists")
-    tolerance = float(spec.get("float_tolerance", 1e-6))
+def compare_file(expected_path: Path, actual_path: Path, tolerance: float = 1e-6) -> tuple[bool, str]:
     if not actual_path.exists():
         return False, "missing file"
-    if compare_mode == "exists":
-        return True, "file exists"
-    if not expected_path.exists():
-        return False, f"missing ground truth file: {expected_path}"
-    if compare_mode == "json":
+    suffix = expected_path.suffix.lower()
+    if suffix == ".json":
+        if not expected_path.exists():
+            return False, "missing expected json"
         return compare_json(load_json(expected_path), load_json(actual_path), tolerance)
-    if compare_mode == "csv":
+    if suffix == ".csv":
+        if not expected_path.exists():
+            return False, "missing expected csv"
         return compare_csv(expected_path, actual_path, tolerance)
-    if compare_mode == "text":
+    if suffix in {".txt", ".md"}:
+        if not expected_path.exists():
+            return False, "missing expected text"
         expected_text = expected_path.read_text(encoding="utf-8")
         actual_text = actual_path.read_text(encoding="utf-8")
         return (expected_text == actual_text), ("text matches" if expected_text == actual_text else "text differs")
-    return False, f"unsupported compare mode: {compare_mode}"
+    return True, "file exists"
 
 
 def resolve_metadata(result_data: dict[str, Any], benchmark_rows: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -154,58 +153,81 @@ def resolve_metadata(result_data: dict[str, Any], benchmark_rows: dict[str, dict
     return merged
 
 
+def parse_generated_answer(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip()
+    if not stripped:
+        return stripped
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return stripped
+
+
+def expected_dir_for_qid(qid: str, benchmark_file: Path | None, answer_path: Path | None) -> Path | None:
+    if answer_path is not None:
+        return answer_path / qid
+    if benchmark_file is None:
+        return None
+    return benchmark_file.parent / "expected" / qid
+
+
 def evaluate_single_task(
     qid_path: Path,
     result_data: dict[str, Any],
     benchmark_rows: dict[str, dict[str, Any]],
+    benchmark_file: Path | None,
     answer_path: Path | None,
 ) -> dict[str, Any]:
     merged = resolve_metadata(result_data, benchmark_rows)
-    verification_spec = merged.get("verification_spec", {}) or {}
-    file_specs = verification_spec.get("files", {})
-    required_files = merged.get("required_files", list(file_specs))
-    if not required_files:
-        raise ValueError(f"No required files found for QID {merged.get('qid')}")
+    qid = str(merged["qid"])
+    expected_dir = expected_dir_for_qid(qid, benchmark_file, answer_path)
+    expected_files = []
+    if expected_dir is not None and expected_dir.exists():
+        expected_files = sorted(path.relative_to(expected_dir).as_posix() for path in expected_dir.rglob("*") if path.is_file())
 
-    ground_truth_ref = merged.get("ground_truth_ref")
-    if ground_truth_ref:
-        ground_truth_dir = WORKSPACE_ROOT / ground_truth_ref
-    elif answer_path is not None:
-        ground_truth_dir = answer_path / str(merged["qid"])
-    else:
-        raise ValueError(f"No ground truth reference for QID {merged.get('qid')}")
+    if expected_files:
+        file_results: list[dict[str, Any]] = []
+        passed_files = 0
+        for relative_name in expected_files:
+            expected_path = expected_dir / relative_name
+            actual_path = qid_path / relative_name
+            matched, details = compare_file(expected_path, actual_path)
+            passed_files += int(matched)
+            file_results.append(
+                {
+                    "file": relative_name,
+                    "matched": matched,
+                    "details": details,
+                    "expected_path": str(expected_path),
+                    "actual_path": str(actual_path),
+                }
+            )
+        pass_rate = passed_files / len(expected_files)
+        return {
+            "qid": qid,
+            "comparison_mode": "files",
+            "expected_dir": str(expected_dir),
+            "required_files": expected_files,
+            "matched_files": passed_files,
+            "required_file_count": len(expected_files),
+            "pass_rate": pass_rate,
+            "passed": passed_files == len(expected_files),
+            "file_results": file_results,
+        }
 
-    file_results: list[dict[str, Any]] = []
-    passed_files = 0
-    for relative_name in required_files:
-        expected_path = ground_truth_dir / relative_name
-        actual_path = qid_path / relative_name
-        spec = file_specs.get(relative_name, {"compare": "exists"})
-        matched, details = compare_file(expected_path, actual_path, spec)
-        passed_files += int(matched)
-        file_results.append(
-            {
-                "file": relative_name,
-                "matched": matched,
-                "details": details,
-                "expected_path": str(expected_path),
-                "actual_path": str(actual_path),
-            }
-        )
-
-    pass_rate = passed_files / len(required_files)
+    expected_answer = merged.get("answer", merged.get("reference_answer"))
+    actual_answer = parse_generated_answer(result_data.get("generated_answer", result_data.get("answer", "")))
+    matched, details = compare_json(expected_answer, actual_answer, 1e-6)
     return {
-        "qid": str(merged["qid"]),
-        "dataset": merged.get("dataset"),
-        "task_family": merged.get("task_family"),
-        "task_type": merged.get("task_type"),
-        "ground_truth_ref": str(ground_truth_dir),
-        "required_files": required_files,
-        "matched_files": passed_files,
-        "required_file_count": len(required_files),
-        "pass_rate": pass_rate,
-        "passed": passed_files == len(required_files),
-        "file_results": file_results,
+        "qid": qid,
+        "comparison_mode": "answer",
+        "passed": matched,
+        "pass_rate": 1.0 if matched else 0.0,
+        "expected_answer": expected_answer,
+        "actual_answer": actual_answer,
+        "details": details,
     }
 
 
@@ -223,7 +245,7 @@ def run_cli(default_benchmark_file: str | None = None) -> None:
     parser.add_argument("--dataset-path", type=Path, required=True, help="Path to per-QID output directories.")
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory to save evaluation JSON outputs.")
     parser.add_argument("--benchmark-file", type=Path, default=Path(default_benchmark_file) if default_benchmark_file else None)
-    parser.add_argument("--answer-path", type=Path, default=None, help="Optional override for the ground-truth directory root.")
+    parser.add_argument("--answer-path", type=Path, default=None, help="Optional override for the expected directory root.")
     parser.add_argument("--qid-range", type=str, default=None, help="Optional QID filter like 1-10,15,18.")
     args = parser.parse_args()
 
@@ -235,7 +257,7 @@ def run_cli(default_benchmark_file: str | None = None) -> None:
     results: list[dict[str, Any]] = []
     for qid_dir in qid_dirs:
         result_data = load_json(qid_dir / "result.json")
-        evaluation = evaluate_single_task(qid_dir, result_data, benchmark_rows, args.answer_path)
+        evaluation = evaluate_single_task(qid_dir, result_data, benchmark_rows, args.benchmark_file, args.answer_path)
         qid_output_dir = args.output_dir / qid_dir.name
         qid_output_dir.mkdir(parents=True, exist_ok=True)
         with (qid_output_dir / "deterministic_eval.json").open("w", encoding="utf-8") as handle:
@@ -246,7 +268,7 @@ def run_cli(default_benchmark_file: str | None = None) -> None:
         "total_tasks": len(results),
         "passed_tasks": sum(1 for item in results if item["passed"]),
         "task_pass_rate": sum(1 for item in results if item["passed"]) / len(results) if results else 0.0,
-        "average_file_pass_rate": sum(item["pass_rate"] for item in results) / len(results) if results else 0.0,
+        "average_pass_rate": sum(item["pass_rate"] for item in results) / len(results) if results else 0.0,
     }
     with (args.output_dir / "_final_summary.json").open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2, ensure_ascii=False)

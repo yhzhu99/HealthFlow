@@ -12,6 +12,17 @@ config.toml
 tmp/
 prompt.md
 data/
+!data/
+data/*
+!data/**/
+!data/**/*.md
+!data/**/*.py
+!data/**/*.csv
+!data/**/*.json
+!data/**/*.jsonl
+!data/**/*.txt
+!data/**/*.xlsx
+!data/**/*.parquet
 workspace/
 benchmark_results/
 datasets/
