@@ -2,6 +2,14 @@
 
 This benchmark is rebuilt from extracted paper tasks into reproducible local-data proxy tasks.
 
+The canonical grading source of truth is:
+
+- `processed/eval.jsonl` / `processed/train.jsonl`
+- `processed/expected/<qid>/`
+- the task manifests and subset manifest
+
+The original papers provide provenance and task motivation only.
+
 ## Raw
 
 - `raw/papers/selected_ids.txt`
@@ -38,3 +46,11 @@ Dataset sources described in the paper:
 - `processed/subset_manifest.json`
 - `processed/runtime/`
 - `processed/expected/`
+
+`processed/paper_map.csv` records one provenance row per canonical task, including:
+
+- source paper identifiers
+- source task linkage mode (`task_proxy`)
+- source task eligibility (`proxy_candidate`)
+- proxy constraint flags
+- current review status (`seeded_for_human_review`)
