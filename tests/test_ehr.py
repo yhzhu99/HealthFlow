@@ -42,6 +42,7 @@ class EHRProfilingTests(unittest.TestCase):
             self.assertTrue(
                 any(item in bundle for item in ["validation + leakage audit", "temporal leakage check"])
             )
+            self.assertIn("external cli workflows", bundle)
 
     def test_general_modeling_request_stays_general_without_ehr_overlay(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -67,7 +68,7 @@ class EHRProfilingTests(unittest.TestCase):
             bundle = ToolBroker().select_bundle(profile.task_family, profile)
             self.assertIn("group-aware split audit", bundle)
             self.assertNotIn("patient-level split audit", bundle)
-            self.assertNotIn("oneehr preprocess/train/test/analyze", bundle)
+            self.assertNotIn("external cli workflows", bundle)
 
 
 if __name__ == "__main__":

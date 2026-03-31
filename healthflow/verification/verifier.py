@@ -106,8 +106,7 @@ class WorkspaceVerifier:
 
         cohort_paths = self._collect_paths(
             workspace_dir,
-            ["cohort_definition.*", "cohort.*", "manifest.json"],
-            relative_ok=False,
+            ["cohort_definition.*", "**/cohort_definition.*", "cohort.*", "**/cohort.*"],
         )
         if task_family == "cohort_extraction" or (
             data_profile.domain_focus == "ehr" and task_family in MODELING_FAMILIES
@@ -130,8 +129,7 @@ class WorkspaceVerifier:
         if task_family in MODELING_FAMILIES:
             split_paths = self._collect_paths(
                 workspace_dir,
-                ["split_evidence.*", "split.json", "data_split.*", "preprocess/split.json"],
-                relative_ok=True,
+                ["split_evidence.*", "**/split_evidence.*", "split.json", "**/split.json", "data_split.*", "**/data_split.*"],
             )
             artifact_paths.update(split_paths)
             self._add_check(
@@ -153,8 +151,16 @@ class WorkspaceVerifier:
             audit_label = "temporal validation" if task_family in {"survival_analysis", "time_series_modeling"} else "validation audit"
             audit_paths = self._collect_paths(
                 workspace_dir,
-                ["leakage_audit.*", "temporal_audit.*", "validation_audit.*", "causality_audit.*"],
-                relative_ok=False,
+                [
+                    "leakage_audit.*",
+                    "**/leakage_audit.*",
+                    "temporal_audit.*",
+                    "**/temporal_audit.*",
+                    "validation_audit.*",
+                    "**/validation_audit.*",
+                    "causality_audit.*",
+                    "**/causality_audit.*",
+                ],
             )
             artifact_paths.update(audit_paths)
             audit_in_report = audit_label in report_text or "leakage audit" in report_text
@@ -172,7 +178,7 @@ class WorkspaceVerifier:
                 artifact_paths=audit_paths,
             )
 
-            metric_files = self._collect_paths(workspace_dir, ["metrics.*", "test/metrics.json"], relative_ok=True)
+            metric_files = self._collect_paths(workspace_dir, ["metrics.*", "**/metrics.*"])
             artifact_paths.update(metric_files)
             self._add_check(
                 checks,
@@ -182,7 +188,7 @@ class WorkspaceVerifier:
                 artifact_paths=metric_files,
             )
 
-        figure_files = self._collect_paths(workspace_dir, ["*.png", "*.pdf"], relative_ok=False)
+        figure_files = self._collect_paths(workspace_dir, ["*.png", "*.pdf", "**/*.png", "**/*.pdf"])
         if task_family == "visualization":
             artifact_paths.update(figure_files)
             self._add_check(
@@ -213,14 +219,10 @@ class WorkspaceVerifier:
             artifact_paths=sorted(artifact_paths),
         )
 
-    def _collect_paths(self, workspace_dir: Path, patterns: Iterable[str], relative_ok: bool) -> list[str]:
+    def _collect_paths(self, workspace_dir: Path, patterns: Iterable[str]) -> list[str]:
         found: list[str] = []
         for pattern in patterns:
-            if relative_ok and "/" in pattern:
-                matches = [workspace_dir / pattern]
-                matches = [path for path in matches if path.exists()]
-            else:
-                matches = list(workspace_dir.glob(pattern))
+            matches = list(workspace_dir.glob(pattern))
             found.extend(str(path) for path in matches if path.exists())
         return sorted(dict.fromkeys(found))
 
