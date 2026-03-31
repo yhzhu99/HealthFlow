@@ -111,7 +111,7 @@ def _initialize_system(config_path: Path, experience_path: Path, active_llm: str
 def run(
     task: str = typer.Argument(..., help="The high-level healthcare task for HealthFlow to accomplish."),
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
-    experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
+    experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     train_mode: bool = typer.Option(False, "--train", help="Enable training mode (CLI only)."),
     reference_answer: str = typer.Option(None, "--reference-answer", help="Reference answer for training mode evaluation."),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
@@ -130,7 +130,7 @@ def run(
 @app.command()
 def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
-    experience_path: Path = typer.Option("workspace/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
+    experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode, pi)."),
 ):
