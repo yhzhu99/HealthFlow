@@ -237,7 +237,6 @@ class HealthFlowSystem:
             execution_result = await self.executor.execute(
                 execution_context,
                 task_workspace,
-                self.config.executor.prompt_file_name,
             )
 
             verification = self.verifier.verify(

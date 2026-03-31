@@ -47,7 +47,6 @@ Benchmark datasets remain under `data/`.
 
 Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 
-- `executor_prompt.md`
 - `<backend>_execution.log`
 - `task_list_v*.md`
 - `full_history.json`

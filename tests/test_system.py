@@ -26,8 +26,7 @@ class _FakeReflector:
 
 
 class _FakeExecutor:
-    async def execute(self, context, working_dir: Path, prompt_file_name: str) -> ExecutionResult:
-        (working_dir / prompt_file_name).write_text(context.render_prompt(), encoding="utf-8")
+    async def execute(self, context, working_dir: Path) -> ExecutionResult:
         (working_dir / "final_report.md").write_text(
             "# Task Summary\n# Data Profile\n# Method\n# Verification\n# Limitations\n"
             "# Cohort Definition\n# Split Evidence\n# Leakage Audit\n# Metrics Summary\n",
@@ -44,7 +43,7 @@ class _FakeExecutor:
             return_code=0,
             log="STDOUT: final answer: success\n",
             log_path=str(log_path),
-            prompt_path=str(working_dir / prompt_file_name),
+            prompt_path=None,
             backend="claude_code",
             command=["claude", "--dangerously-skip-permissions", "--print", "prompt"],
             duration_seconds=0.01,
