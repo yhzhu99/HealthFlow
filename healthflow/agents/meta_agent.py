@@ -23,10 +23,11 @@ class MetaAgent:
         user_request: str,
         experiences: List[Experience],
         task_family: str,
+        domain_focus: str,
         data_profile: str,
         risk_checks: List[str],
         tool_bundle: List[str],
-        output_contract: List[str],
+        deliverable_guidance: List[str],
         previous_feedback: Optional[str] = None
     ) -> str:
         """
@@ -58,10 +59,12 @@ class MetaAgent:
             user_request=user_request,
             experiences=experience_str,
             task_family=task_family,
+            domain_focus=domain_focus,
             data_profile=data_profile,
             risk_checks="\n".join(f"- {item}" for item in risk_checks) or "- None",
             tool_bundle="\n".join(f"- {item}" for item in tool_bundle) or "- Minimum required tooling only",
-            output_contract="\n".join(f"- {item}" for item in output_contract) or "- Provide a final answer in stdout",
+            deliverable_guidance="\n".join(f"- {item}" for item in deliverable_guidance)
+            or "- Provide a concise final answer and save artifacts only when they materially support the result.",
             feedback=feedback_str
         )
 

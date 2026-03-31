@@ -3,11 +3,43 @@ from __future__ import annotations
 from .models import DataProfile, RiskFinding
 
 
-LEAKAGE_TERMS = {"mortality", "death", "outcome", "readmission", "label", "target"}
+LEAKAGE_TERMS = {"mortality", "death", "outcome", "readmission", "label", "target", "future"}
 TEMPORAL_TERMS = {"discharge", "post", "future", "after", "follow-up", "followup", "later"}
-IDENTIFIER_COLUMNS = {"subject_id", "patient_id", "hadm_id", "stay_id", "encounter_id", "visit_id"}
-TARGET_COLUMNS = {"label", "outcome", "target", "mortality", "readmission", "death"}
-TIME_COLUMNS = {"event_time", "charttime", "admit_time", "admission_time", "dischtime", "discharge_time", "label_time", "index_time", "time", "timestamp", "date"}
+GROUP_ID_COLUMNS = {
+    "id",
+    "sample_id",
+    "entity_id",
+    "record_id",
+    "group_id",
+    "subject_id",
+    "patient_id",
+    "hadm_id",
+    "stay_id",
+    "encounter_id",
+    "visit_id",
+    "user_id",
+    "customer_id",
+    "account_id",
+}
+PATIENT_ID_COLUMNS = {"subject_id", "patient_id", "hadm_id", "stay_id", "encounter_id", "visit_id"}
+TARGET_COLUMNS = {"label", "outcome", "target", "mortality", "readmission", "death", "response", "class", "y"}
+TIME_COLUMNS = {
+    "event_time",
+    "charttime",
+    "admit_time",
+    "admission_time",
+    "dischtime",
+    "discharge_time",
+    "label_time",
+    "index_time",
+    "start_time",
+    "end_time",
+    "time",
+    "timestamp",
+    "date",
+    "datetime",
+    "created_at",
+}
 COHORT_TERMS = {"cohort", "inclusion", "exclusion", "eligibility", "index date", "population"}
 MODELING_FAMILIES = {"predictive_modeling", "survival_analysis", "time_series_modeling"}
 
@@ -25,12 +57,16 @@ def detect_risk_findings(user_request: str, data_profile: DataProfile) -> list[R
             )
         )
 
-    if data_profile.patient_id_columns:
+    if data_profile.group_id_columns:
         findings.append(
             RiskFinding(
                 severity="medium",
-                category="patient_grouping",
-                message="Patient-level identifiers detected. Use patient-aware splitting and avoid duplicate leakage across folds.",
+                category="grouping",
+                message=(
+                    "Patient-level identifiers detected. Use patient-aware splitting and avoid duplicate leakage across folds."
+                    if data_profile.domain_focus == "ehr" and data_profile.patient_id_columns
+                    else "Group/entity identifiers detected. Use entity-aware splitting and avoid duplicated entities across folds."
+                ),
             )
         )
 
@@ -48,11 +84,15 @@ def detect_risk_findings(user_request: str, data_profile: DataProfile) -> list[R
         findings.append(
             RiskFinding(
                 severity="medium",
-                category="split_evidence",
-                message="Modeling tasks should provide patient-level train/validation/test split evidence and preserve temporal causality.",
+                category="validation_strategy",
+                message=(
+                    "Modeling tasks should provide patient-level train/validation/test split evidence and preserve temporal causality."
+                    if data_profile.domain_focus == "ehr"
+                    else "Modeling tasks should document their train/validation/test strategy and preserve entity or temporal independence where relevant."
+                ),
             )
         )
-        if not data_profile.patient_id_columns:
+        if data_profile.domain_focus == "ehr" and not data_profile.patient_id_columns:
             findings.append(
                 RiskFinding(
                     severity="medium",
@@ -70,12 +110,25 @@ def detect_risk_findings(user_request: str, data_profile: DataProfile) -> list[R
             )
         )
 
-    if data_profile.task_family == "cohort_extraction" and not any(term in request for term in COHORT_TERMS):
+    if (
+        data_profile.domain_focus == "ehr"
+        and data_profile.task_family == "cohort_extraction"
+        and not any(term in request for term in COHORT_TERMS)
+    ):
         findings.append(
             RiskFinding(
                 severity="medium",
                 category="cohort_definition",
                 message="Cohort tasks should state inclusion and exclusion logic explicitly, including index date and outcome window.",
+            )
+        )
+
+    if data_profile.domain_focus == "ehr":
+        findings.append(
+            RiskFinding(
+                severity="info",
+                category="domain_overlay",
+                message="EHR signals were detected. Apply healthcare-specific leakage, cohort, and privacy checks only where they are actually relevant.",
             )
         )
 
@@ -93,7 +146,7 @@ def detect_risk_findings(user_request: str, data_profile: DataProfile) -> list[R
             RiskFinding(
                 severity="info",
                 category="audit",
-                message="No obvious EHR-specific risk detected from the request and profiled inputs; continue with standard validation.",
+                message="No elevated domain-specific risk was detected from the request and profiled inputs; continue with standard validation.",
             )
         )
     return findings

@@ -11,6 +11,7 @@ class SchemaSummary:
     columns: List[str] = field(default_factory=list)
     preview_rows: List[str] = field(default_factory=list)
     row_count: int = 0
+    group_id_columns: List[str] = field(default_factory=list)
     patient_id_columns: List[str] = field(default_factory=list)
     target_columns: List[str] = field(default_factory=list)
     time_columns: List[str] = field(default_factory=list)
@@ -20,9 +21,12 @@ class SchemaSummary:
 class DataProfile:
     task_family: str
     dataset_signature: str
+    domain_focus: str = "general"
+    domain_signals: List[str] = field(default_factory=list)
     modalities: List[str] = field(default_factory=list)
     schemas: List[SchemaSummary] = field(default_factory=list)
     row_count: int = 0
+    group_id_columns: List[str] = field(default_factory=list)
     patient_id_columns: List[str] = field(default_factory=list)
     target_columns: List[str] = field(default_factory=list)
     time_columns: List[str] = field(default_factory=list)
@@ -32,10 +36,15 @@ class DataProfile:
     def to_markdown(self) -> str:
         lines = [
             f"- Task family: {self.task_family}",
+            f"- Domain focus: {self.domain_focus}",
             f"- Dataset signature: {self.dataset_signature}",
             f"- Modalities: {', '.join(self.modalities) if self.modalities else 'unknown'}",
             f"- Estimated rows across profiled inputs: {self.row_count}",
         ]
+        if self.domain_signals:
+            lines.append(f"- Domain signals: {', '.join(self.domain_signals)}")
+        if self.group_id_columns:
+            lines.append(f"- Group/entity identifier columns: {', '.join(self.group_id_columns)}")
         if self.patient_id_columns:
             lines.append(f"- Patient identifier columns: {', '.join(self.patient_id_columns)}")
         if self.target_columns:
@@ -49,6 +58,8 @@ class DataProfile:
                 f"- File `{schema.file_name}` ({schema.file_type}, rows={schema.row_count}) columns: "
                 f"{', '.join(schema.columns) or 'n/a'}"
             )
+            if schema.group_id_columns:
+                lines.append(f"  - Group/entity IDs: {', '.join(schema.group_id_columns)}")
             if schema.preview_rows:
                 lines.append(f"  - Preview: {' | '.join(schema.preview_rows)}")
         if self.notes:

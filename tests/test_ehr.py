@@ -22,9 +22,11 @@ class EHRProfilingTests(unittest.TestCase):
             profile = profile_workspace_data(workspace, request)
 
             self.assertEqual(profile.task_family, "predictive_modeling")
+            self.assertEqual(profile.domain_focus, "ehr")
             self.assertIn("structured_tabular", profile.modalities)
             self.assertIn("clinical_text", profile.modalities)
             self.assertTrue(profile.dataset_signature)
+            self.assertIn("subject_id", profile.group_id_columns)
             self.assertIn("subject_id", profile.patient_id_columns)
             self.assertIn("label", profile.target_columns)
             self.assertIn("event_time", profile.time_columns)
@@ -37,7 +39,35 @@ class EHRProfilingTests(unittest.TestCase):
 
             bundle = ToolBroker().select_bundle(profile.task_family, profile)
             self.assertIn("patient-level split audit", bundle)
-            self.assertIn("leakage + temporal audit", bundle)
+            self.assertTrue(
+                any(item in bundle for item in ["validation + leakage audit", "temporal leakage check"])
+            )
+
+    def test_general_modeling_request_stays_general_without_ehr_overlay(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            (workspace / "sales.csv").write_text(
+                "customer_id,target,revenue,order_date\n1,120,1000,2024-01-01\n2,95,900,2024-01-02\n",
+                encoding="utf-8",
+            )
+            request = "Train a regression model to predict next-month revenue from the uploaded sales table."
+            profile = profile_workspace_data(workspace, request)
+
+            self.assertEqual(profile.task_family, "predictive_modeling")
+            self.assertEqual(profile.domain_focus, "general")
+            self.assertIn("structured_tabular", profile.modalities)
+            self.assertIn("customer_id", profile.group_id_columns)
+            self.assertFalse(profile.patient_id_columns)
+
+            findings = detect_risk_findings(request, profile)
+            finding_text = " ".join(item.message for item in findings).lower()
+            self.assertIn("entity-aware", finding_text)
+            self.assertNotIn("patient-aware", finding_text)
+
+            bundle = ToolBroker().select_bundle(profile.task_family, profile)
+            self.assertIn("group-aware split audit", bundle)
+            self.assertNotIn("patient-level split audit", bundle)
+            self.assertNotIn("oneehr preprocess/train/test/analyze", bundle)
 
 
 if __name__ == "__main__":

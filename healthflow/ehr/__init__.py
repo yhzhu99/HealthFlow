@@ -1,7 +1,14 @@
 from .models import DataProfile, RiskFinding, SchemaSummary
 from .profiling import profile_workspace_data
 from .risk import detect_risk_findings
-from .tasking import classify_task_family, default_tool_bundle, output_contract, required_report_sections
+from .tasking import (
+    classify_task_family,
+    default_tool_bundle,
+    deliverable_guidance,
+    detect_domain_focus,
+    required_report_sections,
+    verification_guidance,
+)
 
 __all__ = [
     "DataProfile",
@@ -11,6 +18,8 @@ __all__ = [
     "detect_risk_findings",
     "classify_task_family",
     "default_tool_bundle",
-    "output_contract",
+    "deliverable_guidance",
+    "detect_domain_focus",
     "required_report_sections",
+    "verification_guidance",
 ]

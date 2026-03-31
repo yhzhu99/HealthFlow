@@ -40,6 +40,8 @@ class ExecutionFactoryTests(unittest.TestCase):
         self.assertIn("Do not rely on repository-level executor-specific instruction files", prompt)
         self.assertIn("Save every artifact inside the current workspace", prompt)
         self.assertIn("Prefer Python and reproducible CLI workflows", prompt)
+        self.assertIn("## Deliverable Guidance", prompt)
+        self.assertIn("not fixed file-level contracts", prompt)
 
     def test_repo_root_does_not_depend_on_claude_md(self):
         repo_root = Path(__file__).resolve().parents[1]

@@ -75,7 +75,9 @@ class WorkspaceVerifier:
             artifact_paths.update(str(path) for path in report_files)
             report_file = preferred_report if preferred_report.exists() else report_files[0]
             report_text = report_file.read_text(encoding="utf-8", errors="ignore").lower()
-            required_sections = list(dict.fromkeys(self.required_report_sections + required_report_sections(task_family)))
+            required_sections = list(
+                dict.fromkeys(self.required_report_sections + required_report_sections(task_family, data_profile.domain_focus))
+            )
             missing_sections = [section for section in required_sections if section.lower() not in report_text]
             self._add_check(
                 checks,
@@ -86,14 +88,20 @@ class WorkspaceVerifier:
                     if not missing_sections
                     else f"Missing report sections: {', '.join(missing_sections)}."
                 ),
+                severity="error" if task_family == "report_generation" else "info",
                 artifact_paths=[str(report_file)],
             )
         else:
             self._add_check(
                 checks,
-                passed=task_family == "general_ehr_analysis",
+                passed=task_family != "report_generation",
                 name="report_sections",
-                details="No markdown report file was found.",
+                details=(
+                    "No markdown report file was found."
+                    if task_family == "report_generation"
+                    else "No markdown report file was found; verification relied on saved artifacts and execution logs."
+                ),
+                severity="error" if task_family == "report_generation" else "info",
             )
 
         cohort_paths = self._collect_paths(
@@ -101,7 +109,9 @@ class WorkspaceVerifier:
             ["cohort_definition.*", "cohort.*", "manifest.json"],
             relative_ok=False,
         )
-        if task_family == "cohort_extraction" or task_family in MODELING_FAMILIES:
+        if task_family == "cohort_extraction" or (
+            data_profile.domain_focus == "ehr" and task_family in MODELING_FAMILIES
+        ):
             report_mentions_cohort = "cohort definition" in report_text
             cohort_passed = bool(cohort_paths) or report_mentions_cohort
             artifact_paths.update(cohort_paths)
@@ -126,33 +136,39 @@ class WorkspaceVerifier:
             artifact_paths.update(split_paths)
             self._add_check(
                 checks,
-                passed=bool(split_paths) or "split evidence" in report_text,
+                passed=bool(split_paths) or any(
+                    token in report_text for token in ["split evidence", "validation strategy", "train/test split", "train/validation/test"]
+                ),
                 name="split_evidence",
                 details=(
                     "Train/validation/test split evidence found."
-                    if split_paths or "split evidence" in report_text
-                    else "Missing patient-level split evidence for the modeling task."
+                    if split_paths or any(
+                        token in report_text for token in ["split evidence", "validation strategy", "train/test split", "train/validation/test"]
+                    )
+                    else "Missing validation split evidence for the modeling task."
                 ),
                 artifact_paths=split_paths,
             )
 
-            audit_label = "temporal validation" if task_family in {"survival_analysis", "time_series_modeling"} else "leakage audit"
+            audit_label = "temporal validation" if task_family in {"survival_analysis", "time_series_modeling"} else "validation audit"
             audit_paths = self._collect_paths(
                 workspace_dir,
                 ["leakage_audit.*", "temporal_audit.*", "validation_audit.*", "causality_audit.*"],
                 relative_ok=False,
             )
             artifact_paths.update(audit_paths)
-            audit_in_report = audit_label in report_text
+            audit_in_report = audit_label in report_text or "leakage audit" in report_text
+            strict_audit = data_profile.domain_focus == "ehr" or task_family in {"survival_analysis", "time_series_modeling"}
             self._add_check(
                 checks,
-                passed=bool(audit_paths) or audit_in_report,
+                passed=bool(audit_paths) or audit_in_report or not strict_audit,
                 name="audit_evidence",
                 details=(
                     f"{audit_label.title()} evidence found."
                     if audit_paths or audit_in_report
                     else f"Missing {audit_label} evidence for the modeling task."
                 ),
+                severity="error" if strict_audit else "info",
                 artifact_paths=audit_paths,
             )
 
