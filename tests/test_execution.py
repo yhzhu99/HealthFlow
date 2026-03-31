@@ -3,17 +3,17 @@ from pathlib import Path
 
 from healthflow.core.config import BackendCLIConfig
 from healthflow.execution.base import ExecutionContext
-from healthflow.execution.cli_adapters import CLISubprocessExecutor, HealthFlowAgentExecutor, PiExecutor
+from healthflow.execution.cli_adapters import CLISubprocessExecutor, ClaudeCodeExecutor, PiExecutor
 from healthflow.execution.factory import create_executor_adapter
 
 
 class ExecutionFactoryTests(unittest.TestCase):
-    def test_healthflow_agent_uses_integrated_executor(self):
+    def test_claude_code_uses_specialized_executor(self):
         executor = create_executor_adapter(
-            "healthflow_agent",
-            BackendCLIConfig(binary="healthflow-agent", args=["-p"]),
+            "claude_code",
+            BackendCLIConfig(binary="claude", args=["--print"]),
         )
-        self.assertIsInstance(executor, HealthFlowAgentExecutor)
+        self.assertIsInstance(executor, ClaudeCodeExecutor)
 
     def test_unknown_backend_falls_back_to_generic_cli_executor(self):
         executor = create_executor_adapter(
@@ -21,7 +21,7 @@ class ExecutionFactoryTests(unittest.TestCase):
             BackendCLIConfig(binary="external-agent", args=["--print"]),
         )
         self.assertIsInstance(executor, CLISubprocessExecutor)
-        self.assertNotIsInstance(executor, HealthFlowAgentExecutor)
+        self.assertNotIsInstance(executor, ClaudeCodeExecutor)
 
     def test_pi_backend_uses_pi_executor(self):
         executor = create_executor_adapter(

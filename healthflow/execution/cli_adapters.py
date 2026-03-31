@@ -160,10 +160,6 @@ class CLISubprocessExecutor(ExecutorAdapter):
         return [f"{prefix}{chunk}" for chunk in chunks]
 
 
-class HealthFlowAgentExecutor(CLISubprocessExecutor):
-    pass
-
-
 class ClaudeCodeExecutor(CLISubprocessExecutor):
     pass
 

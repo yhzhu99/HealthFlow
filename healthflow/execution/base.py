@@ -36,7 +36,7 @@ class ExecutionContext:
         prompt = [
             "# HealthFlow Executor Brief",
             "",
-            "You are `healthflow_agent`, the integrated execution backend for HealthFlow.",
+            "You are the active external execution backend selected by HealthFlow.",
             "Work inside the current workspace and keep your process reproducible and auditable.",
             "Do not rely on repository-level executor-specific instruction files; use only the shared instructions in this prompt.",
             "",
