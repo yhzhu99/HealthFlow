@@ -1,0 +1,163 @@
+ID,Year,Venue,Title,deepseek-v3-official_select,deepseek-r1-official_select,qwen3-235b-a22b_select,select_final
+1,2020,aaai,Generative Adversarial Regularized Mutual Information Policy Gradient Framework for Automatic Diagnosis,1,1,0,1
+2,2020,aaai,AdaCare: Explainable Clinical Health Status Representation Learning via Scale-Adaptive Feature Extraction and Recalibration,1,1,1,1
+3,2020,aaai,ConCare: Personalized Clinical Feature Embedding via Capturing the Healthcare Context,1,1,1,1
+4,2020,aaai,DeepAlerts: Deep Learning Based Multi-Horizon Alerts for Clinical Deterioration on Oncology Hospital Wards,1,1,1,1
+5,2020,aaai,Learning the Graphical Structure of Electronic Health Records with Graph Convolutional Transformer,1,1,1,1
+6,2020,aaai,Doctor2Vec: Dynamic Doctor Representation Learning for Clinical Trial Recruitment,1,0,1,0
+7,2020,aaai,Federated Patient Hashing,0,1,1,0
+8,2020,aaai,Deep Mixed Effect Model Using Gaussian Processes: A Personalized and Reliable Prediction for Healthcare,1,1,1,1
+9,2020,aaai,Learning Conceptual-Contextual Embeddings for Medical Text,0,1,1,1
+10,2020,aaai,Understanding Medical Conversations with Scattered Keyword Attention and Weak Supervision from Responses,0,1,1,1
+11,2020,aaai,ICD Coding from Clinical Text Using Multi-Filter Residual Convolutional Neural Network,1,1,1,1
+12,2020,aaai,A System for Medical Information Extraction and Verification from Unstructured Text,0,1,1,1
+13,2021,aaai,GRASP: Generic Framework for Health Status Representation Learning Based on Incorporating Knowledge from Similar Patients,1,1,1,1
+14,2021,aaai,Clinical Risk Prediction with Temporal Probabilistic Asymmetric Multi-Task Learning,1,1,1,1
+15,2021,aaai,Longitudinal Deep Kernel Gaussian Process Regression,0,1,1,0
+16,2021,aaai,ESCAPED: Efficient Secure and Private Dot Product Framework for Kernel-based Machine Learning Algorithms with Applications in Healthcare,0,1,1,1
+17,2021,aaai,MUFASA: Multimodal Fusion Architecture Search for Electronic Health Records,1,1,1,1
+18,2021,aaai,MTAAL: Multi-Task Adversarial Active Learning for Medical Named Entity Recognition and Normalization,1,1,1,1
+19,2021,aaai,Clinical Temporal Relation Extraction with Probabilistic Soft Logic Regularization and Global Inference,1,1,1,1
+20,2022,aaai,Diaformer: Automatic Diagnosis via Symptoms Sequence Generation,0,1,1,1
+21,2022,aaai,Context-Aware Health Event Prediction via Transition Functions on Dynamic Disease Graphs,0,1,1,1
+22,2022,aaai,Clustering Interval-Censored Time-Series for Disease Phenotyping,0,1,1,1
+23,2023,aaai,Heterogeneous Graph Learning for Multi-Modal Medical Data Analysis,0,1,1,1
+24,2023,aaai,KerPrint: Local-Global Knowledge Graph Enhanced Diagnosis Prediction for Retrospective and Prospective Interpretations,1,1,1,1
+25,2023,aaai,Multi-Label Few-Shot ICD Coding as Autoregressive Generation with Prompt,1,1,1,1
+26,2023,aaai,Estimating Treatment Effects from Irregular Time Series Observations with Hidden Confounders,0,1,1,1
+27,2023,aaai,Estimating Average Causal Effects from Patient Trajectories,0,1,1,1
+28,2023,aaai,Causal Recurrent Variational Autoencoder for Medical Time Series Generation,1,1,1,1
+29,2023,aaai,MHCCL: Masked Hierarchical Cluster-Wise Contrastive Learning for Multivariate Time Series,0,1,1,1
+30,2023,aaai,Forecasting with Sparse but Informative Variables: A Case Study in Predicting Blood Glucose,0,1,1,1
+31,2024,aaai,PromptMRG: Diagnosis-Driven Prompts for Medical Report Generation,0,1,1,1
+32,2024,aaai,Automatic Radiology Reports Generation via Memory Alignment Network,0,1,1,1
+33,2024,aaai,KG-TREAT: Pre-training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Graphs,0,1,1,1
+34,2024,aaai,Inducing Clusters Deep Kernel Gaussian Process for Longitudinal Data,0,1,1,1
+35,2024,aaai,ConSequence: Synthesizing Logically Constrained Sequences for Electronic Health Record Generation,1,1,1,1
+36,2024,aaai,IGAMT: Privacy-Preserving Electronic Health Record Synthesization with Heterogeneity and Irregularity,1,1,1,1
+37,2024,aaai,IVP-VAE: Modeling EHR Time Series with Initial Value Problem Solvers,1,1,1,1
+38,2024,aaai,DrFuse: Learning Disentangled Representation for Clinical Multi-Modal Fusion with Missing Modality and Modal Inconsistency,1,1,1,1
+39,2024,aaai,Large Language Models Are Clinical Reasoners: Reasoning-Aware Diagnosis Framework with Prompt-Generated Rationales,0,1,1,1
+40,2024,aaai,Collaborative Synthesis of Patient Records through Multi-Visit Health State Inference,1,1,1,1
+41,2024,aaai,Zhongjing: Enhancing the Chinese Medical Capabilities of Large Language Model through Expert Feedback and Real-World Multi-Turn Dialogue,0,1,1,0
+42,2025,aaai,DAMPER: A Dual-Stage Medical Report Generation Framework with Coarse-Grained MeSH Alignment and Fine-Grained Hypergraph Matching,0,1,1,1
+43,2025,aaai,HI-DR: Exploiting Health Status-Aware Attention and an EHR Graph+ for Effective Medication Recommendation,1,1,1,0
+44,2025,aaai,Memorize and Rank: Elevating Large Language Models for Clinical Diagnosis Prediction,1,1,1,1
+45,2025,aaai,DECT: Harnessing LLM-assisted Fine-Grained Linguistic Knowledge and Label-Switched and Label-Preserved Data Generation for Diagnosis of Alzheimer’s Disease,1,1,1,1
+46,2025,aaai,CareBot: A Pioneering Full-Process Open-Source Medical Language Model,1,1,1,0
+47,2025,aaai,Medical Manifestation-Aware De-Identification,0,1,1,1
+48,2021,iclr,Clairvoyance: A Pipeline Toolkit for Medical Time Series.,0,1,1,0
+49,2023,iclr,Dr.Spider: A Diagnostic Evaluation Benchmark towards Text-to-SQL Robustness.,0,1,1,0
+50,2024,iclr,GraphCare: Enhancing Healthcare Predictions with Personalized Knowledge Graphs.,1,1,0,1
+51,2024,iclr,Yet Another ICU Benchmark: A Flexible Multi-Center Framework for Clinical ML.,1,1,1,0
+52,2024,iclr,Diagnosing Transformers: Illuminating Feature Spaces for Clinical Decision-Making.,1,1,1,1
+53,2024,iclr,A Flexible Generative Model for Heterogeneous Tabular EHR with Missing Modality.,1,1,1,1
+54,2024,iclr,Graph Transformers on EHRs: Better Representation Improves Downstream Performance.,1,1,1,1
+55,2024,iclr,MOTOR: A Time-to-Event Foundation Model For Structured Medical Records.,1,1,1,0
+56,2025,iclr,MedTrinity-25M: A Large-scale Multimodal Dataset with Multigranular Annotations for Medicine.,0,1,1,0
+57,2025,iclr,Context Clues: Evaluating Long Context Models for Clinical Prediction Tasks on EHR Data.,1,1,1,0
+58,2025,iclr,Small Models are LLM Knowledge Triggers for Medical Tabular Prediction.,1,1,1,1
+59,2025,iclr,Efficiently Democratizing Medical LLMs for 50 Languages via a Mixture of Language Family Experts.,0,1,1,1
+60,2020,icml,Designing Optimal Dynamic Treatment Regimes: A Causal Reinforcement Learning Approach.,0,1,1,0
+61,2020,icml,BoXHED: Boosted eXact Hazard Estimator with Dynamic covariates.,0,1,1,1
+62,2020,icml,Temporal Phenotyping using Deep Predictive Clustering of Disease Progression.,0,1,1,1
+63,2020,icml,Clinician-in-the-Loop Decision Making: Reinforcement Learning with Near-Optimal Set-Valued Policies.,1,1,1,0
+64,2020,icml,On Validation and Planning of An Optimal Decision Rule with Application in Healthcare Studies.,1,1,1,0
+65,2020,icml,Student-Teacher Curriculum Learning via Reinforcement Learning: Predicting Hospital Inpatient Admission Location.,1,1,0,0
+66,2020,icml,DeepCoDA: personalized interpretability for compositional health data.,1,1,1,1
+67,2020,icml,Time Series Deconfounder: Estimating Treatment Effects over Time in the Presence of Hidden Confounders.,0,1,1,0
+68,2021,icml,Neighborhood Contrastive Learning Applied to Online Patient Monitoring.,0,1,1,1
+69,2022,icml,Locally Sparse Neural Networks for Tabular Biomedical Data.,0,1,1,1
+70,2022,icml,Learning of Cluster-based Feature Importance for Electronic Health Record Time-series.,1,1,1,1
+71,2023,icml,Improving Medical Predictions by Irregular Multimodal Electronic Health Records Modeling.,1,1,1,1
+72,2023,icml,Sequential Multi-Dimensional Self-Supervised Learning for Clinical Time Series.,1,1,1,1
+73,2024,icml,Contrastive Learning for Clinical Outcome Prediction with Partial Data Sources.,0,1,1,1
+74,2024,icml,Unlocking the Power of Spatial and Temporal Information in Medical Multimodal Pre-training.,0,1,1,0
+75,2024,icml,Reservoir Computing for Short High-Dimensional Time Series: an Application to SARS-CoV-2 Hospitalization Forecast.,0,1,1,1
+76,2024,icml,Exploiting Negative Samples: A Catalyst for Cohort Discovery in Healthcare Analytics.,0,1,1,1
+77,2024,icml,ED-Copilot: Reduce Emergency Department Wait Time with Language Model Diagnostic Assistance.,0,1,1,1
+78,2024,icml,ProtoGate: Prototype-based Neural Networks with Global-to-local Feature Selection for Tabular Biomedical Data.,0,1,1,1
+79,2020,ijcai,A Label Attention Model for ICD Coding from Clinical Text,1,1,1,1
+80,2020,ijcai,The Graph-based Mutual Attentive Network for Automatic Diagnosis,1,1,1,1
+81,2020,ijcai,Automatic Emergency Diagnosis with Knowledge-Based Tree Decoding,1,1,1,1
+82,2020,ijcai,Learning Latent Forests for Medical Relation Extraction,0,1,1,1
+83,2020,ijcai,Generalized Zero-Shot Text Classification for ICD Coding,0,1,1,1
+84,2021,ijcai,Cooperative Joint Attentive Network for Patient Outcome Prediction on Irregular Multi-Rate Multivariate Health Data,1,1,1,1
+85,2021,ijcai,AMA-GCN: Adaptive Multi-layer Aggregation Graph Convolutional Network for Disease Prediction,1,1,1,1
+86,2021,ijcai,Self-Supervised Adversarial Distribution Regularization for Medication Recommendation,1,1,1,0
+87,2021,ijcai,Collaborative Graph Learning with Auxiliary Text for Temporal Event Prediction in Healthcare,1,1,1,1
+88,2021,ijcai,Multi-series Time-aware Sequence Partitioning for Disease Progression Modeling,1,1,1,1
+89,2021,ijcai,A Novel Sequence-to-Subgraph Framework for Diagnosis Classification,1,1,1,1
+90,2021,ijcai,Change Matters: Medication Change Prediction with Recurrent Residual Networks,1,1,1,0
+91,2022,ijcai,Cumulative Stay-time Representation for Electronic Health Records in Medical Event Time Prediction,1,1,1,1
+92,2022,ijcai,“My nose is running.” “Are you also coughing?”: Building A Medical Diagnosis Agent with Interpretable Inquiry Logics,0,1,1,1
+93,2022,ijcai,Chronic Disease Management with Personalized Lab Test Response Prediction,1,1,1,1
+94,2022,ijcai,Rx-refill Graph Neural Network to Reduce Drug Overprescribing Risks (Extended Abstract),0,1,1,0
+95,2022,ijcai,Data-Efficient Algorithms and Neural Natural Language Processing: Applications in the Healthcare Domain,0,1,1,1
+96,2023,ijcai,Hierarchical Apprenticeship Learning for Disease Progression Modeling,0,1,1,1
+97,2023,ijcai,A Diffusion Model with Contrastive Learning for ICU False Arrhythmia Alarm Reduction,0,1,1,1
+98,2023,ijcai,VecoCare: Visit Sequences-Clinical Notes Joint Learning for Diagnosis Prediction in Healthcare Data,1,1,1,1
+99,2023,ijcai,SupervisorBot: NLP-Annotated Real-Time Recommendations of Psychotherapy Treatment Strategies with Deep Reinforcement Learning,0,1,1,0
+100,2024,ijcai,Predictive Modeling with Temporal Graphical Representation on Electronic Health Records,1,1,1,1
+101,2024,ijcai,Multi-TA: Multilevel Temporal Augmentation for Robust Septic Shock Early Prediction,1,1,1,1
+102,2024,ijcai,"MediTab: Scaling Medical Tabular Data Predictors via Data Consolidation, Enrichment, and Refinement",1,1,1,1
+103,2024,ijcai,MEDVOC: Vocabulary Adaptation for Fine-tuning Pre-trained Language Models on Medical Text Summarization,1,1,1,0
+104,2024,ijcai,Guiding Clinical Reasoning with Large Language Models via Knowledge Seeds,0,1,1,0
+105,2024,ijcai,Recent Advances in Predictive Modeling with Electronic Health Records,1,1,1,0
+106,2020,kdd,Hierarchical Attention Propagation for Healthcare Representation Learning,1,1,1,1
+107,2020,kdd,INPREM: An Interpretable and Trustworthy Predictive Model for Healthcare,1,1,1,1
+108,2020,kdd,DETERRENT: Knowledge Guided Graph Attention Network for Detecting Healthcare Misinformation,1,0,1,1
+109,2020,kdd,HiTANet: Hierarchical Time-Aware Attention Networks for Risk Prediction on Electronic Health Records,1,1,1,1
+110,2020,kdd,Identifying Sepsis Subphenotypes via Time-Aware Multi-Modal Auto-Encoder,0,1,1,1
+111,2020,kdd,HOLMES: Health OnLine Model Ensemble Serving for Deep Learning Models in Intensive Care Units,1,1,1,1
+112,2022,kdd,Disentangled Dynamic Heterogeneous Graph Learning for Opioid Overdose Prediction,0,1,1,0
+113,2022,kdd,M3Care: Learning with Missing Modalities in Multimodal Healthcare Data,1,1,1,1
+114,2023,kdd,TWIN: Personalized Clinical Trial Digital Twin Generation,0,1,1,0
+115,2023,kdd,Granger Causal Chain Discovery for Sepsis-Associated Derangements via Continuous-Time Hawkes Processes,0,1,1,1
+116,2023,kdd,MedLink: De-Identified Patient Health Record Linkage,0,1,1,1
+117,2023,kdd,Warpformer: A Multi-scale Modeling Approach for Irregular Clinical Time Series,1,1,1,1
+118,2024,kdd,Counterfactual Generative Models for Time-Varying Treatments,0,1,1,0
+119,2024,kdd,FlexCare: Leveraging Cross-Task Synergy for Flexible Multimodal Healthcare Prediction,1,1,1,1
+120,2024,kdd,ProtoMix: Augmenting Health Status Representation Learning via Prototype-based Mixup,1,1,1,1
+121,2024,kdd,Synthesizing Multimodal Electronic Health Records via Predictive Diffusion Models,1,1,1,1
+122,2025,kdd,Learnable Prompt as Pseudo-Imputation: Rethinking the Necessity of Traditional EHR Data Imputation in Downstream Clinical Prediction,1,1,1,0
+123,2025,kdd,CLEAR: Addressing Representation Contamination in Multimodal Healthcare Analytics,0,1,1,0
+124,2020,nips,Learning to Select Best Forecast Tasks for Clinical Outcome Prediction,1,1,1,1
+125,2021,nips,Medical Dead-ends and Learning to Identify High-Risk States and Treatments,1,1,1,1
+126,2021,nips,Auto-Encoding Knowledge Graph for Unsupervised Medical Report Generation,0,1,1,1
+127,2021,nips,Closing the loop in medical decision support by understanding clinical decision-making: A case study on organ transplantation,0,1,1,1
+128,2021,nips,SurvITE: Learning Heterogeneous Treatment Effects from Time-to-Event Data,0,1,1,0
+129,2022,nips,"Retrieve, Reason, and Refine: Generating Accurate and Faithful Patient Instructions",0,1,1,0
+130,2022,nips,"Debiased, Longitudinal and Coordinated Drug Recommendation through Multi-Visit Clinic Records",1,1,1,0
+131,2023,nips,GlucoSynth: Generating Differentially-Private Synthetic Glucose Traces,0,1,1,0
+132,2023,nips,REFINE: A Fine-Grained Medication Recommendation System Using Deep Learning and Personalized Drug Interaction Modeling,1,1,1,0
+133,2023,nips,Contrast Everything: A Hierarchical Contrastive Framework for Medical Time-Series,0,1,1,1
+134,2023,nips,Temporal Causal Mediation through a Point Process: Direct and Indirect Effects of Healthcare Interventions,0,1,1,1
+135,2023,nips,Towards Semi-Structured Automatic ICD Coding via Tree-based Contrastive Learning,1,1,1,1
+136,2024,nips,MediQ: Question-Asking LLMs and a Benchmark for Reliable Interactive Clinical Reasoning,1,1,1,0
+137,2024,nips,Medformer: A Multi-Granularity Patching Transformer for Medical Time-Series Classification,1,1,1,1
+138,2024,nips,SMART: Towards Pre-trained Missing-Aware Model for Patient Health Status Prediction,1,1,1,1
+139,2024,nips,Knowledge-Empowered Dynamic Graph Network for Irregularly Sampled Medical Time Series,1,1,1,1
+140,2024,nips,Uni-Med: A Unified Medical Generalist Foundation Model For Multi-Task Learning Via Connector-MoE,1,1,0,0
+141,2024,nips,Trajectory Flow Matching with Applications to Clinical Time Series Modelling,1,1,1,1
+142,2024,nips,A teacher-teacher framework for clinical language representation learning,1,1,1,1
+143,2024,nips,EMR-Merging: Tuning-Free High-Performance Model Merging,1,1,1,0
+144,2024,nips,Automated Multi-Task Learning for Joint Disease Prediction on Electronic Health Records,1,1,1,1
+145,2024,nips,PediatricsGPT: Large Language Models as Chinese Medical Assistants for Pediatric Applications,0,1,1,0
+146,2020,www,Text-to-SQL Generation for Question Answering on Electronic Medical Records,1,1,1,1
+147,2020,www,StageNet: Stage-Aware Neural Networks for Health Risk Prediction,1,0,1,1
+148,2020,www,CLARA: Clinical Report Auto-completion,1,1,1,1
+149,2020,www,DeepEnroll: Patient-Trial Matching with Deep Embedding and Entailment Prediction,0,1,1,0
+150,2020,www,Learning Contextualized Document Representations for Healthcare Answer Retrieval,0,1,1,1
+151,2020,www,DyCRS: Dynamic Interpretable Postoperative Complication Risk Scoring,0,1,1,1
+152,2021,www,Communication Efficient Federated Generalized Tensor Factorization for Collaborative Health Data Analytics,0,1,1,0
+153,2021,www,Online Disease Diagnosis with Inductive Heterogeneous Graph Convolutional Networks,0,1,1,1
+154,2021,www,Distilling Knowledge from Publicly Available Online EMR Data to Emerging Epidemic for Prognosis,1,1,1,1
+155,2022,www,Conditional Generation Net for Medication Recommendation,1,1,0,0
+156,2023,www,SeqCare: Sequential Training with External Medical Knowledge Graph for Diagnosis Prediction in Healthcare Data,1,1,1,1
+157,2023,www,Cross-center Early Sepsis Recognition by Medical Knowledge Guided Collaborative Learning for Data-scarce Hospitals,1,1,1,1
+158,2024,www,GraphLeak: Patient Record Leakage through Gradients with Knowledge Graph,0,1,1,0
+159,2025,www,ColaCare: Enhancing Electronic Health Record Modeling through Large Language Model-Driven Multi-Agent Collaboration,1,1,1,1
+160,2025,www,MedRAG: Enhancing Retrieval-augmented Generation with Knowledge Graph-Elicited Reasoning for Healthcare Copilot,0,1,1,1
+161,2025,www,Towards Multi-resolution Spatiotemporal Graph Learning for Medical Time Series Classification,0,1,1,1
+162,2025,www,Time-aware Medication Recommendation via Intervention of Dynamic Treatment Regimes,0,1,1,0
