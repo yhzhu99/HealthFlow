@@ -58,7 +58,7 @@ timeout_seconds = 900
 # --- System Configuration ---
 [system]
 max_retries = 2
-workspace_dir = "workspace"
+workspace_dir = "workspace/tasks"
 shell = "/usr/bin/zsh"
 
 # --- Memory Configuration ---
