@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from healthflow.core.config import EHRConfig, EvaluationConfig, ExecutorConfig, HealthFlowConfig
-from healthflow.core.config import LLMProviderConfig, LoggingConfig, MemoryConfig, SystemConfig
+from healthflow.core.config import LLMProviderConfig, LLMRoleConfig, LoggingConfig, MemoryConfig, SystemConfig
 from healthflow.core.config import VerificationConfig, default_executor_backends
 from healthflow.execution.base import ExecutionResult
 from healthflow.system import HealthFlowSystem
@@ -60,11 +60,19 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             config = HealthFlowConfig(
                 active_llm_name="test-llm",
                 active_executor_name="healthflow_agent",
+                llm_registry={
+                    "test-llm": LLMProviderConfig(
+                        api_key="key",
+                        base_url="https://example.com/v1",
+                        model_name="test-model",
+                    ),
+                },
                 llm=LLMProviderConfig(
                     api_key="key",
                     base_url="https://example.com/v1",
                     model_name="test-model",
                 ),
+                llm_roles=LLMRoleConfig(),
                 system=SystemConfig(max_retries=0, workspace_dir=str(workspace_dir)),
                 executor=ExecutorConfig(active_backend="healthflow_agent", backends=default_executor_backends()),
                 memory=MemoryConfig(mode="frozen_train"),

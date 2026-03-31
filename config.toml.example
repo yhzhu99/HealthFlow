@@ -21,6 +21,11 @@ model_name = "deepseek-reasoner"
 input_cost_per_million_tokens = 0.0
 output_cost_per_million_tokens = 0.0
 
+[llm_roles]
+planner = "deepseek-reasoner"
+evaluator = "openai"
+reflector = "deepseek-chat"
+
 # --- Executor Configuration ---
 [executor]
 active_backend = "healthflow_agent"

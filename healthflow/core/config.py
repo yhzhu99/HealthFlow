@@ -81,6 +81,12 @@ class ExecutorConfig(BaseModel):
         return self
 
 
+class LLMRoleConfig(BaseModel):
+    planner: str | None = Field(default=None, description="Optional model key for the planning agent.")
+    evaluator: str | None = Field(default=None, description="Optional model key for the evaluator agent.")
+    reflector: str | None = Field(default=None, description="Optional model key for the reflector agent.")
+
+
 class MemoryConfig(BaseModel):
     mode: Literal["accumulate_eval", "frozen_train", "reset"] = "accumulate_eval"
     retrieve_k: int = 6
@@ -123,7 +129,9 @@ class HealthFlowConfig(BaseModel):
 
     active_llm_name: str
     active_executor_name: str
+    llm_registry: Dict[str, LLMProviderConfig]
     llm: LLMProviderConfig
+    llm_roles: LLMRoleConfig
     system: SystemConfig
     executor: ExecutorConfig
     memory: MemoryConfig
@@ -135,6 +143,10 @@ class HealthFlowConfig(BaseModel):
     @property
     def active_executor(self) -> BackendCLIConfig:
         return self.executor.backends[self.active_executor_name]
+
+    def llm_config_for_role(self, role: str) -> LLMProviderConfig:
+        configured_name = getattr(self.llm_roles, role, None) or self.active_llm_name
+        return self.llm_registry[configured_name]
 
 
 def get_config(config_path: Path, active_llm: str, active_executor: str | None = None) -> HealthFlowConfig:
@@ -157,9 +169,19 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         if not active_llm:
             raise ValueError("'active_llm' parameter is required")
 
-        active_llm_config_data = config_data.get("llm", {}).get(active_llm)
+        llm_section = config_data.get("llm", {})
+        active_llm_config_data = llm_section.get(active_llm)
         if not active_llm_config_data:
             raise ValueError(f"Configuration for LLM '{active_llm}' not found under the '[llm]' section.")
+        llm_registry = {
+            name: LLMProviderConfig(**provider_config)
+            for name, provider_config in llm_section.items()
+        }
+        llm_roles = LLMRoleConfig(**config_data.get("llm_roles", {}))
+        for role_name in ["planner", "evaluator", "reflector"]:
+            configured_name = getattr(llm_roles, role_name)
+            if configured_name and configured_name not in llm_registry:
+                raise ValueError(f"Configured llm_roles.{role_name}='{configured_name}' was not found under '[llm]'.")
 
         executor_section = config_data.get("executor", {})
         executor_backends = executor_section.get("backends")
@@ -172,7 +194,9 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         config = HealthFlowConfig(
             active_llm_name=active_llm,
             active_executor_name=executor_config.active_backend,
+            llm_registry=llm_registry,
             llm=LLMProviderConfig(**active_llm_config_data),
+            llm_roles=llm_roles,
             system=SystemConfig(**config_data.get("system", {})),
             executor=executor_config,
             memory=MemoryConfig(**config_data.get("memory", {})),
