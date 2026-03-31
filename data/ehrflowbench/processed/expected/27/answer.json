@@ -1,0 +1,27 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "hemoglobin__count",
+    "hemoglobin__first",
+    "hemoglobin__last",
+    "hemoglobin__mean",
+    "hemoglobin__early3_mean",
+    "platelet_count__count",
+    "platelet_count__first",
+    "platelet_count__last",
+    "platelet_count__mean",
+    "platelet_count__early3_mean",
+    "serum_sodium__count",
+    "serum_sodium__first",
+    "serum_sodium__last",
+    "serum_sodium__mean",
+    "serum_sodium__early3_mean"
+  ]
+}

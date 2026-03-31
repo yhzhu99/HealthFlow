@@ -1,0 +1,26 @@
+{
+  "rows": 100,
+  "columns": [
+    "subject_id",
+    "split",
+    "gender",
+    "age_at_first_admission",
+    "discharge_died",
+    "discharge_home",
+    "event_count",
+    "hospital_admission_count",
+    "icu_admission_count",
+    "urea_nitrogen__count",
+    "urea_nitrogen__first",
+    "urea_nitrogen__last",
+    "urea_nitrogen__mean",
+    "hematocrit__count",
+    "hematocrit__first",
+    "hematocrit__last",
+    "hematocrit__mean",
+    "leukocytes__count",
+    "leukocytes__first",
+    "leukocytes__last",
+    "leukocytes__mean"
+  ]
+}

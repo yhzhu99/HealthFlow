@@ -1,0 +1,8 @@
+{
+  "task_type": "linear_regression",
+  "train_rows": 90,
+  "held_out_rows": 10,
+  "r2": -1.155038,
+  "mae": 5732.784418,
+  "rmse": 5980.548958
+}

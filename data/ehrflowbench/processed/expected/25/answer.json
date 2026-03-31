@@ -1,0 +1,27 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "d_dimer__count",
+    "d_dimer__first",
+    "d_dimer__last",
+    "d_dimer__mean",
+    "d_dimer__early3_mean",
+    "ferritin__count",
+    "ferritin__first",
+    "ferritin__last",
+    "ferritin__mean",
+    "ferritin__early3_mean",
+    "interleukin_6__count",
+    "interleukin_6__first",
+    "interleukin_6__last",
+    "interleukin_6__mean",
+    "interleukin_6__early3_mean"
+  ]
+}

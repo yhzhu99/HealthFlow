@@ -1,0 +1,11 @@
+{
+  "task_type": "logistic_regression",
+  "train_rows": 90,
+  "held_out_rows": 10,
+  "positive_rate_train": 0.155556,
+  "positive_rate_held_out": 0.1,
+  "roc_auc": 0.555556,
+  "average_precision": 0.2,
+  "accuracy": 0.9,
+  "f1": 0.0
+}

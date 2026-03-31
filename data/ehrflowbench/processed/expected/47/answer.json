@@ -1,0 +1,17 @@
+{
+  "model": "linear_regression",
+  "target": "los_last",
+  "task_type": "linear_regression",
+  "train_rows": 305,
+  "held_out_rows": 56,
+  "r2": -0.046284,
+  "mae": 2.781584,
+  "rmse": 4.764237,
+  "feature_columns": [
+    "serum_sodium__mean",
+    "serum_potassium__mean",
+    "serum_chloride__mean",
+    "calcium__mean",
+    "urea__mean"
+  ]
+}

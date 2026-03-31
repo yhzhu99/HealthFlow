@@ -1,0 +1,24 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "serum_chloride__count",
+    "serum_chloride__first",
+    "serum_chloride__last",
+    "serum_chloride__mean",
+    "albumin__count",
+    "albumin__first",
+    "albumin__last",
+    "albumin__mean",
+    "ldh__count",
+    "ldh__first",
+    "ldh__last",
+    "ldh__mean"
+  ]
+}

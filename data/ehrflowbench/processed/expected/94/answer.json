@@ -1,0 +1,20 @@
+{
+  "model": "logistic_regression",
+  "target": "discharge_died",
+  "task_type": "logistic_regression",
+  "train_rows": 90,
+  "held_out_rows": 10,
+  "positive_rate_train": 0.155556,
+  "positive_rate_held_out": 0.1,
+  "roc_auc": 0.444444,
+  "average_precision": 0.166667,
+  "accuracy": 0.9,
+  "f1": 0.0,
+  "feature_columns": [
+    "hematocrit__last",
+    "platelets__last",
+    "hemoglobin__last",
+    "leukocytes__last",
+    "icu_admission_count"
+  ]
+}

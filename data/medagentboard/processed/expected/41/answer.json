@@ -1,0 +1,19 @@
+{
+  "model": "logistic_regression",
+  "task_type": "logistic_regression",
+  "train_rows": 305,
+  "held_out_rows": 56,
+  "positive_rate_train": 0.468852,
+  "positive_rate_held_out": 0.410714,
+  "roc_auc": 0.922266,
+  "average_precision": 0.91625,
+  "accuracy": 0.857143,
+  "f1": 0.818182,
+  "feature_columns": [
+    "white_blood_cell_count__mean",
+    "hemoglobin__mean",
+    "platelet_count__mean",
+    "creatinine__mean",
+    "albumin__mean"
+  ]
+}

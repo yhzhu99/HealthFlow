@@ -1,0 +1,27 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "serum_potassium__count",
+    "serum_potassium__first",
+    "serum_potassium__last",
+    "serum_potassium__mean",
+    "serum_potassium__early3_mean",
+    "serum_chloride__count",
+    "serum_chloride__first",
+    "serum_chloride__last",
+    "serum_chloride__mean",
+    "serum_chloride__early3_mean",
+    "calcium__count",
+    "calcium__first",
+    "calcium__last",
+    "calcium__mean",
+    "calcium__early3_mean"
+  ]
+}

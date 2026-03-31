@@ -1,0 +1,17 @@
+{
+  "model": "linear_regression",
+  "target": "los_last",
+  "task_type": "linear_regression",
+  "train_rows": 305,
+  "held_out_rows": 56,
+  "r2": 0.007484,
+  "mae": 2.567566,
+  "rmse": 4.640207,
+  "feature_columns": [
+    "white_blood_cell_count__mean",
+    "hemoglobin__mean",
+    "platelet_count__mean",
+    "creatinine__mean",
+    "albumin__mean"
+  ]
+}

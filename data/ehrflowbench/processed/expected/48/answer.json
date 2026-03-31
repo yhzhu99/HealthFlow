@@ -1,0 +1,17 @@
+{
+  "model": "linear_regression",
+  "target": "los_last",
+  "task_type": "linear_regression",
+  "train_rows": 305,
+  "held_out_rows": 56,
+  "r2": 0.668313,
+  "mae": 2.143443,
+  "rmse": 2.682457,
+  "feature_columns": [
+    "record_count",
+    "stay_days",
+    "age",
+    "white_blood_cell_count__max",
+    "hs_crp__max"
+  ]
+}

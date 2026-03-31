@@ -1,0 +1,6 @@
+feature,coefficient
+age_at_first_admission,0.0
+diagnosis_event_count,-0.0
+event_count,1.0
+hospital_admission_count,-0.0
+icu_admission_count,0.0

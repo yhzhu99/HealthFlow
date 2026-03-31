@@ -1,0 +1,24 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "white_blood_cell_count__count",
+    "white_blood_cell_count__first",
+    "white_blood_cell_count__last",
+    "white_blood_cell_count__mean",
+    "hemoglobin__count",
+    "hemoglobin__first",
+    "hemoglobin__last",
+    "hemoglobin__mean",
+    "platelet_count__count",
+    "platelet_count__first",
+    "platelet_count__last",
+    "platelet_count__mean"
+  ]
+}

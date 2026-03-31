@@ -1,0 +1,20 @@
+{
+  "model": "logistic_regression",
+  "target": "outcome",
+  "task_type": "logistic_regression",
+  "train_rows": 305,
+  "held_out_rows": 56,
+  "positive_rate_train": 0.468852,
+  "positive_rate_held_out": 0.410714,
+  "roc_auc": 0.839262,
+  "average_precision": 0.795224,
+  "accuracy": 0.732143,
+  "f1": 0.693878,
+  "feature_columns": [
+    "record_count",
+    "stay_days",
+    "age",
+    "white_blood_cell_count__mean",
+    "creatinine__mean"
+  ]
+}

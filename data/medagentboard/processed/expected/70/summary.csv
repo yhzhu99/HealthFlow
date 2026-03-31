@@ -1,0 +1,10 @@
+split,discharge_died,discharge_home,subject_count,mean_feature,median_feature
+held_out,0,0,4,6890.5,4898.0
+held_out,0,1,5,2681.6,2575.0
+held_out,1,0,1,1584.0,1584.0
+train,0,0,28,9106.785714285714,6072.0
+train,0,1,40,7383.675,3300.5
+train,1,0,12,21137.916666666668,17228.5
+tuning,0,0,3,15171.333333333334,11519.0
+tuning,0,1,5,3035.2,2466.0
+tuning,1,0,2,4465.0,4465.0

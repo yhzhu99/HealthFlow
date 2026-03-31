@@ -1,0 +1,24 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "white_blood_cell_count__count",
+    "white_blood_cell_count__first",
+    "white_blood_cell_count__last",
+    "white_blood_cell_count__mean",
+    "creatinine__count",
+    "creatinine__first",
+    "creatinine__last",
+    "creatinine__mean",
+    "albumin__count",
+    "albumin__first",
+    "albumin__last",
+    "albumin__mean"
+  ]
+}

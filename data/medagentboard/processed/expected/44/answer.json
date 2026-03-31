@@ -1,0 +1,19 @@
+{
+  "model": "logistic_regression",
+  "task_type": "logistic_regression",
+  "train_rows": 305,
+  "held_out_rows": 56,
+  "positive_rate_train": 0.468852,
+  "positive_rate_held_out": 0.410714,
+  "roc_auc": 0.938076,
+  "average_precision": 0.942979,
+  "accuracy": 0.839286,
+  "f1": 0.769231,
+  "feature_columns": [
+    "platelet_count__last",
+    "hemoglobin__last",
+    "d_dimer__max",
+    "ferritin__max",
+    "interleukin_6__max"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "serum_potassium__count",
+    "serum_potassium__first",
+    "serum_potassium__last",
+    "serum_potassium__mean",
+    "creatinine__count",
+    "creatinine__first",
+    "creatinine__last",
+    "creatinine__mean",
+    "d_dimer__count",
+    "d_dimer__first",
+    "d_dimer__last",
+    "d_dimer__mean"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "model": "logistic_regression",
+  "target": "discharge_died",
+  "task_type": "logistic_regression",
+  "train_rows": 90,
+  "held_out_rows": 10,
+  "positive_rate_train": 0.155556,
+  "positive_rate_held_out": 0.1,
+  "roc_auc": 0.111111,
+  "average_precision": 0.111111,
+  "accuracy": 0.9,
+  "f1": 0.0,
+  "feature_columns": [
+    "age_at_first_admission",
+    "event_count",
+    "hospital_admission_count",
+    "icu_admission_count",
+    "diagnosis_event_count"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "creatinine__count",
+    "creatinine__first",
+    "creatinine__last",
+    "creatinine__mean",
+    "albumin__count",
+    "albumin__first",
+    "albumin__last",
+    "albumin__mean",
+    "urea__count",
+    "urea__first",
+    "urea__last",
+    "urea__mean"
+  ]
+}

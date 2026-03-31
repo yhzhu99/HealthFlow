@@ -1,0 +1,17 @@
+{
+  "model": "linear_regression",
+  "target": "event_count",
+  "task_type": "linear_regression",
+  "train_rows": 90,
+  "held_out_rows": 10,
+  "r2": -0.803528,
+  "mae": 5170.424778,
+  "rmse": 5471.105845,
+  "feature_columns": [
+    "potassium__mean",
+    "sodium__mean",
+    "creatinine__mean",
+    "chloride__mean",
+    "urea_nitrogen__mean"
+  ]
+}

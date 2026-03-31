@@ -1,0 +1,27 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "white_blood_cell_count__count",
+    "white_blood_cell_count__first",
+    "white_blood_cell_count__last",
+    "white_blood_cell_count__mean",
+    "white_blood_cell_count__early3_mean",
+    "d_dimer__count",
+    "d_dimer__first",
+    "d_dimer__last",
+    "d_dimer__mean",
+    "d_dimer__early3_mean",
+    "albumin__count",
+    "albumin__first",
+    "albumin__last",
+    "albumin__mean",
+    "albumin__early3_mean"
+  ]
+}

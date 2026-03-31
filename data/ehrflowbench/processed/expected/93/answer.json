@@ -1,0 +1,20 @@
+{
+  "model": "logistic_regression",
+  "target": "discharge_died",
+  "task_type": "logistic_regression",
+  "train_rows": 90,
+  "held_out_rows": 10,
+  "positive_rate_train": 0.155556,
+  "positive_rate_held_out": 0.1,
+  "roc_auc": 1.0,
+  "average_precision": 1.0,
+  "accuracy": 0.9,
+  "f1": 0.0,
+  "feature_columns": [
+    "potassium__last",
+    "sodium__last",
+    "creatinine__last",
+    "chloride__last",
+    "urea_nitrogen__last"
+  ]
+}

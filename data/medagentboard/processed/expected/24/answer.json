@@ -1,0 +1,24 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "calcium__count",
+    "calcium__first",
+    "calcium__last",
+    "calcium__mean",
+    "hs_crp__count",
+    "hs_crp__first",
+    "hs_crp__last",
+    "hs_crp__mean",
+    "ldh__count",
+    "ldh__first",
+    "ldh__last",
+    "ldh__mean"
+  ]
+}

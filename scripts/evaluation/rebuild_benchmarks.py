@@ -77,14 +77,90 @@ MIMIC_LABS: dict[str, tuple[str, str]] = {
     "leukocytes": ("LAB//51301//K/uL", "Leukocytes [#/volume] in Blood by Automated count"),
 }
 
-BENCHMARK_ROOT_NAME = "benchmark_ground_truth"
-PROVENANCE_ROOT_NAME = "benchmark_provenance"
-
+TJH_BASIC_COLUMNS = ["PatientID", "RecordTime", "AdmissionTime", "DischargeTime"]
+TJH_TARGET_COLUMNS = ["Outcome", "LOS"]
+TJH_DEMOGRAPHIC_COLUMNS = ["Sex", "Age"]
+TJH_LABTEST_COLUMNS = [
+    "Hypersensitive cardiac troponinI",
+    "hemoglobin",
+    "Serum chloride",
+    "Prothrombin time",
+    "procalcitonin",
+    "eosinophils(%)",
+    "Interleukin 2 receptor",
+    "Alkaline phosphatase",
+    "albumin",
+    "basophil(%)",
+    "Interleukin 10",
+    "Total bilirubin",
+    "Platelet count",
+    "monocytes(%)",
+    "antithrombin",
+    "Interleukin 8",
+    "indirect bilirubin",
+    "Red blood cell distribution width ",
+    "neutrophils(%)",
+    "total protein",
+    "Quantification of Treponema pallidum antibodies",
+    "Prothrombin activity",
+    "HBsAg",
+    "mean corpuscular volume",
+    "hematocrit",
+    "White blood cell count",
+    "Tumor necrosis factorα",
+    "mean corpuscular hemoglobin concentration",
+    "fibrinogen",
+    "Interleukin 1β",
+    "Urea",
+    "lymphocyte count",
+    "PH value",
+    "Red blood cell count",
+    "Eosinophil count",
+    "Corrected calcium",
+    "Serum potassium",
+    "glucose",
+    "neutrophils count",
+    "Direct bilirubin",
+    "Mean platelet volume",
+    "ferritin",
+    "RBC distribution width SD",
+    "Thrombin time",
+    "(%)lymphocyte",
+    "HCV antibody quantification",
+    "D-D dimer",
+    "Total cholesterol",
+    "aspartate aminotransferase",
+    "Uric acid",
+    "HCO3-",
+    "calcium",
+    "Amino-terminal brain natriuretic peptide precursor(NT-proBNP)",
+    "Lactate dehydrogenase",
+    "platelet large cell ratio ",
+    "Interleukin 6",
+    "Fibrin degradation products",
+    "monocytes count",
+    "PLT distribution width",
+    "globulin",
+    "γ-glutamyl transpeptidase",
+    "International standard ratio",
+    "basophil count(#)",
+    "mean corpuscular hemoglobin ",
+    "Activation of partial thromboplastin time",
+    "Hypersensitive c-reactive protein",
+    "HIV antibody quantification",
+    "serum sodium",
+    "thrombocytocrit",
+    "ESR",
+    "glutamic-pyruvic transaminase",
+    "eGFR",
+    "creatinine",
+]
 
 @dataclass
 class GeneratedTask:
     task: dict[str, Any]
-    ground_truth_dir: Path
+    expected_dir: Path
+    metadata: dict[str, Any]
 
 
 @dataclass
@@ -104,20 +180,22 @@ class MimicViews:
     split_counts: dict[str, int]
 
 
-def find_workspace_root() -> Path:
+def find_healthflow_root() -> Path:
     script_path = Path(__file__).resolve()
     for parent in script_path.parents:
-        if (parent / "data" / "TJH.csv").exists():
+        if (parent / "pyproject.toml").exists() and (parent / "run_benchmark.py").exists():
             return parent
-    raise FileNotFoundError("Could not locate workspace root containing data/TJH.csv")
+    raise FileNotFoundError("Could not locate HealthFlow root")
 
 
-WORKSPACE_ROOT = find_workspace_root()
-HEALTHFLOW_ROOT = WORKSPACE_ROOT / "code" / "HealthFlow"
-DATA_ROOT = WORKSPACE_ROOT / "data"
-PROVENANCE_ROOT = DATA_ROOT / PROVENANCE_ROOT_NAME
-GROUND_TRUTH_ROOT = DATA_ROOT / BENCHMARK_ROOT_NAME
-MIMIC_ROOT = DATA_ROOT / "mimic_iv_demo_meds"
+HEALTHFLOW_ROOT = find_healthflow_root()
+WORKSPACE_ROOT = HEALTHFLOW_ROOT.parents[1]
+DATA_ROOT = HEALTHFLOW_ROOT / "data"
+EHRFLOWBENCH_ROOT = DATA_ROOT / "ehrflowbench"
+MEDAGENTBOARD_ROOT = DATA_ROOT / "medagentboard"
+CUREBENCH_ROOT = DATA_ROOT / "curebench"
+HLE_ROOT = DATA_ROOT / "hle"
+MEDAGENTSBENCH_ROOT = DATA_ROOT / "medagentsbench"
 
 
 def slugify(value: str) -> str:
@@ -168,31 +246,76 @@ def stable_split(identifier: Any) -> str:
     return "held_out"
 
 
-def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def dataframe_signature(frame: pd.DataFrame) -> str:
-    temp = frame.copy()
-    for column in temp.columns:
-        if pd.api.types.is_float_dtype(temp[column]):
-            temp[column] = temp[column].round(6)
-    csv_bytes = temp.to_csv(index=False).encode("utf-8")
-    return hashlib.sha256(csv_bytes).hexdigest()
-
-
 def ensure_empty_dir(path: Path) -> None:
     if path.exists():
         shutil.rmtree(path)
     path.mkdir(parents=True, exist_ok=True)
 
 
+def benchmark_root(name: str) -> Path:
+    return DATA_ROOT / name
+
+
+def benchmark_raw_root(name: str) -> Path:
+    return benchmark_root(name) / "raw"
+
+
+def benchmark_processed_root(name: str) -> Path:
+    return benchmark_root(name) / "processed"
+
+
+def benchmark_expected_root(name: str) -> Path:
+    return benchmark_processed_root(name) / "expected"
+
+
+def benchmark_runtime_root(name: str) -> Path:
+    return benchmark_processed_root(name) / "runtime"
+
+
+def prepare_tjh_runtime(raw_root: Path, runtime_csv: Path) -> Path:
+    df = pd.read_excel(raw_root / "time_series_375_prerpocess_en.xlsx")
+    df = df.rename(
+        columns={
+            "PATIENT_ID": "PatientID",
+            "outcome": "Outcome",
+            "gender": "Sex",
+            "age": "Age",
+            "RE_DATE": "RecordTime",
+            "Admission time": "AdmissionTime",
+            "Discharge time": "DischargeTime",
+        }
+    )
+    df["PatientID"] = df["PatientID"].ffill()
+    df["Sex"] = df["Sex"].replace(2, 0)
+    df["RecordTime"] = pd.to_datetime(df["RecordTime"]).dt.strftime("%Y-%m-%d")
+    df["DischargeTime"] = pd.to_datetime(df["DischargeTime"]).dt.strftime("%Y-%m-%d")
+    df["AdmissionTime"] = pd.to_datetime(df["AdmissionTime"]).dt.strftime("%Y-%m-%d")
+    df = df.dropna(subset=["PatientID", "RecordTime", "DischargeTime"], how="any")
+    df["LOS"] = (pd.to_datetime(df["DischargeTime"]) - pd.to_datetime(df["RecordTime"])).dt.days
+    df["LOS"] = df["LOS"].clip(lower=0)
+    if "2019-nCoV nucleic acid detection" in df.columns:
+        df = df.drop(columns=["2019-nCoV nucleic acid detection"])
+    negative_columns = TJH_DEMOGRAPHIC_COLUMNS + TJH_LABTEST_COLUMNS
+    df.loc[:, negative_columns] = df.loc[:, negative_columns].mask(df.loc[:, negative_columns] < 0)
+    df = df.groupby(TJH_BASIC_COLUMNS, dropna=True, as_index=False).mean(numeric_only=True)
+    df = df[TJH_BASIC_COLUMNS + TJH_TARGET_COLUMNS + TJH_DEMOGRAPHIC_COLUMNS + TJH_LABTEST_COLUMNS]
+    csv_dump(runtime_csv, df)
+    return runtime_csv
+
+
+def prepare_mimic_runtime(raw_root: Path, runtime_root: Path) -> Path:
+    if runtime_root.exists():
+        shutil.rmtree(runtime_root)
+    shutil.copytree(raw_root, runtime_root)
+    return runtime_root
+
+
 def feature_stat_column(alias: str, stat: str) -> str:
     return f"{alias}__{stat}"
 
 
-def build_tjh_views() -> TjhViews:
-    raw = pd.read_csv(DATA_ROOT / "TJH.csv")
+def build_tjh_views(runtime_csv: Path) -> TjhViews:
+    raw = pd.read_csv(runtime_csv)
     raw["PatientID"] = raw["PatientID"].astype(int)
     raw["RecordTime"] = pd.to_datetime(raw["RecordTime"])
     raw["AdmissionTime"] = pd.to_datetime(raw["AdmissionTime"])
@@ -258,10 +381,10 @@ def build_tjh_views() -> TjhViews:
     return TjhViews(raw=raw, patient_summary=patient_summary, temporal_daily=temporal_daily, split_counts=split_counts)
 
 
-def build_mimic_views() -> MimicViews:
+def build_mimic_views(mimic_root: Path) -> MimicViews:
     split_frames: list[pd.DataFrame] = []
     for split_name in ["train", "tuning", "held_out"]:
-        split_frame = pd.read_parquet(MIMIC_ROOT / "data" / split_name / "0.parquet")
+        split_frame = pd.read_parquet(mimic_root / "data" / split_name / "0.parquet")
         split_frame["split"] = split_name
         split_frames.append(split_frame)
     raw = pd.concat(split_frames, ignore_index=True)
@@ -269,7 +392,7 @@ def build_mimic_views() -> MimicViews:
     raw["numeric_value"] = pd.to_numeric(raw["numeric_value"], errors="coerce")
     raw = raw.sort_values(["subject_id", "time", "code"]).reset_index(drop=True)
 
-    codes = pd.read_parquet(MIMIC_ROOT / "metadata" / "codes.parquet")
+    codes = pd.read_parquet(mimic_root / "metadata" / "codes.parquet")
     code_to_description = dict(zip(codes["code"], codes["description"]))
 
     birth_times = raw.loc[raw["code"] == "MEDS_BIRTH", ["subject_id", "time"]].rename(columns={"time": "birth_time"})
@@ -296,7 +419,7 @@ def build_mimic_views() -> MimicViews:
 
     subject_summary = pd.DataFrame({"subject_id": sorted(raw["subject_id"].unique())})
     subject_summary["split"] = subject_summary["subject_id"].map(
-        pd.read_parquet(MIMIC_ROOT / "metadata" / "subject_splits.parquet").set_index("subject_id")["split"]
+        pd.read_parquet(mimic_root / "metadata" / "subject_splits.parquet").set_index("subject_id")["split"]
     )
     subject_summary = subject_summary.merge(birth_times, on="subject_id", how="left")
     subject_summary = subject_summary.merge(first_gender, on="subject_id", how="left")
@@ -395,6 +518,16 @@ def title_from_markdown_dir(name: str) -> str:
     return re.sub(r"\s+", " ", title)
 
 
+def paper_markdown_root(paper_raw_root: Path) -> Path:
+    local_root = paper_raw_root / "markdowns"
+    if local_root.exists() and any(local_root.iterdir()):
+        return local_root
+    source_root = HEALTHFLOW_ROOT / "scripts" / "extract_task" / "assets" / "markdowns"
+    if source_root.exists():
+        return source_root
+    return local_root
+
+
 def classify_extracted_task(category: str, text: str) -> tuple[str, list[str]]:
     lowered = text.lower()
     reasons: list[str] = []
@@ -417,17 +550,19 @@ def classify_extracted_task(category: str, text: str) -> tuple[str, list[str]]:
     return "reject", ["non_verifiable"]
 
 
-def build_paper_audit_outputs() -> dict[str, Any]:
+def build_paper_audit_outputs() -> tuple[pd.DataFrame, dict[str, Any]]:
+    paper_raw_root = EHRFLOWBENCH_ROOT / "raw" / "papers"
+    paper_titles = pd.read_csv(paper_raw_root / "paper_titles.csv", dtype={"paper_id": str}).set_index("paper_id")["paper_title"].to_dict()
+    markdown_root = paper_markdown_root(paper_raw_root)
     markdown_dirs = {
-        directory.name.split("_", 1)[0]: directory.name
-        for directory in (HEALTHFLOW_ROOT / "scripts" / "extract_task" / "assets" / "markdowns").iterdir()
+        directory.name: directory.name
+        for directory in markdown_root.iterdir()
         if directory.is_dir()
     }
-    selected_ids = (HEALTHFLOW_ROOT / "scripts" / "filter_paper" / "results" / "final_selected_ID.txt").read_text(encoding="utf-8").splitlines()
-    filtered = pd.read_csv(HEALTHFLOW_ROOT / "scripts" / "filter_paper" / "results" / "filtered_results_combined.csv")
+    selected_ids = [line.strip() for line in (paper_raw_root / "selected_ids.txt").read_text(encoding="utf-8").splitlines() if line.strip()]
 
     extracted_rows: list[dict[str, Any]] = []
-    for task_file in sorted((HEALTHFLOW_ROOT / "scripts" / "extract_task" / "tasks").glob("*_tasks.jsonl")):
+    for task_file in sorted((paper_raw_root / "extracted_tasks").glob("*_tasks.jsonl")):
         paper_id = task_file.name.split("_", 1)[0]
         with task_file.open("r", encoding="utf-8") as handle:
             for line_number, line in enumerate(handle, 1):
@@ -438,7 +573,7 @@ def build_paper_audit_outputs() -> dict[str, Any]:
                 extracted_rows.append(
                     {
                         "paper_id": paper_id,
-                        "paper_title": title_from_markdown_dir(markdown_dirs.get(paper_id, paper_id)),
+                        "paper_title": paper_titles.get(paper_id, title_from_markdown_dir(markdown_dirs.get(paper_id, paper_id))),
                         "task_index": line_number,
                         "category": row.get("category", ""),
                         "task": row.get("task", ""),
@@ -447,30 +582,10 @@ def build_paper_audit_outputs() -> dict[str, Any]:
                         "reason_codes": "|".join(reasons),
                     }
                 )
+
     extracted_df = pd.DataFrame(extracted_rows)
-    csv_ids = set(filtered["ID"].astype(str))
     markdown_ids = set(markdown_dirs)
     selected_id_set = set(selected_ids)
-
-    current_ehr = read_jsonl(DATA_ROOT / "ehrflowbench.jsonl")
-    current_ehr_train = read_jsonl(DATA_ROOT / "ehrflowbench_train.jsonl")
-    current_mab = read_jsonl(DATA_ROOT / "medagentboard.jsonl")
-
-    current_ehr_flagged = [
-        row
-        for row in current_ehr + current_ehr_train
-        if classify_extracted_task(row.get("category", ""), f"{row.get('task', '')} {row.get('answer', '')}")[0] != "rewrite"
-    ]
-    blank_medagentboard_qids = [row["qid"] for row in current_mab if not str(row.get("answer", "")).strip() and "qid" in row]
-    inaccessible_medagentboard_qids = [
-        row["qid"]
-        for row in current_mab
-        if "qid" in row
-        and (
-            "/home/projects/HealthFlow" in json.dumps(row, ensure_ascii=False)
-            or "MIMIC-IV.parquet" in json.dumps(row, ensure_ascii=False)
-        )
-    ]
     reason_code_counts: Counter[str] = Counter()
     for reason_codes in extracted_df["reason_codes"].fillna(""):
         if not str(reason_codes).strip():
@@ -480,43 +595,15 @@ def build_paper_audit_outputs() -> dict[str, Any]:
                 reason_code_counts[reason_code] += 1
 
     audit_summary = {
-        "filtered_rows": int(len(filtered)),
-        "markdown_directories": int(len(markdown_ids)),
         "selected_ids": int(len(selected_id_set)),
+        "markdown_directories": int(len(markdown_ids)),
         "extracted_task_files": int(extracted_df["paper_id"].nunique()),
         "extracted_tasks": int(len(extracted_df)),
-        "filter_only_rows_without_markdown": sorted(csv_ids - markdown_ids),
         "selected_without_markdown": sorted(selected_id_set - markdown_ids),
         "recommended_action_counts": extracted_df["recommended_action"].value_counts().to_dict(),
         "reason_code_counts": dict(reason_code_counts),
-        "current_ehrflowbench_eval_tasks": len(current_ehr),
-        "current_ehrflowbench_train_tasks": len(current_ehr_train),
-        "current_ehrflowbench_flagged_unverifiable_or_inaccessible": len(current_ehr_flagged),
-        "current_medagentboard_tasks": len(current_mab),
-        "current_medagentboard_blank_answers": len(blank_medagentboard_qids),
-        "current_medagentboard_inaccessible_paths": len(inaccessible_medagentboard_qids),
     }
-
-    ensure_empty_dir(PROVENANCE_ROOT)
-    csv_dump(PROVENANCE_ROOT / "extracted_task_audit.csv", extracted_df)
-    json_dump(PROVENANCE_ROOT / "paper_provenance_manifest.json", audit_summary)
-    json_dump(
-        PROVENANCE_ROOT / "filter_markdown_reconciliation.json",
-        {
-            "csv_not_markdown": sorted(csv_ids - markdown_ids),
-            "markdown_not_csv": sorted(markdown_ids - csv_ids),
-            "selected_not_markdown": sorted(selected_id_set - markdown_ids),
-        },
-    )
-    json_dump(
-        PROVENANCE_ROOT / "current_benchmark_audit.json",
-        {
-            "ehrflowbench_flagged_qids": [row["qid"] for row in current_ehr_flagged if "qid" in row],
-            "medagentboard_blank_answer_qids": blank_medagentboard_qids,
-            "medagentboard_inaccessible_path_qids": inaccessible_medagentboard_qids,
-        },
-    )
-    return audit_summary
+    return extracted_df, audit_summary
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -526,6 +613,154 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
             if line.strip():
                 rows.append(json.loads(line))
     return rows
+
+
+def simplify_answer_payload(payload: Any) -> Any:
+    payload = round_float(payload)
+    if isinstance(payload, dict):
+        payload = {
+            key: simplify_answer_payload(value)
+            for key, value in payload.items()
+            if key != "patient_ids"
+        }
+    if isinstance(payload, list):
+        payload = [simplify_answer_payload(item) for item in payload]
+    return payload
+
+
+def paper_excerpt(text: str, limit: int = 220) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3].rstrip() + "..."
+
+
+def representative_paper_task(group: pd.DataFrame) -> pd.Series:
+    category_priority = {
+        "cohort definition": 0,
+        "data preprocessing": 1,
+        "data analysis": 2,
+        "feature engineering": 3,
+        "model evaluation": 4,
+        "results reproduction": 5,
+        "model implementation": 6,
+    }
+
+    def sort_key(row: pd.Series) -> tuple[int, int, int]:
+        return (
+            0 if row["recommended_action"] == "rewrite" else 1,
+            category_priority.get(str(row["category"]).lower(), 9),
+            int(row["task_index"]),
+        )
+
+    return min((row for _, row in group.iterrows()), key=sort_key)
+
+
+def family_preferences(category: str, task_text: str) -> list[str]:
+    lowered = f"{category} {task_text}".lower()
+    if "cohort" in lowered or "label engineering" in lowered or "data curation" in lowered:
+        preferred = ["cohort_query", "preprocessing_feature_engineering", "temporal_statistics"]
+    elif "feature" in lowered or "preprocess" in lowered or "embedding" in lowered or "transformation" in lowered:
+        preferred = ["preprocessing_feature_engineering", "artifact_generation", "cohort_query"]
+    elif "analysis" in lowered or "statistics" in lowered or "distribution" in lowered or "average" in lowered:
+        preferred = ["temporal_statistics", "artifact_generation", "cohort_query"]
+    elif "evaluation" in lowered or "result" in lowered or "report" in lowered or "visual" in lowered:
+        preferred = ["artifact_generation", "temporal_statistics", "fixed_spec_modeling"]
+    else:
+        preferred = ["fixed_spec_modeling", "artifact_generation", "preprocessing_feature_engineering"]
+    ordered = []
+    for family in preferred + ["cohort_query", "temporal_statistics", "preprocessing_feature_engineering", "artifact_generation", "fixed_spec_modeling"]:
+        if family not in ordered:
+            ordered.append(family)
+    return ordered
+
+
+def assign_ehr_tasks_to_papers(
+    extracted_df: pd.DataFrame,
+    all_ehr_tasks: list[GeneratedTask],
+) -> tuple[list[GeneratedTask], pd.DataFrame, pd.DataFrame]:
+    selected_ids = [
+        line.strip()
+        for line in (EHRFLOWBENCH_ROOT / "raw" / "papers" / "selected_ids.txt").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    representative_rows: list[pd.Series] = []
+    grouped = {paper_id: frame for paper_id, frame in extracted_df.groupby("paper_id", sort=False)}
+    for paper_id in selected_ids:
+        frame = grouped.get(paper_id)
+        if frame is None or frame.empty:
+            continue
+        representative_rows.append(representative_paper_task(frame))
+    representative_rows = representative_rows[: len(all_ehr_tasks)]
+
+    family_quota = Counter(task.metadata["task_family"] for task in all_ehr_tasks)
+    assignments: list[dict[str, Any]] = []
+    for row in representative_rows:
+        family = next(pref for pref in family_preferences(str(row["category"]), str(row["task"])) if family_quota[pref] > 0)
+        family_quota[family] -= 1
+        assignments.append(
+            {
+                "paper_id": str(row["paper_id"]),
+                "paper_title": str(row["paper_title"]),
+                "task_index": int(row["task_index"]),
+                "category": str(row["category"]),
+                "source_task": str(row["task"]),
+                "recommended_action": str(row["recommended_action"]),
+                "reason_codes": str(row["reason_codes"]),
+                "assigned_family": family,
+            }
+        )
+
+    family_tasks: dict[str, list[GeneratedTask]] = {}
+    for task in all_ehr_tasks:
+        family_tasks.setdefault(task.metadata["task_family"], []).append(task)
+
+    selected_tasks: list[GeneratedTask] = []
+    paper_rows: list[dict[str, Any]] = []
+    used_keys: set[tuple[str, int]] = set()
+    for assignment in assignments:
+        task = family_tasks[assignment["assigned_family"]].pop(0)
+        excerpt = paper_excerpt(assignment["source_task"])
+        task.task["task"] = (
+            f"Paper proxy context: reproducibly translate extracted paper task {assignment['task_index']} from "
+            f"\"{assignment['paper_title']}\" ({assignment['category']}). Source objective excerpt: \"{excerpt}\".\n\n"
+            f"{task.task['task']}"
+        )
+        task.task["answer"] = simplify_answer_payload(task.task["answer"])
+        selected_tasks.append(task)
+        used_keys.add((assignment["paper_id"], assignment["task_index"]))
+        paper_rows.append(
+            {
+                "qid": task.task["qid"],
+                "split": task.metadata["split"],
+                "source_paper_id": assignment["paper_id"],
+                "source_paper_title": assignment["paper_title"],
+                "source_task_index": assignment["task_index"],
+                "source_task_category": assignment["category"],
+                "proxy_dataset": task.metadata["dataset"],
+                "rewrite_type": task.metadata["task_family"],
+            }
+        )
+
+    rejected_rows = extracted_df.copy()
+    rejected_rows["used_for_canonical"] = rejected_rows.apply(
+        lambda row: (str(row["paper_id"]), int(row["task_index"])) in used_keys,
+        axis=1,
+    )
+    rejected_rows = rejected_rows.loc[~rejected_rows["used_for_canonical"]].drop(columns=["used_for_canonical"])
+    return selected_tasks, pd.DataFrame(paper_rows), rejected_rows
+
+
+def build_simple_benchmark(raw_files: dict[str, Path], processed_root: Path) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    processed_root.mkdir(parents=True, exist_ok=True)
+    for split_name, source_path in raw_files.items():
+        rows = []
+        for row in read_jsonl(source_path):
+            rows.append({"qid": row["qid"], "task": row["task"], "answer": row["answer"]})
+        write_jsonl(processed_root / f"{split_name}.jsonl", rows)
+        counts[split_name] = len(rows)
+    return counts
 
 
 def plot_line(path: Path, frame: pd.DataFrame, x_col: str, y_col: str, group_col: str, title: str) -> None:
@@ -567,49 +802,39 @@ def plot_hist(path: Path, values: pd.Series, title: str) -> tuple[list[float], l
     return edges.tolist(), counts.astype(int).tolist()
 
 
-def prompt_header(dataset: str) -> str:
+def prompt_header(benchmark: str, dataset: str) -> str:
+    runtime_root = f"data/{benchmark}/processed/runtime"
     if dataset == "TJH":
         return (
-            "Use the local longitudinal EHR table at `../../data/TJH.csv`. "
+            f"Use the local longitudinal EHR table at `{runtime_root}/TJH.csv`. "
             "Treat `PatientID` as the patient key and `RecordTime` as the longitudinal timestamp. "
         )
     return (
-        "Use the local open MEDS dataset rooted at `../../data/mimic_iv_demo_meds/`. "
+        f"Use the local open MEDS dataset rooted at `{runtime_root}/mimic_iv_demo_meds/`. "
         "Read the three split parquet files under `data/` together with `metadata/subject_splits.parquet` and `metadata/codes.parquet`. "
         "Treat `subject_id` as the patient key and `time` as the event timestamp. "
     )
 
 
-def write_task_ground_truth(ground_truth_dir: Path, artifacts: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
-    ground_truth_dir.mkdir(parents=True, exist_ok=True)
-    file_specs: dict[str, Any] = {}
+def write_expected_artifacts(expected_dir: Path, artifacts: dict[str, Any]) -> list[str]:
+    expected_dir.mkdir(parents=True, exist_ok=True)
     required_files: list[str] = []
     for relative_name, payload in artifacts.items():
         required_files.append(relative_name)
-        target = ground_truth_dir / relative_name
+        target = expected_dir / relative_name
         if isinstance(payload, pd.DataFrame):
             csv_dump(target, payload)
-            file_specs[relative_name] = {
-                "compare": "csv",
-                "rows": int(len(payload)),
-                "columns": list(payload.columns),
-                "sha256": dataframe_signature(payload),
-                "float_tolerance": 1e-6,
-            }
         elif isinstance(payload, str) and relative_name.endswith(".md"):
             text_dump(target, payload)
-            file_specs[relative_name] = {"compare": "text", "sha256": sha256_file(target)}
         elif isinstance(payload, (dict, list)):
-            json_dump(target, payload)
-            file_specs[relative_name] = {"compare": "json", "sha256": sha256_file(target), "float_tolerance": 1e-6}
+            json_dump(target, simplify_answer_payload(payload))
         elif isinstance(payload, Path):
             target.parent.mkdir(parents=True, exist_ok=True)
             if payload.resolve() != target.resolve():
                 shutil.copy2(payload, target)
-            file_specs[relative_name] = {"compare": "exists", "sha256": sha256_file(target)}
         else:
             raise TypeError(f"Unsupported artifact payload for {relative_name}: {type(payload)!r}")
-    return required_files, {"files": file_specs}
+    return required_files
 
 
 def build_logistic_model(
@@ -702,10 +927,13 @@ def build_linear_model(
     return metrics, coefficients, predictions_df
 
 
-def current_benchmark_prompt(dataset: str, task_brief: str, deliverables: Iterable[str]) -> str:
+def current_benchmark_prompt(benchmark: str, dataset: str, task_brief: str, deliverables: Iterable[str], paper_context: str | None = None) -> str:
     deliverable_list = "".join(f"\n- `{item}`" for item in deliverables)
+    paper_prefix = ""
+    if paper_context:
+        paper_prefix = f"{paper_context}\n\n"
     return (
-        f"{prompt_header(dataset)}"
+        f"{paper_prefix}{prompt_header(benchmark, dataset)}"
         "Use deterministic computations only and keep the output machine-checkable.\n\n"
         f"Task:\n{task_brief}\n\n"
         "Required deliverables:"
@@ -725,43 +953,31 @@ def make_task_record(
     task_type: str,
     task_brief: str,
     answer_payload: dict[str, Any],
-    ground_truth_dir: Path,
+    expected_dir: Path,
     artifacts: dict[str, Any],
-    derivation_label: str = "dataset_native",
-    source_paper_id: str | None = None,
-    source_paper_title: str | None = None,
-    provenance_note: str | None = None,
+    paper_context: str | None = None,
 ) -> GeneratedTask:
-    required_files, verification_spec = write_task_ground_truth(ground_truth_dir, artifacts)
-    answer_payload = round_float(answer_payload)
-    prompt = current_benchmark_prompt(dataset, task_brief, required_files)
-    task = {
-        "qid": qid,
+    required_files = write_expected_artifacts(expected_dir, artifacts)
+    answer_payload = simplify_answer_payload(answer_payload)
+    prompt = current_benchmark_prompt(benchmark, dataset, task_brief, required_files, paper_context=paper_context)
+    task = {"qid": qid, "task": prompt, "answer": answer_payload}
+    metadata = {
+        "benchmark": benchmark,
         "split": split,
-        "category": category,
-        "task": prompt,
-        "task_brief": task_brief,
-        "answer": answer_payload,
         "dataset": dataset,
+        "category": category,
         "task_family": task_family,
         "task_type": task_type,
-        "answer_type": "structured_artifact_bundle",
+        "task_brief": task_brief,
         "required_files": required_files,
-        "verification_type": "artifact_bundle",
-        "verification_spec": verification_spec,
-        "ground_truth_ref": str(ground_truth_dir.relative_to(WORKSPACE_ROOT)),
-        "derivation_label": derivation_label,
-        "source_paper_id": source_paper_id,
-        "source_paper_title": source_paper_title,
-        "provenance_note": provenance_note or "Rebuilt from fully local, free-to-use data with deterministic answer generation.",
     }
-    return GeneratedTask(task=task, ground_truth_dir=ground_truth_dir)
+    return GeneratedTask(task=task, expected_dir=expected_dir, metadata=metadata)
 
 
 def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
     tasks: list[GeneratedTask] = []
     summary = views.patient_summary.copy()
-    gt_root = GROUND_TRUTH_ROOT / "medagentboard"
+    expected_root = benchmark_expected_root("medagentboard")
 
     high_feature_plan = [
         ("hs_crp", "max", 0.75),
@@ -806,7 +1022,7 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
                 task_type="data_querying",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(index),
+                expected_dir=expected_root / str(index),
                 artifacts={"cohort.csv": cohort, "answer.json": answer},
             )
         )
@@ -826,11 +1042,11 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
             )
             .sort_values(["outcome", "sex"])
         )
-        answer = {"rows": int(len(group)), "feature": alias, "sha256": dataframe_signature(group)}
+        answer = {"rows": int(len(group)), "feature": alias}
         task_brief = (
             f"Create an outcome- and sex-stratified summary table for the patient-level mean of `{alias}`. "
             "Write `summary.csv` with columns `outcome`, `sex`, `patient_count`, `mean_feature`, `median_feature`, and `mean_age`, "
-            "then write `answer.json` with the feature alias, row count, and summary hash."
+            "then write `answer.json` with the feature alias and row count."
         )
         tasks.append(
             make_task_record(
@@ -843,7 +1059,7 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
                 task_type="data_statistics",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(offset),
+                expected_dir=expected_root / str(offset),
                 artifacts={"summary.csv": group, "answer.json": answer},
             )
         )
@@ -872,11 +1088,11 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
                 ]
             )
         processed = summary.loc[:, columns].sort_values("patient_id").reset_index(drop=True)
-        answer = {"rows": int(len(processed)), "columns": columns, "sha256": dataframe_signature(processed)}
+        answer = {"rows": int(len(processed)), "columns": columns}
         task_brief = (
             f"Construct a patient-level feature table for the aliases `{', '.join(aliases)}` using the first, last, mean, and measurement count per patient. "
             "Keep the static columns `patient_id`, `split`, `outcome`, `age`, `sex`, `los_last`, and `record_count`. "
-            "Write the result to `patient_features.csv` and write `answer.json` with the row count, ordered columns, and table hash."
+            "Write the result to `patient_features.csv` and write `answer.json` with the row count and ordered columns."
         )
         tasks.append(
             make_task_record(
@@ -889,7 +1105,7 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
                 task_type="data_preprocessing",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(offset),
+                expected_dir=expected_root / str(offset),
                 artifacts={"patient_features.csv": processed, "answer.json": answer},
             )
         )
@@ -905,16 +1121,15 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
             .agg(daily_mean=("daily_mean", "mean"), patient_count=("daily_mean", "size"))
             .sort_values(["outcome", "day"])
         )
-        plot_path = gt_root / str(offset) / "plot.png"
+        plot_path = expected_root / str(offset) / "plot.png"
         plot_line(plot_path, daily, "day", "daily_mean", "outcome", f"TJH temporal trend: {alias}")
         summary_payload = {
             "feature": alias,
             "rows": int(len(daily)),
-            "sha256": dataframe_signature(daily),
         }
         task_brief = (
             f"Create an outcome-stratified temporal line plot for daily mean `{alias}` over days since admission. "
-            "Write the machine-checkable aggregation to `plot_summary.csv`, save the chart to `plot.png`, and write `answer.json` with the feature alias, row count, and hash."
+            "Write the machine-checkable aggregation to `plot_summary.csv`, save the chart to `plot.png`, and write `answer.json` with the feature alias and row count."
         )
         tasks.append(
             make_task_record(
@@ -927,7 +1142,7 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
                 task_type="visualization",
                 task_brief=task_brief,
                 answer_payload=summary_payload,
-                ground_truth_dir=gt_root / str(offset),
+                expected_dir=expected_root / str(offset),
                 artifacts={"plot_summary.csv": daily, "plot.png": plot_path, "answer.json": summary_payload},
             )
         )
@@ -964,7 +1179,7 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
                 task_type="modeling",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(index),
+                expected_dir=expected_root / str(index),
                 artifacts={
                     "metrics.json": metrics,
                     "coefficients.csv": coefficients,
@@ -991,7 +1206,7 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
                 task_type="report",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(index),
+                expected_dir=expected_root / str(index),
                 artifacts={
                     "metrics.json": metrics,
                     "coefficients.csv": coefficients,
@@ -1006,7 +1221,7 @@ def build_tjh_medagentboard(views: TjhViews) -> list[GeneratedTask]:
 def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
     tasks: list[GeneratedTask] = []
     summary = views.subject_summary.copy()
-    gt_root = GROUND_TRUTH_ROOT / "medagentboard"
+    expected_root = benchmark_expected_root("medagentboard")
 
     query_aliases = list(MIMIC_LABS.keys())[:9] + ["event_count"]
     for idx, alias in enumerate(query_aliases, start=51):
@@ -1039,7 +1254,7 @@ def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
                 task_type="data_querying",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(idx),
+                expected_dir=expected_root / str(idx),
                 artifacts={"cohort.csv": cohort, "answer.json": answer},
             )
         )
@@ -1058,7 +1273,7 @@ def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
             )
             .sort_values(["split", "discharge_died", "discharge_home"])
         )
-        answer = {"feature": alias, "rows": int(len(group)), "sha256": dataframe_signature(group)}
+        answer = {"feature": alias, "rows": int(len(group))}
         description = MIMIC_LABS[alias][1] if alias != "event_count" else "Total MEDS event count per subject"
         task_brief = (
             f"Create a split- and discharge-status summary table for the subject-level mean of `{alias}` (`{description}`). "
@@ -1075,7 +1290,7 @@ def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
                 task_type="data_statistics",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(idx),
+                expected_dir=expected_root / str(idx),
                 artifacts={"summary.csv": group, "answer.json": answer},
             )
         )
@@ -1114,7 +1329,7 @@ def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
                 ]
             )
         processed = summary.loc[:, columns].sort_values("subject_id").reset_index(drop=True)
-        answer = {"rows": int(len(processed)), "columns": columns, "sha256": dataframe_signature(processed)}
+        answer = {"rows": int(len(processed)), "columns": columns}
         task_brief = (
             f"Build a subject-level MEDS feature table for `{', '.join(aliases)}` together with the fixed demographic and admission-count columns. "
             "Write `subject_features.csv` and `answer.json`."
@@ -1130,14 +1345,14 @@ def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
                 task_type="data_preprocessing",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(idx),
+                expected_dir=expected_root / str(idx),
                 artifacts={"subject_features.csv": processed, "answer.json": answer},
             )
         )
 
     plot_aliases = list(MIMIC_LABS.keys()) + ["event_count"]
     for idx, alias in enumerate(plot_aliases, start=81):
-        plot_path = gt_root / str(idx) / "plot.png"
+        plot_path = expected_root / str(idx) / "plot.png"
         if alias == "event_count":
             edges, counts = plot_hist(plot_path, summary["event_count"], "MIMIC distribution: event_count")
             daily = pd.DataFrame({"bin_left": edges[:-1], "bin_right": edges[1:], "count": counts})
@@ -1159,7 +1374,7 @@ def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
                 f"Create a split-stratified temporal line plot for daily mean `{alias}` (`{description}`) from the MEDS event stream. "
                 "Write `plot_summary.csv`, `plot.png`, and `answer.json`."
             )
-        answer = {"feature": alias, "rows": int(len(daily)), "sha256": dataframe_signature(daily)}
+        answer = {"feature": alias, "rows": int(len(daily))}
         tasks.append(
             make_task_record(
                 benchmark="medagentboard",
@@ -1171,7 +1386,7 @@ def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
                 task_type="visualization",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(idx),
+                expected_dir=expected_root / str(idx),
                 artifacts={"plot_summary.csv": daily, "plot.png": plot_path, "answer.json": answer},
             )
         )
@@ -1208,7 +1423,7 @@ def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
                 task_type="modeling",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(idx),
+                expected_dir=expected_root / str(idx),
                 artifacts={
                     "metrics.json": metrics,
                     "coefficients.csv": coefficients,
@@ -1235,7 +1450,7 @@ def build_mimic_medagentboard(views: MimicViews) -> list[GeneratedTask]:
                 task_type="report",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(idx),
+                expected_dir=expected_root / str(idx),
                 artifacts={
                     "metrics.json": metrics,
                     "coefficients.csv": coefficients,
@@ -1251,7 +1466,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
     eval_tasks: list[GeneratedTask] = []
     train_tasks: list[GeneratedTask] = []
     summary = views.patient_summary.copy()
-    gt_root = GROUND_TRUTH_ROOT / "ehrflowbench"
+    expected_root = benchmark_expected_root("ehrflowbench")
     qid = 1
     train_qid = 101
 
@@ -1272,7 +1487,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
         threshold = round(float(summary[column].dropna().quantile(quantile)), 6)
         comparator = ">=" if quantile >= 0.5 else "<="
         cohort = summary.loc[summary[column] >= threshold if comparator == ">=" else summary[column] <= threshold, ["patient_id", "split", "outcome", column]].sort_values("patient_id")
-        answer = {"threshold": threshold, "comparator": comparator, "patient_count": int(len(cohort)), "sha256": dataframe_signature(cohort)}
+        answer = {"threshold": threshold, "comparator": comparator, "patient_count": int(len(cohort))}
         task_brief = (
             f"Translate the longitudinal TJH table into a patient cohort defined by the patient-level `{stat}` of `{alias}` being `{comparator} {threshold}`. "
             "Write `cohort.csv` and `answer.json`."
@@ -1288,7 +1503,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
                 task_type="cohort_query",
                 task_brief=task_brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"cohort.csv": cohort, "answer.json": answer},
             )
         )
@@ -1311,9 +1526,9 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
                 f"Build a training-example patient cohort where the patient-level max `d_dimer` is `>= {train_threshold}`. "
                 "Write `cohort.csv` and `answer.json`."
             ),
-            answer_payload={"threshold": train_threshold, "patient_count": int(len(train_cohort)), "sha256": dataframe_signature(train_cohort)},
-            ground_truth_dir=gt_root / str(train_qid),
-            artifacts={"cohort.csv": train_cohort, "answer.json": {"threshold": train_threshold, "patient_count": int(len(train_cohort)), "sha256": dataframe_signature(train_cohort)}},
+            answer_payload={"threshold": train_threshold, "patient_count": int(len(train_cohort))},
+            expected_dir=expected_root / str(train_qid),
+            artifacts={"cohort.csv": train_cohort, "answer.json": {"threshold": train_threshold, "patient_count": int(len(train_cohort))}},
         )
     )
     train_qid += 1
@@ -1329,7 +1544,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
             .agg(daily_mean=("daily_mean", "mean"), patient_count=("daily_mean", "size"))
             .sort_values(["split", "outcome", "day"])
         )
-        answer = {"feature": alias, "rows": int(len(summary_frame)), "sha256": dataframe_signature(summary_frame)}
+        answer = {"feature": alias, "rows": int(len(summary_frame))}
         eval_tasks.append(
             make_task_record(
                 benchmark="ehrflowbench",
@@ -1344,7 +1559,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
                     "Write `summary.csv` and `answer.json`."
                 ),
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"summary.csv": summary_frame, "answer.json": answer},
             )
         )
@@ -1369,9 +1584,9 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
             task_family="temporal_statistics",
             task_type="temporal_statistics",
             task_brief=f"Summarize the daily temporal trajectory of `{train_temporal_alias}` across TJH patients. Write `summary.csv` and `answer.json`.",
-            answer_payload={"feature": train_temporal_alias, "rows": int(len(train_temporal)), "sha256": dataframe_signature(train_temporal)},
-            ground_truth_dir=gt_root / str(train_qid),
-            artifacts={"summary.csv": train_temporal, "answer.json": {"feature": train_temporal_alias, "rows": int(len(train_temporal)), "sha256": dataframe_signature(train_temporal)}},
+            answer_payload={"feature": train_temporal_alias, "rows": int(len(train_temporal))},
+            expected_dir=expected_root / str(train_qid),
+            artifacts={"summary.csv": train_temporal, "answer.json": {"feature": train_temporal_alias, "rows": int(len(train_temporal))}},
         )
     )
     train_qid += 1
@@ -1401,7 +1616,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
                 ]
             )
         frame = summary.loc[:, columns].sort_values("patient_id").reset_index(drop=True)
-        answer = {"rows": int(len(frame)), "columns": columns, "sha256": dataframe_signature(frame)}
+        answer = {"rows": int(len(frame)), "columns": columns}
         eval_tasks.append(
             make_task_record(
                 benchmark="ehrflowbench",
@@ -1416,7 +1631,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
                     "Write `patient_features.csv` and `answer.json`."
                 ),
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"patient_features.csv": frame, "answer.json": answer},
             )
         )
@@ -1445,9 +1660,9 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
             task_family="preprocessing_feature_engineering",
             task_type="preprocessing_feature_engineering",
             task_brief="Build a TJH patient-level feature matrix for `creatinine`, `albumin`, and `hs_crp`. Write `patient_features.csv` and `answer.json`.",
-            answer_payload={"rows": int(len(train_frame)), "columns": train_columns, "sha256": dataframe_signature(train_frame)},
-            ground_truth_dir=gt_root / str(train_qid),
-            artifacts={"patient_features.csv": train_frame, "answer.json": {"rows": int(len(train_frame)), "columns": train_columns, "sha256": dataframe_signature(train_frame)}},
+            answer_payload={"rows": int(len(train_frame)), "columns": train_columns},
+            expected_dir=expected_root / str(train_qid),
+            artifacts={"patient_features.csv": train_frame, "answer.json": {"rows": int(len(train_frame)), "columns": train_columns}},
         )
     )
     train_qid += 1
@@ -1455,10 +1670,10 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
     artifact_aliases = ["white_blood_cell_count", "hemoglobin", "platelet_count", "creatinine", "albumin", "serum_sodium", "serum_potassium", "hs_crp", "ldh", "d_dimer"]
     for alias in artifact_aliases:
         values = summary[feature_stat_column(alias, "mean")]
-        hist_path = gt_root / str(qid) / "plot.png"
+        hist_path = expected_root / str(qid) / "plot.png"
         edges, counts = plot_hist(hist_path, values, f"TJH distribution: {alias}")
         plot_summary = pd.DataFrame({"bin_left": edges[:-1], "bin_right": edges[1:], "count": counts})
-        answer = {"feature": alias, "rows": int(len(plot_summary)), "sha256": dataframe_signature(plot_summary)}
+        answer = {"feature": alias, "rows": int(len(plot_summary))}
         eval_tasks.append(
             make_task_record(
                 benchmark="ehrflowbench",
@@ -1473,14 +1688,14 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
                     "Write `plot_summary.csv`, save `plot.png`, and write `answer.json`."
                 ),
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"plot_summary.csv": plot_summary, "plot.png": hist_path, "answer.json": answer},
             )
         )
         qid += 1
 
     train_hist_alias = "urea"
-    train_hist_path = gt_root / str(train_qid) / "plot.png"
+    train_hist_path = expected_root / str(train_qid) / "plot.png"
     train_edges, train_counts = plot_hist(train_hist_path, summary[feature_stat_column(train_hist_alias, "mean")], f"TJH distribution: {train_hist_alias}")
     train_hist_frame = pd.DataFrame({"bin_left": train_edges[:-1], "bin_right": train_edges[1:], "count": train_counts})
     train_tasks.append(
@@ -1493,9 +1708,9 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
             task_family="artifact_generation",
             task_type="artifact_generation",
             task_brief=f"Create a histogram of the patient-level mean `{train_hist_alias}` values in TJH. Write `plot_summary.csv`, `plot.png`, and `answer.json`.",
-            answer_payload={"feature": train_hist_alias, "rows": int(len(train_hist_frame)), "sha256": dataframe_signature(train_hist_frame)},
-            ground_truth_dir=gt_root / str(train_qid),
-            artifacts={"plot_summary.csv": train_hist_frame, "plot.png": train_hist_path, "answer.json": {"feature": train_hist_alias, "rows": int(len(train_hist_frame)), "sha256": dataframe_signature(train_hist_frame)}},
+            answer_payload={"feature": train_hist_alias, "rows": int(len(train_hist_frame))},
+            expected_dir=expected_root / str(train_qid),
+            artifacts={"plot_summary.csv": train_hist_frame, "plot.png": train_hist_path, "answer.json": {"feature": train_hist_alias, "rows": int(len(train_hist_frame))}},
         )
     )
     train_qid += 1
@@ -1531,7 +1746,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
                     "Write `metrics.json`, `coefficients.csv`, `predictions.csv`, and `answer.json`."
                 ),
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"metrics.json": metrics, "coefficients.csv": coefficients, "predictions.csv": predictions, "answer.json": answer},
             )
         )
@@ -1553,7 +1768,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
                     "Write `metrics.json`, `coefficients.csv`, `predictions.csv`, and `answer.json`."
                 ),
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"metrics.json": metrics, "coefficients.csv": coefficients, "predictions.csv": predictions, "answer.json": answer},
             )
         )
@@ -1573,7 +1788,7 @@ def build_tjh_ehrflowbench(views: TjhViews) -> tuple[list[GeneratedTask], list[G
             task_type="fixed_spec_modeling",
             task_brief="Train a deterministic logistic regression model to predict `outcome` from the baseline five TJH features. Write `metrics.json`, `coefficients.csv`, `predictions.csv`, and `answer.json`.",
             answer_payload=train_answer,
-            ground_truth_dir=gt_root / str(train_qid),
+            expected_dir=expected_root / str(train_qid),
             artifacts={"metrics.json": train_metrics, "coefficients.csv": train_coeffs, "predictions.csv": train_preds, "answer.json": train_answer},
         )
     )
@@ -1584,7 +1799,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
     eval_tasks: list[GeneratedTask] = []
     train_tasks: list[GeneratedTask] = []
     summary = views.subject_summary.copy()
-    gt_root = GROUND_TRUTH_ROOT / "ehrflowbench"
+    expected_root = benchmark_expected_root("ehrflowbench")
     qid = 51
     train_qid = 106
 
@@ -1600,7 +1815,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
             threshold = round(float(summary[column].dropna().quantile(0.75)), 6)
             cohort = summary.loc[summary[column] >= threshold, ["subject_id", "split", "discharge_died", column]].sort_values("subject_id")
             brief = f"Build a subject cohort where `{column} >= {threshold}` for the MEDS lab alias `{alias}`. Write `cohort.csv` and `answer.json`."
-        answer = {"threshold": threshold, "subject_count": int(len(cohort)), "sha256": dataframe_signature(cohort)}
+        answer = {"threshold": threshold, "subject_count": int(len(cohort))}
         eval_tasks.append(
             make_task_record(
                 benchmark="ehrflowbench",
@@ -1612,7 +1827,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
                 task_type="cohort_query",
                 task_brief=brief,
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"cohort.csv": cohort, "answer.json": answer},
             )
         )
@@ -1629,9 +1844,9 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
             task_family="cohort_query",
             task_type="cohort_query",
             task_brief="Build the discharge-death cohort from the MEDS demo. Write `cohort.csv` and `answer.json`.",
-            answer_payload={"subject_count": int(len(train_cohort)), "sha256": dataframe_signature(train_cohort)},
-            ground_truth_dir=gt_root / str(train_qid),
-            artifacts={"cohort.csv": train_cohort, "answer.json": {"subject_count": int(len(train_cohort)), "sha256": dataframe_signature(train_cohort)}},
+            answer_payload={"subject_count": int(len(train_cohort))},
+            expected_dir=expected_root / str(train_qid),
+            artifacts={"cohort.csv": train_cohort, "answer.json": {"subject_count": int(len(train_cohort))}},
         )
     )
     train_qid += 1
@@ -1653,7 +1868,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
                 .agg(daily_mean=("daily_mean", "mean"), subject_count=("daily_mean", "size"))
                 .sort_values(["split", "day"])
             )
-        answer = {"feature": alias, "rows": int(len(summary_frame)), "sha256": dataframe_signature(summary_frame)}
+        answer = {"feature": alias, "rows": int(len(summary_frame))}
         eval_tasks.append(
             make_task_record(
                 benchmark="ehrflowbench",
@@ -1665,7 +1880,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
                 task_type="temporal_statistics",
                 task_brief=f"Summarize the split-stratified temporal trajectory of `{alias}`. Write `summary.csv` and `answer.json`.",
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"summary.csv": summary_frame, "answer.json": answer},
             )
         )
@@ -1687,9 +1902,9 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
             task_family="temporal_statistics",
             task_type="temporal_statistics",
             task_brief="Summarize the split-stratified temporal trajectory of `leukocytes`. Write `summary.csv` and `answer.json`.",
-            answer_payload={"feature": train_temporal_alias, "rows": int(len(train_temporal)), "sha256": dataframe_signature(train_temporal)},
-            ground_truth_dir=gt_root / str(train_qid),
-            artifacts={"summary.csv": train_temporal, "answer.json": {"feature": train_temporal_alias, "rows": int(len(train_temporal)), "sha256": dataframe_signature(train_temporal)}},
+            answer_payload={"feature": train_temporal_alias, "rows": int(len(train_temporal))},
+            expected_dir=expected_root / str(train_qid),
+            artifacts={"summary.csv": train_temporal, "answer.json": {"feature": train_temporal_alias, "rows": int(len(train_temporal))}},
         )
     )
     train_qid += 1
@@ -1728,7 +1943,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
                 ]
             )
         frame = summary.loc[:, columns].sort_values("subject_id").reset_index(drop=True)
-        answer = {"rows": int(len(frame)), "columns": columns, "sha256": dataframe_signature(frame)}
+        answer = {"rows": int(len(frame)), "columns": columns}
         eval_tasks.append(
             make_task_record(
                 benchmark="ehrflowbench",
@@ -1740,7 +1955,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
                 task_type="preprocessing_feature_engineering",
                 task_brief=f"Build a subject-level MEDS feature matrix for `{', '.join(aliases)}`. Write `subject_features.csv` and `answer.json`.",
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"subject_features.csv": frame, "answer.json": answer},
             )
         )
@@ -1778,20 +1993,20 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
             task_family="preprocessing_feature_engineering",
             task_type="preprocessing_feature_engineering",
             task_brief="Build a subject-level MEDS feature matrix for `creatinine`, `hemoglobin`, and `leukocytes`. Write `subject_features.csv` and `answer.json`.",
-            answer_payload={"rows": int(len(train_frame)), "columns": train_columns, "sha256": dataframe_signature(train_frame)},
-            ground_truth_dir=gt_root / str(train_qid),
-            artifacts={"subject_features.csv": train_frame, "answer.json": {"rows": int(len(train_frame)), "columns": train_columns, "sha256": dataframe_signature(train_frame)}},
+            answer_payload={"rows": int(len(train_frame)), "columns": train_columns},
+            expected_dir=expected_root / str(train_qid),
+            artifacts={"subject_features.csv": train_frame, "answer.json": {"rows": int(len(train_frame)), "columns": train_columns}},
         )
     )
     train_qid += 1
 
     artifact_aliases = list(MIMIC_LABS.keys()) + ["event_count"]
     for alias in artifact_aliases:
-        hist_path = gt_root / str(qid) / "plot.png"
+        hist_path = expected_root / str(qid) / "plot.png"
         values = summary["event_count"] if alias == "event_count" else summary[feature_stat_column(alias, "mean")]
         edges, counts = plot_hist(hist_path, values, f"MIMIC distribution: {alias}")
         plot_summary = pd.DataFrame({"bin_left": edges[:-1], "bin_right": edges[1:], "count": counts})
-        answer = {"feature": alias, "rows": int(len(plot_summary)), "sha256": dataframe_signature(plot_summary)}
+        answer = {"feature": alias, "rows": int(len(plot_summary))}
         eval_tasks.append(
             make_task_record(
                 benchmark="ehrflowbench",
@@ -1803,14 +2018,14 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
                 task_type="artifact_generation",
                 task_brief=f"Create a histogram of subject-level mean `{alias}` values in the MEDS demo. Write `plot_summary.csv`, `plot.png`, and `answer.json`.",
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"plot_summary.csv": plot_summary, "plot.png": hist_path, "answer.json": answer},
             )
         )
         qid += 1
 
     train_hist_alias = "potassium"
-    train_hist_path = gt_root / str(train_qid) / "plot.png"
+    train_hist_path = expected_root / str(train_qid) / "plot.png"
     train_edges, train_counts = plot_hist(train_hist_path, summary[feature_stat_column(train_hist_alias, "mean")], f"MIMIC distribution: {train_hist_alias}")
     train_hist_frame = pd.DataFrame({"bin_left": train_edges[:-1], "bin_right": train_edges[1:], "count": train_counts})
     train_tasks.append(
@@ -1823,9 +2038,9 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
             task_family="artifact_generation",
             task_type="artifact_generation",
             task_brief="Create a histogram of subject-level mean `potassium` values in the MEDS demo. Write `plot_summary.csv`, `plot.png`, and `answer.json`.",
-            answer_payload={"feature": train_hist_alias, "rows": int(len(train_hist_frame)), "sha256": dataframe_signature(train_hist_frame)},
-            ground_truth_dir=gt_root / str(train_qid),
-            artifacts={"plot_summary.csv": train_hist_frame, "plot.png": train_hist_path, "answer.json": {"feature": train_hist_alias, "rows": int(len(train_hist_frame)), "sha256": dataframe_signature(train_hist_frame)}},
+            answer_payload={"feature": train_hist_alias, "rows": int(len(train_hist_frame))},
+            expected_dir=expected_root / str(train_qid),
+            artifacts={"plot_summary.csv": train_hist_frame, "plot.png": train_hist_path, "answer.json": {"feature": train_hist_alias, "rows": int(len(train_hist_frame))}},
         )
     )
     train_qid += 1
@@ -1858,7 +2073,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
                 task_type="fixed_spec_modeling",
                 task_brief=f"Train a deterministic logistic regression model to predict `discharge_died` from `{', '.join(features)}` using the MEDS split file exactly. Write `metrics.json`, `coefficients.csv`, `predictions.csv`, and `answer.json`.",
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"metrics.json": metrics, "coefficients.csv": coefficients, "predictions.csv": predictions, "answer.json": answer},
             )
         )
@@ -1877,7 +2092,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
                 task_type="fixed_spec_modeling",
                 task_brief=f"Train a deterministic linear regression model to predict `event_count` from `{', '.join(features)}` using the MEDS split file exactly. Write `metrics.json`, `coefficients.csv`, `predictions.csv`, and `answer.json`.",
                 answer_payload=answer,
-                ground_truth_dir=gt_root / str(qid),
+                expected_dir=expected_root / str(qid),
                 artifacts={"metrics.json": metrics, "coefficients.csv": coefficients, "predictions.csv": predictions, "answer.json": answer},
             )
         )
@@ -1897,7 +2112,7 @@ def build_mimic_ehrflowbench(views: MimicViews) -> tuple[list[GeneratedTask], li
             task_type="fixed_spec_modeling",
             task_brief="Train a deterministic logistic regression model to predict `discharge_died` from the baseline five MEDS lab features. Write `metrics.json`, `coefficients.csv`, `predictions.csv`, and `answer.json`.",
             answer_payload=train_answer,
-            ground_truth_dir=gt_root / str(train_qid),
+            expected_dir=expected_root / str(train_qid),
             artifacts={"metrics.json": train_metrics, "coefficients.csv": train_coeffs, "predictions.csv": train_preds, "answer.json": train_answer},
         )
     )
@@ -1912,56 +2127,66 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def write_docs(
-    provenance_summary: dict[str, Any],
-    tjh_views: TjhViews,
-    mimic_views: MimicViews,
-    medagentboard_rows: list[dict[str, Any]],
-    ehr_eval_rows: list[dict[str, Any]],
-    ehr_train_rows: list[dict[str, Any]],
+    audit_summary: dict[str, Any],
+    medagentboard_tasks: list[GeneratedTask],
+    ehr_eval_tasks: list[GeneratedTask],
+    ehr_train_tasks: list[GeneratedTask],
+    simple_counts: dict[str, dict[str, int]],
 ) -> None:
-    medagentboard_dataset_counts = pd.Series([row["dataset"] for row in medagentboard_rows]).value_counts().to_dict()
-    ehr_dataset_counts = pd.Series([row["dataset"] for row in ehr_eval_rows]).value_counts().to_dict()
+    medagentboard_dataset_counts = pd.Series([task.metadata["dataset"] for task in medagentboard_tasks]).value_counts().to_dict()
+    ehr_dataset_counts = pd.Series([task.metadata["dataset"] for task in ehr_eval_tasks]).value_counts().to_dict()
     reproducibility_md = f"""# Benchmark Reproducibility
 
-This benchmark rebuild is generated by `scripts/evaluation/rebuild_benchmarks.py`.
+Canonical benchmark data now lives under `code/HealthFlow/data/` and is rebuilt by `scripts/evaluation/rebuild_benchmarks.py`.
 
-## Datasets
+## Canonical Layout
 
-- `TJH.csv`: {len(tjh_views.raw):,} rows, {tjh_views.patient_summary['patient_id'].nunique()} patients, split counts {tjh_views.split_counts}
-- `mimic_iv_demo_meds`: {len(mimic_views.raw):,} events, {mimic_views.subject_summary['subject_id'].nunique()} subjects, split counts {mimic_views.split_counts}
+- `data/ehrflowbench/{{raw,scripts,processed}}`
+- `data/medagentboard/{{raw,scripts,processed}}`
+- `data/curebench/{{raw,scripts,processed}}`
+- `data/hle/{{raw,scripts,processed}}`
+- `data/medagentsbench/{{raw,scripts,processed}}`
 
-The open MEDS snapshot is checked into `data/mimic_iv_demo_meds/` together with the upstream checksum files and license.
+## Final JSONL schema
 
-## Canonical files
+Every canonical task row now contains only:
 
-- `data/medagentboard.jsonl`: {len(medagentboard_rows)} tasks with dataset counts {medagentboard_dataset_counts}
-- `data/ehrflowbench.jsonl`: {len(ehr_eval_rows)} eval tasks with dataset counts {ehr_dataset_counts}
-- `data/ehrflowbench_train.jsonl`: {len(ehr_train_rows)} train tasks
+- `qid`
+- `task`
+- `answer`
 
-All canonical benchmark rows include:
+## Processed outputs
 
-- deterministic output contracts
-- machine-readable `verification_spec`
-- `ground_truth_ref` folders under `data/{BENCHMARK_ROOT_NAME}/`
-- dataset provenance metadata
+- `data/ehrflowbench/processed/eval.jsonl`: {len(ehr_eval_tasks)} rows
+- `data/ehrflowbench/processed/train.jsonl`: {len(ehr_train_tasks)} rows
+- `data/medagentboard/processed/eval.jsonl`: {len(medagentboard_tasks)} rows
+- `data/curebench/processed/eval.jsonl`: {simple_counts['curebench'].get('eval', 0)} rows
+- `data/curebench/processed/train.jsonl`: {simple_counts['curebench'].get('train', 0)} rows
+- `data/hle/processed/eval.jsonl`: {simple_counts['hle'].get('eval', 0)} rows
+- `data/medagentsbench/processed/eval.jsonl`: {simple_counts['medagentsbench'].get('eval', 0)} rows
 
 ## Paper audit
 
-The original paper pipeline is preserved as provenance only:
+EHRFlowBench is rebuilt from extracted paper tasks using benchmark-local raw paper inputs. The raw paper mirror is refreshed by `data/ehrflowbench/scripts/prepare_raw.py`, which syncs:
 
-- filtered rows: {provenance_summary['filtered_rows']}
-- markdown directories: {provenance_summary['markdown_directories']}
-- selected ids: {provenance_summary['selected_ids']}
-- extracted tasks: {provenance_summary['extracted_tasks']}
-- extracted task decisions: {provenance_summary['recommended_action_counts']}
-- extracted task reason counts: {provenance_summary['reason_code_counts']}
-- filter-only rows without markdown: {provenance_summary['filter_only_rows_without_markdown']}
+- selected IDs from `scripts/filter_paper/results/final_selected_ID.txt`
+- extracted tasks from `scripts/extract_task/tasks/`
+- markdowns from `scripts/extract_task/assets/markdowns/`
 
-The extracted-task audit lives in `data/{PROVENANCE_ROOT_NAME}/extracted_task_audit.csv`.
+Paper audit summary:
+
+- selected papers: {audit_summary['selected_ids']}
+- markdown directories: {audit_summary['markdown_directories']}
+- extracted task files: {audit_summary['extracted_task_files']}
+- extracted tasks: {audit_summary['extracted_tasks']}
+- task audit decisions: {audit_summary['recommended_action_counts']}
+- task audit reason counts: {audit_summary['reason_code_counts']}
+
+The machine-readable paper linkage is written to `data/ehrflowbench/processed/paper_map.csv`.
 
 ## Scoring
 
-Canonical scoring is deterministic. The evaluator compares required output files against the committed ground-truth artifacts with exact or tolerance-bounded comparisons. LLM-judge scoring is no longer required for EHRFlowBench or MedAgentBoard.
+Deterministic expected outputs now live in `processed/expected/<qid>/`. The evaluator compares generated JSON/CSV/text outputs against those processed-side artifacts and falls back to direct answer comparison for text-only benchmarks.
 """
     text_dump(HEALTHFLOW_ROOT / "BENCHMARK_REPRODUCIBILITY.md", reproducibility_md)
 
@@ -1969,80 +2194,223 @@ Canonical scoring is deterministic. The evaluator compares required output files
 
 ## Current benchmark failures addressed
 
-- The canonical `medagentboard.jsonl` now has {provenance_summary['current_medagentboard_blank_answers']} blank answers and {provenance_summary['current_medagentboard_inaccessible_paths']} inaccessible path references. Legacy blank-answer items and credential-bound path references were rebuilt or dropped before inclusion.
-- The previous EHRFlowBench files inherited paper-extracted prompts directly; {provenance_summary['current_ehrflowbench_flagged_unverifiable_or_inaccessible']} of the 110 current eval+train rows were flagged as non-verifiable, inaccessible, or paper-metric-only during the rebuild audit.
-- The paper audit reviewed {provenance_summary['extracted_tasks']} extracted tasks from {provenance_summary['selected_ids']} selected papers. {provenance_summary['recommended_action_counts']} and reason counts {provenance_summary['reason_code_counts']} are recorded in the provenance manifest.
-- The filtering corpus contains {provenance_summary['filtered_rows']} rows but only {provenance_summary['markdown_directories']} local markdown directories. IDs {provenance_summary['filter_only_rows_without_markdown']} are now explicitly quarantined in the provenance manifest.
+- Canonical benchmark data has been moved into `code/HealthFlow/data/<benchmark>/`.
+- Final JSONLs were simplified to `qid`, `task`, and `answer`.
+- EHRFlowBench now rebuilds from extracted paper tasks and writes its linkage to `code/HealthFlow/data/ehrflowbench/processed/paper_map.csv`.
+- File-based deterministic evaluation now reads `processed/expected/<qid>/` instead of row-level verification metadata.
+- EHRFlowBench paper inputs are refreshed from the extracted-paper pipeline instead of being manually copied by hand.
 
 ## Rebuild policy
 
-- Canonical tasks only depend on free-to-use local data in this repo.
-- All canonical tasks require structured outputs and deterministic verification.
-- The paper markdown corpus is retained as an audited provenance input, not as canonical benchmark ground truth.
+- Raw benchmark inputs live in benchmark-local `raw/` folders.
+- Complete benchmark processing lives in benchmark-local `scripts/`.
+- Final benchmark files live in benchmark-local `processed/`.
 
 ## Generated artifacts
 
-- `data/{PROVENANCE_ROOT_NAME}/paper_provenance_manifest.json`
-- `data/{PROVENANCE_ROOT_NAME}/filter_markdown_reconciliation.json`
-- `data/{PROVENANCE_ROOT_NAME}/extracted_task_audit.csv`
-- `data/{BENCHMARK_ROOT_NAME}/`
+- `code/HealthFlow/data/ehrflowbench/processed/paper_map.csv`
+- `code/HealthFlow/data/ehrflowbench/processed/rejected_tasks.csv`
+- `code/HealthFlow/data/ehrflowbench/processed/eval.jsonl`
+- `code/HealthFlow/data/medagentboard/processed/eval.jsonl`
 
 ## Dataset balance
 
 - MedAgentBoard: {medagentboard_dataset_counts}
 - EHRFlowBench eval: {ehr_dataset_counts}
-- TJH split counts: {tjh_views.split_counts}
-- MIMIC demo MEDS split counts: {mimic_views.split_counts}
 """
     text_dump(WORKSPACE_ROOT / "rebuttal_202603" / "benchmark_audit.md", rebuttal_md)
 
 
-def validate_rows(medagentboard_rows: list[dict[str, Any]], ehr_eval_rows: list[dict[str, Any]], ehr_train_rows: list[dict[str, Any]]) -> None:
-    assert len(medagentboard_rows) == 100, len(medagentboard_rows)
-    assert len(ehr_eval_rows) == 100, len(ehr_eval_rows)
-    assert len(ehr_train_rows) == 10, len(ehr_train_rows)
-    for rows in [medagentboard_rows, ehr_eval_rows, ehr_train_rows]:
-        qids = [row["qid"] for row in rows]
-        assert len(qids) == len(set(qids))
-        for row in rows:
-            assert row["answer"]
-            assert row["required_files"]
-            assert row["ground_truth_ref"]
-            assert "/home/projects/HealthFlow" not in json.dumps(row, ensure_ascii=False)
+def validate_tasks(tasks: list[GeneratedTask], expected_count: int) -> None:
+    assert len(tasks) == expected_count, len(tasks)
+    qids = [task.task["qid"] for task in tasks]
+    assert len(qids) == len(set(qids))
+    for task in tasks:
+        assert set(task.task.keys()) == {"qid", "task", "answer"}
+        assert task.task["answer"] not in (None, "")
+        assert "/home/projects/HealthFlow" not in json.dumps(task.task, ensure_ascii=False)
+        for relative_name in task.metadata["required_files"]:
+            assert (task.expected_dir / relative_name).exists(), task.expected_dir / relative_name
+
+
+def write_benchmark_readmes(simple_counts: dict[str, dict[str, int]]) -> None:
+    readmes = {
+        "ehrflowbench": """# EHRFlowBench
+
+This benchmark is rebuilt from extracted paper tasks into reproducible local-data proxy tasks.
+
+## Raw
+
+- `raw/papers/selected_ids.txt`
+- `raw/papers/markdowns/`
+- `raw/papers/extracted_tasks/`
+- `raw/papers/paper_titles.csv`
+- `raw/tjh/`
+- `raw/mimic_iv_demo_meds/`
+
+Dataset sources described in the paper:
+
+- TJH: https://github.com/HAIRLAB/Pre_Surv_COVID_19
+- MIMIC-IV demo MEDS: https://physionet.org/content/mimic-iv-demo-meds/0.0.1/
+- Extracted-paper corpus: `scripts/filter_paper/results/`, `scripts/extract_task/tasks/`, and `scripts/extract_task/assets/markdowns/`
+
+## Scripts
+
+- `python data/ehrflowbench/scripts/prepare_raw.py`
+- `python data/ehrflowbench/scripts/rebuild.py`
+
+## Processed
+
+- `processed/eval.jsonl`
+- `processed/train.jsonl`
+- `processed/paper_map.csv`
+- `processed/rejected_tasks.csv`
+- `processed/runtime/`
+- `processed/expected/`
+""",
+        "medagentboard": """# MedAgentBoard
+
+This benchmark contains reproducible workflow-automation tasks grounded in local TJH and MIMIC demo data.
+
+## Raw
+
+- `raw/tjh/`
+- `raw/mimic_iv_demo_meds/`
+
+Dataset sources described in the paper:
+
+- TJH: https://github.com/HAIRLAB/Pre_Surv_COVID_19
+- MIMIC-IV demo MEDS: https://physionet.org/content/mimic-iv-demo-meds/0.0.1/
+
+## Scripts
+
+- `python data/medagentboard/scripts/rebuild.py`
+
+## Processed
+
+- `processed/eval.jsonl`
+- `processed/runtime/`
+- `processed/expected/`
+""",
+        "curebench": f"""# CureBench
+
+This folder stores the exact evaluation subset used in the paper.
+
+Source described in the paper:
+
+- https://www.kaggle.com/competitions/cure-bench/data
+
+Run:
+
+- `python data/curebench/scripts/rebuild.py`
+
+Processed outputs:
+
+- `processed/eval.jsonl` ({simple_counts['curebench'].get('eval', 0)} rows)
+- `processed/train.jsonl` ({simple_counts['curebench'].get('train', 0)} rows)
+""",
+        "hle": f"""# HLE
+
+This folder stores the exact medical text-only subset used in the paper.
+
+Source described in the paper:
+
+- https://huggingface.co/datasets/cais/hle
+
+Run:
+
+- `python data/hle/scripts/rebuild.py`
+
+Processed outputs:
+
+- `processed/eval.jsonl` ({simple_counts['hle'].get('eval', 0)} rows)
+""",
+        "medagentsbench": f"""# MedAgentsBench
+
+This folder stores the exact hard-set subset used in the paper.
+
+Source described in the paper:
+
+- https://github.com/gersteinlab/medagents-benchmark
+
+Run:
+
+- `python data/medagentsbench/scripts/rebuild.py`
+
+Processed outputs:
+
+- `processed/eval.jsonl` ({simple_counts['medagentsbench'].get('eval', 0)} rows)
+""",
+    }
+    for name, content in readmes.items():
+        text_dump(benchmark_root(name) / "README.md", content)
 
 
 def main() -> None:
-    tjh_views = build_tjh_views()
-    mimic_views = build_mimic_views()
-    provenance_summary = build_paper_audit_outputs()
+    for benchmark_name in ["ehrflowbench", "medagentboard", "curebench", "hle", "medagentsbench"]:
+        ensure_empty_dir(benchmark_processed_root(benchmark_name))
 
-    ensure_empty_dir(GROUND_TRUTH_ROOT / "medagentboard")
-    ensure_empty_dir(GROUND_TRUTH_ROOT / "ehrflowbench")
+    prepare_tjh_runtime(benchmark_raw_root("ehrflowbench") / "tjh", benchmark_runtime_root("ehrflowbench") / "TJH.csv")
+    prepare_tjh_runtime(benchmark_raw_root("medagentboard") / "tjh", benchmark_runtime_root("medagentboard") / "TJH.csv")
+    prepare_mimic_runtime(
+        benchmark_raw_root("ehrflowbench") / "mimic_iv_demo_meds",
+        benchmark_runtime_root("ehrflowbench") / "mimic_iv_demo_meds",
+    )
+    prepare_mimic_runtime(
+        benchmark_raw_root("medagentboard") / "mimic_iv_demo_meds",
+        benchmark_runtime_root("medagentboard") / "mimic_iv_demo_meds",
+    )
+
+    tjh_views = build_tjh_views(benchmark_runtime_root("ehrflowbench") / "TJH.csv")
+    mimic_views = build_mimic_views(benchmark_runtime_root("ehrflowbench") / "mimic_iv_demo_meds")
+    audit_df, audit_summary = build_paper_audit_outputs()
 
     medagentboard_tasks = build_tjh_medagentboard(tjh_views) + build_mimic_medagentboard(mimic_views)
     ehr_eval_tjh, ehr_train_tjh = build_tjh_ehrflowbench(tjh_views)
     ehr_eval_mimic, ehr_train_mimic = build_mimic_ehrflowbench(mimic_views)
-    ehr_eval_tasks = ehr_eval_tjh + ehr_eval_mimic
-    ehr_train_tasks = ehr_train_tjh + ehr_train_mimic
+    mapped_ehr_tasks, paper_map, rejected_tasks = assign_ehr_tasks_to_papers(
+        audit_df,
+        ehr_eval_tjh + ehr_eval_mimic + ehr_train_tjh + ehr_train_mimic,
+    )
+    ehr_eval_tasks = [task for task in mapped_ehr_tasks if task.metadata["split"] == "eval"]
+    ehr_train_tasks = [task for task in mapped_ehr_tasks if task.metadata["split"] == "train"]
 
-    medagentboard_rows = [item.task for item in medagentboard_tasks]
-    ehr_eval_rows = [item.task for item in ehr_eval_tasks]
-    ehr_train_rows = [item.task for item in ehr_train_tasks]
-    validate_rows(medagentboard_rows, ehr_eval_rows, ehr_train_rows)
+    validate_tasks(medagentboard_tasks, 100)
+    validate_tasks(ehr_eval_tasks, 100)
+    validate_tasks(ehr_train_tasks, 10)
 
-    write_jsonl(DATA_ROOT / "medagentboard.jsonl", medagentboard_rows)
-    write_jsonl(DATA_ROOT / "ehrflowbench.jsonl", ehr_eval_rows)
-    write_jsonl(DATA_ROOT / "ehrflowbench_train.jsonl", ehr_train_rows)
+    write_jsonl(benchmark_processed_root("medagentboard") / "eval.jsonl", [task.task for task in medagentboard_tasks])
+    write_jsonl(benchmark_processed_root("ehrflowbench") / "eval.jsonl", [task.task for task in ehr_eval_tasks])
+    write_jsonl(benchmark_processed_root("ehrflowbench") / "train.jsonl", [task.task for task in ehr_train_tasks])
+    csv_dump(benchmark_processed_root("ehrflowbench") / "paper_map.csv", paper_map)
+    csv_dump(benchmark_processed_root("ehrflowbench") / "rejected_tasks.csv", rejected_tasks)
 
-    write_docs(provenance_summary, tjh_views, mimic_views, medagentboard_rows, ehr_eval_rows, ehr_train_rows)
+    simple_counts = {
+        "curebench": build_simple_benchmark(
+            {
+                "eval": benchmark_raw_root("curebench") / "curebench_valset.jsonl",
+                "train": benchmark_raw_root("curebench") / "curebench_valset_train.jsonl",
+            },
+            benchmark_processed_root("curebench"),
+        ),
+        "hle": build_simple_benchmark({"eval": benchmark_raw_root("hle") / "hle.jsonl"}, benchmark_processed_root("hle")),
+        "medagentsbench": build_simple_benchmark(
+            {"eval": benchmark_raw_root("medagentsbench") / "medagentsbench.jsonl"},
+            benchmark_processed_root("medagentsbench"),
+        ),
+    }
+
+    write_benchmark_readmes(simple_counts)
+    write_docs(audit_summary, medagentboard_tasks, ehr_eval_tasks, ehr_train_tasks, simple_counts)
     print(
         json.dumps(
             {
-                "medagentboard_tasks": len(medagentboard_rows),
-                "ehrflowbench_eval_tasks": len(ehr_eval_rows),
-                "ehrflowbench_train_tasks": len(ehr_train_rows),
-                "tjh_patients": int(tjh_views.patient_summary["patient_id"].nunique()),
-                "mimic_subjects": int(mimic_views.subject_summary["subject_id"].nunique()),
+                "medagentboard_eval": len(medagentboard_tasks),
+                "ehrflowbench_eval": len(ehr_eval_tasks),
+                "ehrflowbench_train": len(ehr_train_tasks),
+                "curebench_eval": simple_counts["curebench"]["eval"],
+                "hle_eval": simple_counts["hle"]["eval"],
+                "medagentsbench_eval": simple_counts["medagentsbench"]["eval"],
             },
             indent=2,
         )

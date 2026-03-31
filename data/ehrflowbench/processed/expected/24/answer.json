@@ -1,0 +1,27 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "urea__count",
+    "urea__first",
+    "urea__last",
+    "urea__mean",
+    "urea__early3_mean",
+    "hs_crp__count",
+    "hs_crp__first",
+    "hs_crp__last",
+    "hs_crp__mean",
+    "hs_crp__early3_mean",
+    "ldh__count",
+    "ldh__first",
+    "ldh__last",
+    "ldh__mean",
+    "ldh__early3_mean"
+  ]
+}

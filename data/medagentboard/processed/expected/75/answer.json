@@ -1,0 +1,26 @@
+{
+  "rows": 100,
+  "columns": [
+    "subject_id",
+    "split",
+    "gender",
+    "age_at_first_admission",
+    "discharge_died",
+    "discharge_home",
+    "event_count",
+    "hospital_admission_count",
+    "icu_admission_count",
+    "sodium__count",
+    "sodium__first",
+    "sodium__last",
+    "sodium__mean",
+    "chloride__count",
+    "chloride__first",
+    "chloride__last",
+    "chloride__mean",
+    "platelets__count",
+    "platelets__first",
+    "platelets__last",
+    "platelets__mean"
+  ]
+}

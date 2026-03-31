@@ -1,0 +1,161 @@
+paper_id,paper_title
+1,Generative Adversarial Regularized Mutual Information Policy Gradient Framework for Automatic Diagno
+2,AdaCare Explainable Clinical Health Status Representation Learning via Scale Adaptive Feature Extra
+3,ConCare Personalized Clinical Feature Embedding via Capturing the Healthcare Context
+4,DeepAlerts Deep Learning Based Multi Horizon Alerts for Clinical Deterioration on Oncology Hospital
+5,Learning the Graphical Structure of Electronic Health Records with Graph Convolutional Transformer
+6,Doctor2Vec Dynamic Doctor Representation Learning for Clinical Trial Recruitment
+7,Federated Patient Hashing
+8,Deep Mixed Effect Model Using Gaussian Processes A Personalized and Reliable Prediction for Healthc
+9,Learning Conceptual Contextual Embeddings for Medical Text
+10,Understanding Medical Conversations with Scattered Keyword Attention and Weak Supervision from Respo
+11,ICD Coding from Clinical Text Using Multi Filter Residual Convolutional Neural Network
+12,A System for Medical Information Extraction and Verification from Unstructured Text
+13,GRASP Generic Framework for Health Status Representation Learning Based on Incorporating Knowledge
+14,Clinical Risk Prediction with Temporal Probabilistic Asymmetric Multi Task Learning
+15,Longitudinal Deep Kernel Gaussian Process Regression
+16,ESCAPED Efficient Secure and Private Dot Product Framework for Kernel based Machine Learning Algori
+17,MUFASA Multimodal Fusion Architecture Search for Electronic Health Records
+18,MTAAL Multi Task Adversarial Active Learning for Medical Named Entity Recognition and Normalization
+19,Clinical Temporal Relation Extraction with Probabilistic Soft Logic Regularization and Global Infere
+20,Diaformer Automatic Diagnosis via Symptoms Sequence Generation
+21,Context Aware Health Event Prediction via Transition Functions on Dynamic Disease Graphs
+22,Clustering Interval Censored Time Series for Disease Phenotyping
+23,Heterogeneous Graph Learning for Multi Modal Medical Data Analysis
+24,KerPrint Local Global Knowledge Graph Enhanced Diagnosis Prediction for Retrospective and Prospecti
+25,Multi Label Few Shot ICD Coding as Autoregressive Generation with Prompt
+26,Estimating Treatment Effects from Irregular Time Series Observations with Hidden Confounders
+27,Estimating Average Causal Effects from Patient Trajectories
+28,Causal Recurrent Variational Autoencoder for Medical Time Series Generation
+29,MHCCL Masked Hierarchical Cluster Wise Contrastive Learning for Multivariate Time Series
+30,Forecasting with Sparse but Informative Variables A Case Study in Predicting Blood Glucose
+31,PromptMRG Diagnosis Driven Prompts for Medical Report Generation
+32,Automatic Radiology Reports Generation via Memory Alignment Network
+33,KG TREAT Pre training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Gr
+34,Inducing Clusters Deep Kernel Gaussian Process for Longitudinal Data
+35,ConSequence Synthesizing Logically Constrained Sequences for Electronic Health Record Generation
+36,IGAMT Privacy Preserving Electronic Health Record Synthesization with Heterogeneity and Irregularit
+37,IVP VAE Modeling EHR Time Series with Initial Value Problem Solvers
+38,DrFuse Learning Disentangled Representation for Clinical Multi Modal Fusion with Missing Modality a
+39,Large Language Models Are Clinical Reasoners Reasoning Aware Diagnosis Framework with Prompt Genera
+40,Collaborative Synthesis of Patient Records through Multi Visit Health State Inference
+41,Zhongjing Enhancing the Chinese Medical Capabilities of Large Language Model through Expert Feedbac
+42,DAMPER A Dual Stage Medical Report Generation Framework with Coarse Grained MeSH Alignment and Fine
+43,HI DR Exploiting Health Status Aware Attention and an EHR Graph for Effective Medication Recommend
+44,Memorize and Rank Elevating Large Language Models for Clinical Diagnosis Prediction
+45,DECT Harnessing LLM assisted Fine Grained Linguistic Knowledge and Label Switched and Label Preserv
+46,CareBot A Pioneering Full Process Open Source Medical Language Model
+47,Medical Manifestation Aware De Identification
+48,Clairvoyance A Pipeline Toolkit for Medical Time Series
+49,Dr.Spider A Diagnostic Evaluation Benchmark towards Text-to-SQL Robustness
+50,GraphCare Enhancing Healthcare Predictions with Personalized Knowledge Graphs
+51,Yet Another ICU Benchmark A Flexible Multi-Center Framework for Clinical ML.
+52,Diagnosing Transformers Illuminating Feature Spaces for Clinical Decision-Making.
+53,A Flexible Generative Model for Heterogeneous Tabular EHR with Missing Modality.
+54,Graph Transformers on EHRs Better Representation Improves Downstream Performance.
+55,MOTOR A Time-to-Event Foundation Model For Structured Medical Records
+56,MedTrinity-25M A Large-scale Multimodal Dataset with Multigranular Annotations for Medicine.
+57,Context Clues Evaluating Long Context Models for Clinical Prediction Tasks on EHR Data.
+58,Small Models are LLM Knowledge Triggers for Medical Tabular Prediction.
+59,Efficiently Democratizing Medical LLMs for 50 Languages via a Mixture of Language Family Experts
+60,Designing Optimal Dynamic Treatment Regimes A Causal Reinforcement Learning Approach.
+61,BoXHED Boosted eXact Hazard Estimator with Dynamic covariates
+62,Temporal Phenotyping using Deep Predictive Clustering of Disease Progression
+63,Clinician-in-the-Loop Decision Making Reinforcement Learning with Near-Optimal Set-Valued Policies.
+64,On Validation and Planning of An Optimal Decision Rule with Application in Healthcare Studies.
+65,Student-Teacher Curriculum Learning via Reinforcement Learning Predicting Hospital Inpatient Admission Location.
+66,DeepCoDA personalized interpretability for compositional health data.
+67,Time Series Deconfounder Estimating Treatment Effects over Time in the Presence of Hidden Confounders.
+68,Neighborhood Contrastive Learning Applied to Online Patient Monitoring.
+69,Locally Sparse Neural Networks for Tabular Biomedical Data.
+70,Learning of Cluster-based Feature Importance for Electronic Health Record Time-series.
+71,Improving Medical Predictions by Irregular Multimodal Electronic Health Records Modeling.
+72,Sequential Multi-Dimensional Self-Supervised Learning for Clinical Time Series.
+73,Contrastive Learning for Clinical Outcome Prediction with Partial Data Sources.
+74,Unlocking the Power of Spatial and Temporal Information in Medical Multimodal Pre-training.
+75,Reservoir Computing for Short High-Dimensional Time Series an Application to SARS-CoV-2 Hospitalization Forecast.
+76,Exploiting Negative Samples A Catalyst for Cohort Discovery in Healthcare Analytics.
+77,ED-Copilot Reduce Emergency Department Wait Time with Language Model Diagnostic Assistance.
+78,ProtoGate Prototype-based Neural Networks with Global-to-local Feature Selection for Tabular Biomedical Data.
+79,A Label Attention Model for ICD Coding from Clinical Text
+80,The Graph based Mutual Attentive Network for Automatic Diagnosis
+81,Automatic Emergency Diagnosis with Knowledge Based Tree Decoding
+82,Learning Latent Forests for Medical Relation Extraction
+83,Generalized Zero Shot Text Classification for ICD Coding
+84,Cooperative Joint Attentive Network for Patient Outcome Prediction on Irregular Multi Rate Multivari
+85,AMA GCN Adaptive Multi layer Aggregation Graph Convolutional Network for Disease Prediction
+86,Self Supervised Adversarial Distribution Regularization for Medication Recommendation
+87,Collaborative Graph Learning with Auxiliary Text for Temporal Event Prediction in Healthcare
+88,Multi series Time aware Sequence Partitioning for Disease Progression Modeling
+89,A Novel Sequence to Subgraph Framework for Diagnosis Classification
+90,Change Matters Medication Change Prediction with Recurrent Residual Networks
+91,Cumulative Stay time Representation for Electronic Health Records in Medical Event Time Prediction
+92,My nose is running Are you also coughing Building A Medical Diagnosis Agent with Interpretabl
+93,Chronic Disease Management with Personalized Lab Test Response Prediction
+94,Rx refill Graph Neural Network to Reduce Drug Overprescribing Risks Extended Abstract
+95,Data Efficient Algorithms and Neural Natural Language Processing Applications in the Healthcare Dom
+96,Hierarchical Apprenticeship Learning for Disease Progression Modeling
+97,A Diffusion Model with Contrastive Learning for ICU False Arrhythmia Alarm Reduction
+98,VecoCare Visit Sequences Clinical Notes Joint Learning for Diagnosis Prediction in Healthcare Data
+99,SupervisorBot NLP Annotated Real Time Recommendations of Psychotherapy Treatment Strategies with De
+100,Predictive Modeling with Temporal Graphical Representation on Electronic Health Records
+101,Multi TA Multilevel Temporal Augmentation for Robust Septic Shock Early Prediction
+102,MediTab Scaling Medical Tabular Data Predictors via Data Consolidation Enrichment and Refinement
+103,MEDVOC Vocabulary Adaptation for Fine tuning Pre trained Language Models on Medical Text Summarizat
+104,Guiding Clinical Reasoning with Large Language Models via Knowledge Seeds
+105,Recent Advances in Predictive Modeling with Electronic Health Records
+106,Hierarchical Attention Propagation for Healthcare
+107,INPREM AnInterpretable and Trustworthy Predictive Model for
+108,DETERRENT Knowledge Guided Graph Attention Network for Detecting Healthcare Misinformation
+109,HiTANet-Hierarchical-Time-Aware-Attention-Networks-for-Risk-Prediction-on-Electronic-Health-Records
+110,Identifying Sepsis Subphenotypes via Time-Aware Multi-Modal
+111,HOLMES Health OnLine Model Ensemble Serving for
+112,Disentangled Dynamic Heterogeneous Graph Learning
+113,M3Care Learning with Missing Modalities in Multimodal
+114,TWIN Personalized Clinical Trial Digital Twin Generation
+115,Granger Causal Chain Discovery for Sepsis-Associated
+116,MedLink De-Identified Patient Health Record Linkage
+117,Warpformer A Multi-scale Modeling Approach for Irregular
+118,Counterfactual Generative Models for Time-Varying Treatments
+119,FlexCare Leveraging Cross-Task Synergy for Flexible Multimodal Healthcare Prediction
+120,ProtoMix Augmenting Health Status Representation Learning via Prototype-based Mixup
+121,Synthesizing Multimodal Electronic Health Records via Predictive Diffusion Models
+124,Learning to Select Best Forecast Tasks for Clinical Outcome Prediction
+125,Medical Dead-ends and Learning to Identify High-Risk States and Treatments
+126,Auto-Encoding Knowledge Graph for Unsupervised Medical Report Generation
+127,Closing the loop in medical decision support by understanding clinical decision-
+128,SurvITE Learning Heterogeneous Treatment Effects from Time-to-Event Data
+129,Retrieve Reason and Refine Generating Accurate and Faithful Patient Instructi
+130,Debiased Longitudinal and Coordinated Drug Recommendation through Multi-Visit C
+131,GlucoSynth Generating Differentially-Private Synthetic Glucose Traces
+132,REFINE A Fine-Grained Medication Recommendation System Using Deep Learning and
+133,Contrast Everything A Hierarchical Contrastive Framework for Medical Time-Serie
+134,Temporal Causal Mediation through a Point Process Direct and Indirect Effects o
+135,Towards Semi-Structured Automatic ICD Coding via Tree-based Contrastive Learning
+136,MediQ Question-Asking LLMs and a Benchmark for Reliable Interactive Clinical Re
+137,Medformer A Multi-Granularity Patching Transformer for Medical Time-Series Clas
+138,SMART Towards Pre-trained Missing-Aware Model for Patient Health Status Predict
+139,Knowledge-Empowered Dynamic Graph Network for Irregularly Sampled Medical Time S
+140,Uni-Med A Unified Medical Generalist Foundation Model For Multi-Task Learning V
+141,Trajectory Flow Matching with Applications to Clinical Time Series Modelling
+142,A teacher-teacher framework for clinical language representation learning
+143,EMR-Merging Tuning-Free High-Performance Model Merging
+144,Automated Multi-Task Learning for Joint Disease Prediction on Electronic Health
+145,PediatricsGPT Large Language Models as Chinese Medical Assistants for Pediatric
+146,Text-to-SQL Generation for Question Answering on Electronic Medical Records
+147,StageNet Stage-Aware Neural Networks for Health Risk Prediction
+148,CLARA Clinical Report Auto-completion
+149,DeepEnroll Patient-Trial Matching with Deep Embedding and Entailment Prediction
+150,Learning Contextualized Document Representations for Healthcare Answer Retrieval
+151,DyCRS Dynamic Interpretable Postoperative Complication Risk Scoring
+152,Communication Efficient Federated Generalized Tensor Factorization for Collaborative Health Data Analytics
+153,Online Disease Diagnosis with Inductive Heterogeneous Graph Convolutional Networks
+154,Distilling Knowledge from Publicly Available Online EMR Data to Emerging Epidemic for Prognosis
+155,Conditional Generation Net for Medication Recommendation
+156,SeqCare Sequential Training with External Medical Knowledge Graph for Diagnosis Prediction in Healthcare Data
+157,Cross-center Early Sepsis Recognition by Medical Knowledge Guided Collaborative Learning for Data-scarce Hospitals
+158,GraphLeak Patient Record Leakage through Gradients with Knowledge Graph
+159,ColaCare Enhancing Electronic Health Record Modeling through Large Language Model-Driven Multi-Agent Collaboration
+160,MedRAG Enhancing Retrieval-augmented Generation with Knowledge Graph-Elicited Reasoning for Healthcare Copilot
+161,Towards Multi-resolution Spatiotemporal Graph Learning for Medical Time Series Classification
+162,Time-aware Medication Recommendation via Intervention of Dynamic Treatment Regimes

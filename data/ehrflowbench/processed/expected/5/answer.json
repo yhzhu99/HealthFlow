@@ -1,0 +1,5 @@
+{
+  "threshold": 29.1,
+  "comparator": "<=",
+  "patient_count": 90
+}

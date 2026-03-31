@@ -1,0 +1,19 @@
+{
+  "model": "logistic_regression",
+  "task_type": "logistic_regression",
+  "train_rows": 305,
+  "held_out_rows": 56,
+  "positive_rate_train": 0.468852,
+  "positive_rate_held_out": 0.410714,
+  "roc_auc": 0.874835,
+  "average_precision": 0.891118,
+  "accuracy": 0.839286,
+  "f1": 0.756757,
+  "feature_columns": [
+    "serum_sodium__mean",
+    "serum_potassium__mean",
+    "serum_chloride__mean",
+    "calcium__mean",
+    "urea__mean"
+  ]
+}

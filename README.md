@@ -149,7 +149,7 @@ python run_training.py data/train_set.jsonl ehrflow_train \
 Benchmarking uses the same task JSONL shape, but **defaults to frozen memory behavior** for reproducibility.
 
 ```bash
-python run_benchmark.py data/benchmark_set.jsonl ehrflow_eval \
+python run_benchmark.py data/ehrflowbench/processed/eval.jsonl ehrflow_eval \
   --active-llm deepseek-reasoner \
   --active-executor healthflow_agent
 ```

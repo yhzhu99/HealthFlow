@@ -1,0 +1,20 @@
+{
+  "model": "logistic_regression",
+  "target": "outcome",
+  "task_type": "logistic_regression",
+  "train_rows": 305,
+  "held_out_rows": 56,
+  "positive_rate_train": 0.468852,
+  "positive_rate_held_out": 0.410714,
+  "roc_auc": 0.959157,
+  "average_precision": 0.948933,
+  "accuracy": 0.892857,
+  "f1": 0.857143,
+  "feature_columns": [
+    "white_blood_cell_count__last",
+    "creatinine__last",
+    "albumin__last",
+    "hs_crp__max",
+    "ldh__max"
+  ]
+}

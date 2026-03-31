@@ -1,0 +1,27 @@
+{
+  "rows": 361,
+  "columns": [
+    "patient_id",
+    "split",
+    "outcome",
+    "age",
+    "sex",
+    "los_last",
+    "record_count",
+    "creatinine__count",
+    "creatinine__first",
+    "creatinine__last",
+    "creatinine__mean",
+    "creatinine__early3_mean",
+    "albumin__count",
+    "albumin__first",
+    "albumin__last",
+    "albumin__mean",
+    "albumin__early3_mean",
+    "hs_crp__count",
+    "hs_crp__first",
+    "hs_crp__last",
+    "hs_crp__mean",
+    "hs_crp__early3_mean"
+  ]
+}

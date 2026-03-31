@@ -1,0 +1,16 @@
+{
+  "model": "linear_regression",
+  "task_type": "linear_regression",
+  "train_rows": 305,
+  "held_out_rows": 56,
+  "r2": -0.052758,
+  "mae": 2.822507,
+  "rmse": 4.778954,
+  "feature_columns": [
+    "age",
+    "sex",
+    "white_blood_cell_count__mean",
+    "serum_sodium__mean",
+    "creatinine__mean"
+  ]
+}

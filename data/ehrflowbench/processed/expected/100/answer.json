@@ -1,0 +1,17 @@
+{
+  "model": "linear_regression",
+  "target": "event_count",
+  "task_type": "linear_regression",
+  "train_rows": 90,
+  "held_out_rows": 10,
+  "r2": 1.0,
+  "mae": 0.0,
+  "rmse": 0.0,
+  "feature_columns": [
+    "discharge_died",
+    "discharge_home",
+    "event_count",
+    "transfer_count",
+    "procedure_event_count"
+  ]
+}

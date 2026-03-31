@@ -1,0 +1,16 @@
+subject_id,split,discharge_died
+10003400,train,1
+10004720,train,1
+10005817,train,1
+10006053,train,1
+10007818,train,1
+10010471,train,1
+10015931,train,1
+10017492,train,1
+10023117,train,1
+10025463,held_out,1
+10026255,tuning,1
+10035631,train,1
+10037861,train,1
+10037975,train,1
+10038081,tuning,1
