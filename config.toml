@@ -53,6 +53,12 @@ args = ["--dangerously-skip-permissions", "--print"]
 prompt_mode = "append"
 timeout_seconds = 900
 
+[executor.backends.codex]
+binary = "codex"
+args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
+prompt_mode = "stdin"
+timeout_seconds = 900
+
 [executor.backends.opencode]
 binary = "opencode"
 args = []

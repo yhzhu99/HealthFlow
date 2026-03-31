@@ -11,7 +11,7 @@ HealthFlow is a research framework for **general analysis orchestration with hea
 - deterministic verifier gating before success is accepted
 - reproducible workspace contracts and run manifests
 
-HealthFlow compares external coding agents through a shared executor abstraction. The maintained built-in backends are `claude_code`, `opencode`, and `pi`, with `opencode` as the default.
+HealthFlow compares external coding agents through a shared executor abstraction. The maintained built-in backends are `claude_code`, `codex`, `opencode`, and `pi`, with `opencode` as the default.
 
 The current release surface is intentionally **backend and CLI only**. A frontend is not shipped in this repo at this stage.
 
@@ -95,6 +95,7 @@ HealthFlow keeps the executor layer backend-agnostic, but the public surface is 
 
 - `opencode` (default)
 - `claude_code`
+- `codex`
 - `pi`
 
 You can still define additional CLI backends in `config.toml`, but the harness logic stays in HealthFlow rather than being baked into one external backend.
@@ -114,7 +115,7 @@ When an EHR workflow is best handled by an external CLI, the agent can still inv
 - `uv`
 - one execution backend available in `PATH`
   - default: `opencode`
-  - alternatives: `claude`, `pi`
+  - alternatives: `claude`, `codex`, `pi`
 
 ### Setup
 
