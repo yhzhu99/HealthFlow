@@ -132,15 +132,6 @@ def detect_risk_findings(user_request: str, data_profile: DataProfile) -> list[R
             )
         )
 
-    if "oneehr_manifest" in data_profile.artifact_hints:
-        findings.append(
-            RiskFinding(
-                severity="info",
-                category="workflow_contract",
-                message="OneEHR-style manifest artifacts detected. Reuse the saved split and metrics contracts rather than recreating them ad hoc.",
-            )
-        )
-
     if not findings:
         findings.append(
             RiskFinding(

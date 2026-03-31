@@ -30,7 +30,6 @@ class DataProfile:
     patient_id_columns: List[str] = field(default_factory=list)
     target_columns: List[str] = field(default_factory=list)
     time_columns: List[str] = field(default_factory=list)
-    artifact_hints: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
     def to_markdown(self) -> str:
@@ -51,8 +50,6 @@ class DataProfile:
             lines.append(f"- Target-like columns: {', '.join(self.target_columns)}")
         if self.time_columns:
             lines.append(f"- Time-like columns: {', '.join(self.time_columns)}")
-        if self.artifact_hints:
-            lines.append(f"- Workspace artifact hints: {', '.join(self.artifact_hints)}")
         for schema in self.schemas:
             lines.append(
                 f"- File `{schema.file_name}` ({schema.file_type}, rows={schema.row_count}) columns: "

@@ -61,12 +61,6 @@ EHR_DOMAIN_TERMS: Dict[str, List[str]] = {
         "medication",
         "lab",
     ],
-    "artifact": [
-        "oneehr_manifest",
-        "oneehr_split",
-        "oneehr_metrics",
-        "oneehr_analysis",
-    ],
 }
 
 
@@ -85,12 +79,10 @@ def detect_domain_focus(
     user_request: str,
     file_names: list[str] | None = None,
     columns: list[str] | None = None,
-    artifact_hints: list[str] | None = None,
 ) -> tuple[str, list[str]]:
     request = user_request.lower()
     file_names = [name.lower() for name in file_names or []]
     columns = [column.lower() for column in columns or []]
-    artifact_hints = [hint.lower() for hint in artifact_hints or []]
 
     signals: list[str] = []
     if any(term in request for term in EHR_DOMAIN_TERMS["request"]):
@@ -99,10 +91,8 @@ def detect_domain_focus(
         signals.append("file")
     if any(column in set(EHR_DOMAIN_TERMS["column"]) for column in columns):
         signals.append("schema")
-    if any(hint in set(EHR_DOMAIN_TERMS["artifact"]) for hint in artifact_hints):
-        signals.append("artifact")
 
-    is_ehr = len(signals) >= 2 or "artifact" in signals
+    is_ehr = len(signals) >= 2
     return ("ehr" if is_ehr else "general", signals)
 
 
@@ -121,7 +111,7 @@ def default_tool_bundle(task_family: str, domain_focus: str = "general") -> list
     }
     bundle = list(family_tools.get(task_family, family_tools["general_analysis"]))
     if domain_focus == "ehr" and task_family in {"predictive_modeling", "survival_analysis", "time_series_modeling"}:
-        bundle.extend(["patient-level split audit", "temporal leakage check", "oneehr preprocess/train/test/analyze"])
+        bundle.extend(["patient-level split audit", "temporal leakage check", "external cli workflows"])
     if domain_focus == "ehr" and task_family == "cohort_extraction":
         bundle.append("cohort definition artifact")
     return list(dict.fromkeys(bundle))

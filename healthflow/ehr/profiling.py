@@ -86,20 +86,6 @@ def _profile_text(path: Path, max_preview_rows: int) -> SchemaSummary:
     )
 
 
-def _detect_artifact_hints(workspace_dir: Path) -> list[str]:
-    hints: list[str] = []
-    analyze_dir = workspace_dir / "analyze"
-    if (workspace_dir / "manifest.json").exists():
-        hints.append("oneehr_manifest")
-    if (workspace_dir / "preprocess" / "split.json").exists():
-        hints.append("oneehr_split")
-    if (workspace_dir / "test" / "metrics.json").exists():
-        hints.append("oneehr_metrics")
-    if analyze_dir.exists() and any(analyze_dir.glob("*.json")):
-        hints.append("oneehr_analysis")
-    return hints
-
-
 def profile_workspace_data(workspace_dir: Path, user_request: str, max_preview_rows: int = 3) -> DataProfile:
     task_family = classify_task_family(user_request)
     schemas: list[SchemaSummary] = []
@@ -141,12 +127,10 @@ def profile_workspace_data(workspace_dir: Path, user_request: str, max_preview_r
         signature_parts.extend(schema.columns[:10])
         schema_columns.extend(schema.columns)
 
-    artifact_hints = _detect_artifact_hints(workspace_dir)
     domain_focus, domain_signals = detect_domain_focus(
         user_request,
         file_names=file_names,
         columns=schema_columns,
-        artifact_hints=artifact_hints,
     )
     if domain_focus == "ehr" and "text" in modalities:
         modalities.remove("text")
@@ -178,6 +162,5 @@ def profile_workspace_data(workspace_dir: Path, user_request: str, max_preview_r
         patient_id_columns=sorted(patient_id_columns),
         target_columns=sorted(target_columns),
         time_columns=sorted(time_columns),
-        artifact_hints=artifact_hints,
         notes=notes,
     )

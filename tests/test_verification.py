@@ -42,14 +42,15 @@ class VerificationTests(unittest.TestCase):
             self.assertFalse(result.passed)
             self.assertTrue(any(check.name == "split_evidence" and not check.passed for check in result.checks))
 
-    def test_verification_accepts_oneehr_artifacts(self):
+    def test_verification_accepts_nested_generic_artifacts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
-            (workspace / "manifest.json").write_text('{"run": "demo"}', encoding="utf-8")
-            (workspace / "preprocess").mkdir()
-            (workspace / "preprocess" / "split.json").write_text('{"train_patients": [1], "val_patients": [], "test_patients": []}', encoding="utf-8")
-            (workspace / "test").mkdir()
-            (workspace / "test" / "metrics.json").write_text('{"auroc": 0.81}', encoding="utf-8")
+            (workspace / "artifacts").mkdir()
+            (workspace / "artifacts" / "cohort_definition.json").write_text('{"name": "readmission cohort"}', encoding="utf-8")
+            (workspace / "outputs").mkdir()
+            (workspace / "outputs" / "split.json").write_text('{"train_patients": [1], "val_patients": [], "test_patients": []}', encoding="utf-8")
+            (workspace / "results").mkdir()
+            (workspace / "results" / "metrics.json").write_text('{"auroc": 0.81}', encoding="utf-8")
             (workspace / "final_report.md").write_text(
                 "# Task Summary\n# Data Profile\n# Method\n# Verification\n# Limitations\n# Cohort Definition\n# Split Evidence\n# Leakage Audit\n# Metrics Summary\n",
                 encoding="utf-8",
@@ -58,7 +59,7 @@ class VerificationTests(unittest.TestCase):
             verifier = WorkspaceVerifier(["Task Summary", "Data Profile", "Method", "Verification", "Limitations"])
             result = verifier.verify(workspace, profile.task_family, "STDOUT: done", profile)
             self.assertTrue(result.passed)
-            self.assertTrue(any(path.endswith("preprocess/split.json") for path in result.artifact_paths))
+            self.assertTrue(any(path.endswith("outputs/split.json") for path in result.artifact_paths))
 
     def test_general_modeling_can_pass_without_ehr_cohort_contracts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
