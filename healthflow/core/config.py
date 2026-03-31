@@ -70,7 +70,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
 
 
 class ExecutorConfig(BaseModel):
-    active_backend: str = Field("claude_code", description="Executor backend to use for task execution.")
+    active_backend: str = Field("opencode", description="Executor backend to use for task execution.")
     backends: Dict[str, BackendCLIConfig] = Field(
         default_factory=default_executor_backends
     )
@@ -207,7 +207,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         executor_section = config_data.get("executor", {})
         executor_backends = executor_section.get("backends")
         executor_config = ExecutorConfig(
-            active_backend=active_executor or executor_section.get("active_backend", "claude_code"),
+            active_backend=active_executor or executor_section.get("active_backend", "opencode"),
             backends=executor_backends if executor_backends else default_executor_backends(),
         )
 

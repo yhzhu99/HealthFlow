@@ -45,7 +45,7 @@ output_cost_per_million_tokens = 3.00
 
 # --- Executor Configuration ---
 [executor]
-active_backend = "claude_code"
+active_backend = "opencode"
 
 [executor.backends.claude_code]
 binary = "claude"
