@@ -162,6 +162,10 @@ class ClaudeCodeExecutor(CLISubprocessExecutor):
     pass
 
 
+class CodexExecutor(CLISubprocessExecutor):
+    pass
+
+
 class OpenCodeExecutor(CLISubprocessExecutor):
     pass
 
