@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from healthflow.benchmarks.first_class_mc_eval import default_output_path, evaluate_predictions
+from data.tools.first_class_mc_eval import default_output_path, evaluate_predictions
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
