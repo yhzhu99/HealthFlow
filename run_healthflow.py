@@ -114,7 +114,11 @@ def run(
     experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
     train_mode: bool = typer.Option(False, "--train", help="Enable training mode (CLI only)."),
     reference_answer: str = typer.Option(None, "--reference-answer", help="Reference answer for training mode evaluation."),
-    active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
+    active_llm: str = typer.Option(
+        ...,
+        "--active-llm",
+        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.2).",
+    ),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode, pi)."),
 ):
     """
@@ -131,7 +135,11 @@ def run(
 def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
-    active_llm: str = typer.Option(..., "--active-llm", help="The active LLM to use (e.g., deepseek-chat, deepseek-reasoner, kimi-k2, gemini)."),
+    active_llm: str = typer.Option(
+        ...,
+        "--active-llm",
+        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.2).",
+    ),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., healthflow_agent, claude_code, opencode, pi)."),
 ):
     """
