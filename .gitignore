@@ -3,6 +3,7 @@
 *.png
 assets/
 GEMINI.md
+AGENTS.md
 debug.*
 TASK.md
 *.json
