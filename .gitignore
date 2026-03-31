@@ -22,6 +22,7 @@ data/*
 !data/**/*.txt
 !data/**/*.xlsx
 !data/**/*.parquet
+data/*/raw/**
 data/ehrflowbench/scripts/upstream/extract_task/assets/
 *.Zone.Identifier
 workspace/
