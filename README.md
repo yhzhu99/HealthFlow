@@ -123,20 +123,38 @@ When an EHR workflow is best handled by an external CLI, the agent can still inv
 ```bash
 uv sync
 source .venv/bin/activate
-cp config.toml.example config.toml
+export ZENMUX_API_KEY="your_zenmux_key_here"
 ```
 
-Then edit `config.toml` with the reasoning-model API credentials you want to use for planning, evaluation, and reflection.
+Then create `config.toml` with the reasoning models you want to expose to HealthFlow. Use `api_key_env` to keep secrets out of the file:
 
-If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for the active reasoning model in `config.toml`.
+```toml
+[llm."deepseek/deepseek-v3.2"]
+api_key_env = "ZENMUX_API_KEY"
+base_url = "https://zenmux.ai/api/v1"
+model_name = "deepseek/deepseek-v3.2"
+input_cost_per_million_tokens = 0.28
+output_cost_per_million_tokens = 0.43
+
+[llm."google/gemini-3-flash-preview"]
+api_key_env = "ZENMUX_API_KEY"
+base_url = "https://zenmux.ai/api/v1"
+model_name = "google/gemini-3-flash-preview"
+input_cost_per_million_tokens = 0.50
+output_cost_per_million_tokens = 3.00
+```
+
+`api_key` still works for inline secrets, but `api_key_env` is the recommended path. Use quoted TOML table names for model keys that contain `/`.
+
+If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for the active reasoning model in `config.toml`. If those fields are omitted, HealthFlow skips cost estimation for that model.
 
 To decouple the internal roles, set:
 
 ```toml
 [llm_roles]
-planner = "deepseek-reasoner"
-evaluator = "openai"
-reflector = "deepseek-chat"
+planner = "deepseek/deepseek-v3.2"
+evaluator = "openai/gpt-5.2"
+reflector = "google/gemini-3-flash-preview"
 ```
 
 Any unset role falls back to `--active-llm`.
@@ -146,7 +164,7 @@ Any unset role falls back to `--active-llm`.
 ```bash
 python run_healthflow.py run \
   "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
-  --active-llm deepseek-chat \
+  --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor healthflow_agent
 ```
 
@@ -156,7 +174,7 @@ The same CLI can also run EHR-focused prompts used in the paper, benchmark rebui
 
 ```bash
 python run_healthflow.py interactive \
-  --active-llm deepseek-chat \
+  --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor healthflow_agent
 ```
 
@@ -166,7 +184,7 @@ Training data must be JSONL with `qid`, `task`, and `answer`.
 
 ```bash
 python run_training.py data/train_set.jsonl ehrflow_train \
-  --active-llm deepseek-reasoner \
+  --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor healthflow_agent
 ```
 
@@ -176,7 +194,7 @@ Benchmarking uses the same task JSONL shape, but **defaults to frozen memory beh
 
 ```bash
 python run_benchmark.py data/ehrflowbench/processed/eval.jsonl ehrflow_eval \
-  --active-llm deepseek-reasoner \
+  --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor healthflow_agent
 ```
 
@@ -192,7 +210,7 @@ Results are written under `benchmark_results/<dataset>/<executor>/<reasoning_mod
 
 Main config sections:
 
-- `[llm.*]`: reasoning model providers
+- `[llm.*]`: reasoning model providers, with either `api_key` or `api_key_env`
 - `[llm_roles]`: optional planner/evaluator/reflector model overrides
 - `[executor]`: default backend and CLI backend definitions
 - `[memory]`: retrieval budgets and memory mode
