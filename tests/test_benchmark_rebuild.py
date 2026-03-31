@@ -25,33 +25,109 @@ def load_jsonl(path: Path) -> list[dict]:
 
 
 class BenchmarkRebuildTests(unittest.TestCase):
+    def assert_legacy_row(self, row: dict) -> None:
+        self.assertEqual(set(row), {"qid", "task", "answer"})
+        self.assertTrue(str(row["task"]).strip())
+        self.assertNotEqual(row["answer"], "")
+        row_text = json.dumps(row, ensure_ascii=False)
+        self.assertNotIn("/home/projects/HealthFlow", row_text)
+        self.assertNotIn('"sha256"', row_text)
+
+    def assert_first_class_row(self, row: dict) -> None:
+        self.assertEqual(set(row), {"qid", "question", "question_type", "options", "ground_truth"})
+        self.assertTrue(isinstance(row["qid"], int))
+        self.assertTrue(str(row["question"]).strip())
+        self.assertEqual(row["question_type"], "multi_choice")
+        self.assertTrue(isinstance(row["options"], dict))
+        self.assertGreaterEqual(len(row["options"]), 2)
+        for label, option_text in row["options"].items():
+            self.assertTrue(str(label).isalpha())
+            self.assertEqual(str(label), str(label).upper())
+            self.assertTrue(str(option_text).strip())
+        self.assertEqual(len(str(row["ground_truth"])), 1)
+        self.assertIn(row["ground_truth"], row["options"])
+        row_text = json.dumps(row, ensure_ascii=False)
+        self.assertNotIn("/home/projects/HealthFlow", row_text)
+        self.assertNotIn('"sha256"', row_text)
+
     def test_canonical_processed_counts_and_schema(self):
-        expected_counts = {
+        legacy_cases = {
             ("medagentboard", "eval"): 100,
             ("ehrflowbench", "eval"): 100,
             ("ehrflowbench", "train"): 10,
+        }
+        first_class_cases = {
             ("curebench", "eval"): 100,
-            ("curebench", "train"): 10,
-            ("hle", "eval"): 30,
+            ("hle", "eval"): 100,
             ("medagentsbench", "eval"): 100,
         }
 
-        for (benchmark, split), expected_count in expected_counts.items():
+        for (benchmark, split), expected_count in legacy_cases.items():
             rows = load_jsonl(HEALTHFLOW_ROOT / "data" / benchmark / "processed" / f"{split}.jsonl")
             self.assertEqual(len(rows), expected_count)
             self.assertEqual(len(rows), len({str(row["qid"]) for row in rows}))
             for row in rows:
-                self.assertEqual(set(row), {"qid", "task", "answer"})
-                self.assertTrue(str(row["task"]).strip())
-                self.assertNotEqual(row["answer"], "")
-                row_text = json.dumps(row, ensure_ascii=False)
-                self.assertNotIn("/home/projects/HealthFlow", row_text)
-                self.assertNotIn('"sha256"', row_text)
+                self.assert_legacy_row(row)
+
+        for (benchmark, split), expected_count in first_class_cases.items():
+            rows = load_jsonl(HEALTHFLOW_ROOT / "data" / benchmark / "processed" / f"{split}.jsonl")
+            self.assertEqual(len(rows), expected_count)
+            self.assertEqual(len(rows), len({str(row["qid"]) for row in rows}))
+            self.assertEqual([row["qid"] for row in rows], list(range(1, expected_count + 1)))
+            for row in rows:
+                self.assert_first_class_row(row)
 
     def test_subset_manifests_exist(self):
         for benchmark in ["curebench", "hle", "medagentsbench", "medagentboard", "ehrflowbench"]:
             subset_manifest = HEALTHFLOW_ROOT / "data" / benchmark / "processed" / "subset_manifest.json"
             self.assertTrue(subset_manifest.exists(), subset_manifest)
+
+    def test_first_class_subset_manifests_capture_sampling_details(self):
+        curebench_manifest = json.loads(
+            (HEALTHFLOW_ROOT / "data" / "curebench" / "processed" / "subset_manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(curebench_manifest["dataset"], "curebench")
+        self.assertEqual(curebench_manifest["seed"], 42)
+        self.assertEqual(curebench_manifest["candidate_count"], 413)
+        self.assertEqual(curebench_manifest["selected_count"], 100)
+        self.assertEqual(len(curebench_manifest["selected_rows"]), 100)
+
+        hle_manifest = json.loads(
+            (HEALTHFLOW_ROOT / "data" / "hle" / "processed" / "subset_manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(hle_manifest["dataset"], "hle")
+        self.assertEqual(hle_manifest["seed"], 42)
+        self.assertEqual(hle_manifest["filters"]["category"], "Biology/Medicine")
+        self.assertEqual(hle_manifest["filters"]["answer_type"], "multipleChoice")
+        self.assertEqual(hle_manifest["image_filtered_count"], 19)
+        self.assertEqual(hle_manifest["parse_rejection_count"], 0)
+        self.assertEqual(hle_manifest["candidate_count"], 147)
+        self.assertEqual(hle_manifest["selected_count"], 100)
+        self.assertEqual(len(hle_manifest["selected_rows"]), 100)
+
+        medagents_manifest = json.loads(
+            (HEALTHFLOW_ROOT / "data" / "medagentsbench" / "processed" / "subset_manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(medagents_manifest["dataset"], "medagentsbench")
+        self.assertEqual(medagents_manifest["seed"], 42)
+        self.assertEqual(medagents_manifest["sample_size_per_dataset"], 10)
+        self.assertEqual(medagents_manifest["selected_count"], 100)
+        self.assertEqual(len(medagents_manifest["selected_rows"]), 100)
+        self.assertEqual([item["name"] for item in medagents_manifest["subdatasets"]], [
+            "AfrimedQA",
+            "MMLU",
+            "MMLU-Pro",
+            "MedBullets",
+            "MedExQA",
+            "MedMCQA",
+            "MedQA",
+            "MedXpertQA-R",
+            "MedXpertQA-U",
+            "PubMedQA",
+        ])
+        self.assertTrue(all(item["selected_count"] == 10 for item in medagents_manifest["subdatasets"]))
 
     def test_expected_artifacts_exist_for_file_verified_benchmarks(self):
         cases = [
