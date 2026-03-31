@@ -57,7 +57,7 @@ timeout_seconds = 900
 
 # --- System Configuration ---
 [system]
-max_retries = 2
+max_attempts = 3
 workspace_dir = "workspace"
 shell = "/usr/bin/zsh"
 
