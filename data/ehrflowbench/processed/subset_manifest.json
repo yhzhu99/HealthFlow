@@ -1,0 +1,36 @@
+{
+  "benchmark": "ehrflowbench",
+  "splits": [
+    {
+      "split": "eval",
+      "row_count": 100
+    },
+    {
+      "split": "train",
+      "row_count": 10
+    }
+  ],
+  "datasets": {
+    "TJH": 55,
+    "MIMIC-IV-demo-MEDS": 55
+  },
+  "paper_audit_summary": {
+    "selected_ids": 118,
+    "paper_title_rows": 160,
+    "materialized_markdown_directories": 0,
+    "extracted_task_files": 118,
+    "extracted_tasks": 590,
+    "selected_without_title": [],
+    "recommended_action_counts": {
+      "reject": 569,
+      "rewrite": 21
+    },
+    "reason_code_counts": {
+      "inaccessible_data": 131,
+      "non_executable": 464,
+      "paper_metric_only": 317,
+      "weak_comparability": 88,
+      "non_verifiable": 20
+    }
+  }
+}

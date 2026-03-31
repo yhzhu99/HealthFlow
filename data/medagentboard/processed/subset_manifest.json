@@ -1,0 +1,13 @@
+{
+  "benchmark": "medagentboard",
+  "splits": [
+    {
+      "split": "eval",
+      "row_count": 100
+    }
+  ],
+  "datasets": {
+    "TJH": 50,
+    "MIMIC-IV-demo-MEDS": 50
+  }
+}

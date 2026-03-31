@@ -10,13 +10,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from healthflow.benchmarks.deterministic_eval import compare_csv, compare_json, evaluate_single_task, load_benchmark_rows
 
 HEALTHFLOW_ROOT = Path(__file__).resolve().parents[1]
-EVAL_SCRIPTS_DIR = HEALTHFLOW_ROOT / "scripts" / "evaluation"
-if str(EVAL_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(EVAL_SCRIPTS_DIR))
-
-from deterministic_benchmark_eval import compare_csv, compare_json, evaluate_single_task, load_benchmark_rows  # noqa: E402
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -36,7 +32,7 @@ class BenchmarkRebuildTests(unittest.TestCase):
             ("ehrflowbench", "train"): 10,
             ("curebench", "eval"): 100,
             ("curebench", "train"): 10,
-            ("hle", "eval"): 45,
+            ("hle", "eval"): 30,
             ("medagentsbench", "eval"): 100,
         }
 
@@ -51,6 +47,11 @@ class BenchmarkRebuildTests(unittest.TestCase):
                 row_text = json.dumps(row, ensure_ascii=False)
                 self.assertNotIn("/home/projects/HealthFlow", row_text)
                 self.assertNotIn('"sha256"', row_text)
+
+    def test_subset_manifests_exist(self):
+        for benchmark in ["curebench", "hle", "medagentsbench", "medagentboard", "ehrflowbench"]:
+            subset_manifest = HEALTHFLOW_ROOT / "data" / benchmark / "processed" / "subset_manifest.json"
+            self.assertTrue(subset_manifest.exists(), subset_manifest)
 
     def test_expected_artifacts_exist_for_file_verified_benchmarks(self):
         cases = [
