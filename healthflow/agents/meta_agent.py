@@ -2,9 +2,11 @@ import json
 from typing import List, Optional
 from loguru import logger
 
+from ..core.contracts import ExecutionPlan
 from ..core.llm_provider import LLMProvider, LLMMessage
-from ..prompts.templates import get_prompt
+from ..prompts.templates import get_prompt, render_prompt
 from ..experience.experience_models import Experience
+
 
 class MetaAgent:
     """
@@ -21,51 +23,51 @@ class MetaAgent:
     async def generate_plan(
         self,
         user_request: str,
-        experiences: List[Experience],
-        task_family: str,
-        domain_focus: str,
-        data_profile: str,
-        risk_checks: List[str],
-        tool_bundle: List[str],
-        deliverable_guidance: List[str],
-        previous_feedback: Optional[str] = None
-    ) -> str:
+        recommended_experiences: List[Experience],
+        avoidance_experiences: List[Experience],
+        available_tools: List[str],
+        previous_feedback: Optional[str] = None,
+    ) -> ExecutionPlan:
         """
-        Analyzes the user request and generates a detailed markdown plan.
-        This is the universal planning step for all tasks.
-
-        Returns:
-            A string containing the markdown plan.
+        Analyze the user request and generate a structured execution plan.
         """
         system_prompt = get_prompt("meta_agent_system")
 
-        experience_str = "No relevant past experiences were found."
-        if experiences:
-            experience_str = "\n".join(
+        recommended_str = "No recommended prior experience was retrieved."
+        if recommended_experiences:
+            recommended_str = "\n".join(
                 (
-                    f"- **{'Avoid' if exp.layer.value == 'failure' else 'Use'}** "
+                    f"- **Use** "
                     f"[{exp.layer.value}/{exp.validation_status.value}] "
                     f"{exp.type.value} | {exp.category}\n"
                     f"  - {exp.content}"
                 )
-                for exp in experiences
+                for exp in recommended_experiences
+            )
+
+        avoidance_str = "No avoidance memory was retrieved."
+        if avoidance_experiences:
+            avoidance_str = "\n".join(
+                (
+                    f"- **Avoid** "
+                    f"[{exp.layer.value}/{exp.validation_status.value}] "
+                    f"{exp.type.value} | {exp.category}\n"
+                    f"  - {exp.content}"
+                )
+                for exp in avoidance_experiences
             )
 
         feedback_str = ""
         if previous_feedback:
             feedback_str = f"**Feedback from Previous Failed Attempt (Must be addressed):**\n{previous_feedback}"
 
-        user_prompt = get_prompt("meta_agent_user").format(
+        user_prompt = render_prompt(
+            "meta_agent_user",
             user_request=user_request,
-            experiences=experience_str,
-            task_family=task_family,
-            domain_focus=domain_focus,
-            data_profile=data_profile,
-            risk_checks="\n".join(f"- {item}" for item in risk_checks) or "- None",
-            tool_bundle="\n".join(f"- {item}" for item in tool_bundle) or "- Minimum required tooling only",
-            deliverable_guidance="\n".join(f"- {item}" for item in deliverable_guidance)
-            or "- Provide a concise final answer and save artifacts only when they materially support the result.",
-            feedback=feedback_str
+            recommended_experiences=recommended_str,
+            avoidance_experiences=avoidance_str,
+            available_tools="\n".join(f"- {item}" for item in available_tools) or "- Minimum required tooling only",
+            feedback=feedback_str,
         )
 
         messages = [
@@ -81,14 +83,23 @@ class MetaAgent:
 
         try:
             result = json.loads(response.content)
-            plan = result.get("plan")
-            if not plan or not isinstance(plan, str):
-                raise ValueError("Response JSON is missing or has an invalid 'plan' field.")
+            plan = ExecutionPlan(**result)
 
             logger.info("Plan generated successfully.")
-            return plan.strip()
+            return plan
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to parse valid plan from LLM: {e}. Defaulting to a fallback plan.")
             logger.debug(f"Invalid JSON response from LLM: {response.content}")
-            # Fallback to create a basic plan
-            return f"# Fallback Plan\n\n## Step 1: Attempt to fulfill user request directly.\n\n- The system failed to generate a detailed plan. The executor should now attempt to address the following request based on its own capabilities:\n\n`{user_request}`"
+            return ExecutionPlan(
+                objective=user_request,
+                assumptions_to_check=["Inspect the workspace inputs before implementing a solution."],
+                recommended_steps=[
+                    "Inspect the workspace and available inputs.",
+                    "Choose the most direct reproducible implementation path.",
+                    "Produce the requested artifacts and a concise final answer.",
+                ],
+                preferred_tools=available_tools[:3],
+                avoidances=["Do not ignore relevant avoidance memory or previous feedback."],
+                success_signals=["The requested result is present in the workspace and summarized in the final answer."],
+                executor_brief="The planner fallback triggered. Execute conservatively and keep the attempt auditable.",
+            )

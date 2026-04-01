@@ -46,12 +46,13 @@ def _display_task_result(result: dict):
 [bold]Backend Version:[/bold] {result.get('backend_version', 'N/A')}
 [bold]Reasoning Model:[/bold] {result.get('reasoning_model', 'N/A')}
 [bold]Memory Write Policy:[/bold] {result.get('memory_write_policy', 'N/A')}
-[bold]Verification Passed:[/bold] {result.get('verification_passed', False)}
+[bold]Evaluation Status:[/bold] {result.get('evaluation_status', 'N/A')}
+[bold]Evaluation Score:[/bold] {result.get('evaluation_score', 'N/A')}
 [bold]Usage Summary:[/bold] {result.get('usage_summary', {})}
 [bold]Cost Summary:[/bold] {result.get('cost_summary', {})}
 [bold]Cost Analysis JSON:[/bold] {result.get('cost_analysis_path', 'N/A')}
 [bold]Log Path:[/bold] {result.get('log_path', 'N/A')}
-[bold]Verification JSON:[/bold] {result.get('verification_path', 'N/A')}
+[bold]Evaluation JSON:[/bold] {result.get('evaluation_path', 'N/A')}
 [bold]Memory Context:[/bold] {result.get('memory_context_path', 'N/A')}
 [bold]Run Result JSON:[/bold] {result.get('run_result_path', 'N/A')}
 

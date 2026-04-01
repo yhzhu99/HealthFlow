@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from healthflow.core.contracts import EvaluationVerdict, ExecutionPlan
 from healthflow.core.config import EvaluationConfig, ExecutorConfig, HealthFlowConfig
-from healthflow.core.config import LLMProviderConfig, LLMRoleConfig, LoggingConfig, MemoryConfig, SystemConfig
+from healthflow.core.config import LLMProviderConfig, LLMRoleConfig, LoggingConfig, MemoryConfig, SystemConfig, ToolsConfig
 from healthflow.core.config import default_executor_backends
 from healthflow.execution.base import ExecutionResult
 from healthflow.system import HealthFlowSystem
@@ -16,8 +17,16 @@ class _FakeMetaAgent:
         self.last_estimated_cost_usd = 0.0012
         self.last_model_name = "planner-model"
 
-    async def generate_plan(self, **kwargs) -> str:
-        return "# Plan\n\n- Inspect data\n- Save required artifacts\n"
+    async def generate_plan(self, **kwargs) -> ExecutionPlan:
+        return ExecutionPlan(
+            objective="Train a readmission prediction model on the uploaded cohort.",
+            assumptions_to_check=["Confirm the uploaded file schema."],
+            recommended_steps=["Inspect the data.", "Write artifacts.", "Summarize the result."],
+            preferred_tools=["python", "shell"],
+            avoidances=["Do not skip the final answer."],
+            success_signals=["The expected artifacts exist in the workspace."],
+            executor_brief="Use a simple reproducible implementation path.",
+        )
 
 
 class _FakeEvaluator:
@@ -26,8 +35,17 @@ class _FakeEvaluator:
         self.last_estimated_cost_usd = 0.0006
         self.last_model_name = "judge-model"
 
-    async def evaluate(self, **kwargs) -> dict:
-        return {"score": 9.5, "feedback": "Looks good.", "reasoning": "Artifacts satisfy the contract."}
+    async def evaluate(self, **kwargs) -> EvaluationVerdict:
+        return EvaluationVerdict(
+            status="success",
+            score=9.5,
+            failure_type="none",
+            feedback="Looks good.",
+            repair_instructions=[],
+            retry_recommended=False,
+            memory_worthy_insights=["Explicit artifacts made the result easy to inspect."],
+            reasoning="The task request was satisfied and the artifacts are present.",
+        )
 
 
 class _FakeReflector:
@@ -36,7 +54,7 @@ class _FakeReflector:
         self.last_estimated_cost_usd = 0.0003
         self.last_model_name = "reflector-model"
 
-    async def synthesize_experience(self, full_history, verified: bool):
+    async def synthesize_experience(self, full_history, final_verdict: EvaluationVerdict):
         return []
 
 
@@ -106,6 +124,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 llm_roles=LLMRoleConfig(),
                 system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
+                tools=ToolsConfig(),
                 memory=MemoryConfig(write_policy="append"),
                 evaluation=EvaluationConfig(success_threshold=8.0),
                 logging=LoggingConfig(),
@@ -124,11 +143,11 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertTrue(result["success"])
             self.assertEqual(result["backend"], "claude_code")
-            self.assertTrue(result["verification_passed"])
+            self.assertEqual(result["evaluation_status"], "success")
             self.assertTrue(Path(result["run_result_path"]).exists())
             self.assertTrue(Path(result["run_manifest_path"]).exists())
             self.assertTrue(Path(result["memory_context_path"]).exists())
-            self.assertTrue(Path(result["verification_path"]).exists())
+            self.assertTrue(Path(result["evaluation_path"]).exists())
             self.assertTrue(Path(result["cost_analysis_path"]).exists())
             self.assertEqual(Path(result["workspace_path"]).parent, workspace_dir)
             self.assertTrue(experience_path.parent.exists())
@@ -142,6 +161,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(run_result["backend"], "claude_code")
             self.assertEqual(run_result["memory_write_policy"], "append")
             self.assertEqual(run_result["cost_summary"]["executor_estimated_cost_usd"], 0.1234)
+            self.assertEqual(run_result["evaluation_status"], "success")
 
             cost_analysis = json.loads(Path(result["cost_analysis_path"]).read_text(encoding="utf-8"))
             self.assertEqual(cost_analysis["attempts"][0]["execution"]["estimated_cost_usd"], 0.1234)

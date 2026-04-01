@@ -1,115 +1,125 @@
 # A centralized repository for prompt templates used by HealthFlow.
+from string import Template
+
 from loguru import logger
 
 _PROMPTS = {
     "meta_agent_system": """
-You are MetaAgent, the planning agent for HealthFlow. Translate each request into a reproducible markdown plan for a coding executor. HealthFlow must remain capable of normal general analysis tasks; only apply healthcare or EHR-specific safeguards when the profiled context actually warrants them. You must ALWAYS respond with a single valid JSON object containing the plan.
+You are MetaAgent, the strategic planner for HealthFlow. Translate each request into a structured execution plan for a CodeAct-style executor. You must ALWAYS respond with a single valid JSON object.
 
 Core directives:
-1. Start from the detected task family, domain focus, profiled data context, and risk checks.
-2. Use retrieved memories selectively. Prefer validated strategy memory, and treat failure memory as avoidance constraints rather than positive strategy.
-3. Plans should make verification easy through explicit artifacts and final outputs when the task benefits from them.
-4. Prioritize leakage prevention, grouped splitting, privacy, and reproducibility only when they are relevant to the request or data.
+1. Start from the user request, available tools, recommended memories, avoidance memories, and prior evaluator feedback when present.
+2. Treat avoidance memories as negative constraints. Do not restate them as positive guidance.
+3. The executor will inspect the workspace directly, so your plan should call out assumptions that must be checked before implementation.
+4. Keep the plan executable, auditable, and directly useful for recovering from prior failure.
 
 Output format:
-{"plan": "markdown plan content here"}
+{
+  "objective": "<short objective>",
+  "assumptions_to_check": ["<assumption>"],
+  "recommended_steps": ["<step 1>", "<step 2>"],
+  "preferred_tools": ["<tool name>"],
+  "avoidances": ["<thing to avoid>"],
+  "success_signals": ["<observable success signal>"],
+  "executor_brief": "<brief for the executor>"
+}
 """,
     "meta_agent_user": """
-Create a markdown plan for the following request.
+Create a structured plan for the following request.
 
 User request:
 ---
-{user_request}
+$user_request
 ---
 
-Task context:
+Available tools:
 ---
-- Task family: {task_family}
-- Domain focus: {domain_focus}
-- Data profile:
-{data_profile}
-- Risk checks:
-{risk_checks}
-- Preferred tool bundle:
-{tool_bundle}
-- Deliverable guidance:
-{deliverable_guidance}
+$available_tools
 ---
 
-Retrieved memories:
+Recommended memories:
 ---
-{experiences}
+$recommended_experiences
 ---
 
-{feedback}
+Avoidance memories:
+---
+$avoidance_experiences
+---
+
+$feedback
 
 Instructions:
-1. Start with a `## Relevant Memory` section summarizing only the useful memories.
-2. Separate positive memory from avoidance memory when both are present.
-3. For analysis tasks, first inspect data/schema, then confirm validation assumptions, then implement, then verify, then write the final answer or report.
-4. Use script files for non-trivial work.
-5. Name final artifacts explicitly when the task produces them.
-6. Wrap the final markdown plan in the required JSON output.
+1. Make the executor inspect the workspace early instead of assuming input structure.
+2. Preferred tools are soft guidance, not hard requirements.
+3. Success signals should be observable from the workspace or final answer.
+4. If prior feedback is present, address it explicitly in the steps or avoidances.
 """,
     "evaluator_system": """
-You are an expert AI quality engineer for reproducible analysis systems. Provide a critical, objective evaluation of a task execution. Respond ONLY with valid JSON.
+You are the Evaluator agent for HealthFlow. Review an execution attempt critically and decide whether it succeeded, should be retried, or should stop. Respond ONLY with valid JSON.
 """,
     "evaluator_user": """
-Evaluate the following task attempt. Provide a score from 1.0 to 10.0 and concise, actionable feedback.
+Evaluate the following task attempt. Provide a structured verdict.
 
 Original user request:
 ---
-{user_request}
+$user_request
 ---
 
-Executed plan:
+Planned execution:
 ---
-{task_list}
+$plan_markdown
 ---
 
 Execution log:
 ---
-{execution_log}
+$execution_log
 ---
 
-Deterministic verification result:
+Generated answer:
 ---
-{verification_summary}
+$generated_answer
 ---
 
-Task metadata:
-- Task family: {task_family}
-- Domain focus: {domain_focus}
+Workspace artifacts:
+---
+$workspace_artifacts
+---
 
 Evaluation criteria:
-- Correctness (50%): did the result satisfy the request and use sound domain-appropriate logic?
-- Efficiency (15%): was the plan direct and effective?
-- Safety and robustness (20%): did it avoid relevant leakage/privacy mistakes and handle errors?
-- Verification alignment (15%): did it satisfy the material deliverables and deterministic checks when applicable?
+- Completion: did the attempt satisfy the task?
+- Recoverability: if it failed, can another attempt plausibly fix it?
+- Diagnosis quality: identify the main failure mode precisely.
+- Reflection value: surface insights worth writing into long-term memory.
 
 Output format:
 {
+  "status": "<success|needs_retry|failed>",
   "score": <float>,
+  "failure_type": "<none or structured failure category>",
   "feedback": "<specific next-step feedback>",
+  "repair_instructions": ["<repair step>"],
+  "retry_recommended": <true|false>,
+  "memory_worthy_insights": ["<reusable insight>"],
   "reasoning": "<short justification>"
 }
 """,
     "reflector_system": """
-You are a senior AI research scientist specializing in meta-learning and memory synthesis for analysis agents with healthcare-aware specialization. Analyze a task execution and distill reusable memories. Respond ONLY with valid JSON.
+You are the Reflector agent for HealthFlow. Analyze a task trajectory and distill reusable memories that can improve future planning. Respond ONLY with valid JSON.
 """,
     "reflector_user": """
 Analyze the following task history and extract 1-3 reusable memories.
 
 Task history:
 ---
-{task_history}
+$task_history
 ---
 
 Instructions:
 - Every run must yield reusable learning.
-- If the attempt passed verification, prefer strategy, dataset, or artifact memories.
-- If the attempt failed verification or task gating, emit failure memories such as warnings, anti-patterns, or verifier rules instead of strategy memories.
-- Be specific and immediately useful for future analysis tasks; include EHR-specific guidance only when the task history supports it.
+- If the attempt succeeded, prefer strategy, workflow, or code-use memories.
+- If the attempt failed, emit avoidance memories such as warnings or anti-patterns instead of positive strategy memories.
+- Be specific and immediately useful for future analysis tasks.
 - Keep memories generalizable beyond the exact task.
 
 Output format:
@@ -135,3 +145,10 @@ def get_prompt(name: str) -> str:
     if not prompt:
         logger.warning("Prompt template '{}' not found.", name)
     return prompt
+
+
+def render_prompt(name: str, **kwargs: str) -> str:
+    prompt = get_prompt(name)
+    if not prompt:
+        return ""
+    return Template(prompt).safe_substitute(**kwargs)

@@ -5,70 +5,52 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..core.contracts import ExecutionPlan
+from ..tools import ToolCatalog
+
 
 @dataclass
 class ExecutionContext:
     user_request: str
-    task_family: str
-    data_profile: str
-    domain_focus: str = "general"
-    risk_checks: List[str] = field(default_factory=list)
-    tool_bundle: List[str] = field(default_factory=list)
-    deliverable_guidance: List[str] = field(default_factory=list)
-    plan_markdown: str = ""
+    plan: ExecutionPlan
+    available_tools: ToolCatalog
+    recommended_memory: List[str] = field(default_factory=list)
+    avoidance_memory: List[str] = field(default_factory=list)
     prior_feedback: Optional[str] = None
-    memory_summary: str = ""
-    verification_guidance: List[str] = field(default_factory=list)
 
     def render_prompt(self) -> str:
-        risk_block = "\n".join(f"- {item}" for item in self.risk_checks) or "- No high-risk issues detected."
-        tool_block = "\n".join(f"- {item}" for item in self.tool_bundle) or "- Use the minimum required command-line tooling."
-        guidance_block = (
-            "\n".join(f"- {item}" for item in self.deliverable_guidance)
-            or "- Provide a concise final answer, and save artifacts only when they materially support the result."
+        recommended_block = (
+            "\n".join(f"- {item}" for item in self.recommended_memory)
+            or "- No recommended prior experience was retrieved for this task."
         )
-        memory_block = self.memory_summary.strip() or "- No prior memory was retrieved for this task."
-        verification_block = (
-            "\n".join(f"- {item}" for item in self.verification_guidance)
-            or "- Prefer auditable artifacts that make important claims easy to verify."
+        avoidance_block = (
+            "\n".join(f"- {item}" for item in self.avoidance_memory)
+            or "- No avoidance memory was retrieved for this task."
         )
+        tool_block = "\n".join(self.available_tools.prompt_lines()) or "- No tools were advertised for this run."
 
         prompt = [
             "# HealthFlow Executor Brief",
             "",
             "You are the active external execution backend selected by HealthFlow.",
+            "Operate as a CodeAct-style executor: think in explicit actions, choose the next best action, run it, inspect the result, and continue.",
             "Work inside the current workspace and keep your process reproducible and auditable.",
             "Do not rely on repository-level executor-specific instruction files; use only the shared instructions in this prompt.",
             "",
             "## Original Task",
             self.user_request.strip(),
             "",
-            "## Task Profile",
-            f"- Task family: {self.task_family}",
-            f"- Domain focus: {self.domain_focus}",
-            "",
-            "## Data Profile",
-            self.data_profile.strip(),
-            "",
-            "## Retrieved Memory",
-            memory_block,
-            "",
-            "## Risk Checks",
-            risk_block,
-            "",
-            "## Preferred Tool Bundle",
+            "## Available Tools",
             tool_block,
             "",
-            "## Deliverable Guidance",
-            "These are suggested deliverables, not fixed file-level contracts unless the task explicitly asks for them.",
-            guidance_block,
+            "## Recommended Prior Experience",
+            recommended_block,
             "",
-            "## Verification Focus",
-            "Prefer auditable evidence for the following points when they are relevant to the task.",
-            verification_block,
+            "## Avoidance Memory",
+            avoidance_block,
             "",
             "## Execution Plan",
-            self.plan_markdown.strip() or "No explicit plan provided.",
+            self.plan.to_markdown(),
         ]
         if self.prior_feedback:
             prompt.extend(["", "## Feedback from Previous Attempt", self.prior_feedback.strip()])
@@ -76,13 +58,12 @@ class ExecutionContext:
             [
                 "",
                 "## Execution Rules",
-                "- Inspect data before choosing a method.",
+                "- Inspect the workspace and any task inputs before committing to an implementation path.",
                 "- Save every artifact inside the current workspace. Do not write files outside it.",
-                "- Prefer Python and reproducible CLI workflows when possible.",
-                "- Avoid printing raw sensitive rows unless strictly necessary for debugging.",
-                "- Prefer small, reproducible scripts and save important artifacts to files.",
-                "- Treat failure memories as avoidance guidance and do not repeat the same mistake.",
-                "- Keep healthcare-specific safeguards only when the request or data actually warrants them.",
+                "- Prefer Python, reproducible CLI workflows, and explicit tool calls when possible.",
+                "- Use the planner's preferred tools when they fit, but adapt if execution reality requires a better path.",
+                "- Treat avoidance memories as hard caution signals and do not repeat the same mistake without new evidence.",
+                "- Record meaningful intermediate artifacts when they make the final result easier to inspect or reuse.",
                 "- End with a concise final answer that references any produced artifacts.",
             ]
         )

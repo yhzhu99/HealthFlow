@@ -11,6 +11,7 @@ from ..core.llm_provider import LLMProvider
 from .experience_models import Experience
 from .experience_models import MemoryAuditEntry, MemoryLayer, MemoryRetrievalAudit, MemoryRetrievalResult
 from .experience_models import MemoryScoreBreakdown, RetrievalContext, ValidationStatus
+from .experience_models import ExperiencePolarity
 
 
 class ExperienceManager:
@@ -143,7 +144,15 @@ class ExperienceManager:
             context.task_family,
             context.dataset_signature,
         )
-        return MemoryRetrievalResult(selected_experiences=selected, audit=audit)
+        avoidance = [exp for exp in selected if exp.layer == MemoryLayer.FAILURE or exp.polarity == ExperiencePolarity.AVOID]
+        recommended = [exp for exp in selected if exp not in avoidance]
+        ordered = [*avoidance, *recommended]
+        return MemoryRetrievalResult(
+            recommended_experiences=recommended,
+            avoidance_experiences=avoidance,
+            selected_experiences=ordered,
+            audit=audit,
+        )
 
     async def _load_all_experiences(self) -> list[Experience]:
         all_experiences: list[Experience] = []
@@ -152,7 +161,12 @@ class ExperienceManager:
                 if not line.strip():
                     continue
                 try:
-                    all_experiences.append(Experience(**json.loads(line)))
+                    exp = Experience(**json.loads(line))
+                    if exp.layer == MemoryLayer.FAILURE and exp.polarity != ExperiencePolarity.AVOID:
+                        exp.polarity = ExperiencePolarity.AVOID
+                    elif exp.layer != MemoryLayer.FAILURE and exp.polarity == ExperiencePolarity.AVOID:
+                        exp.polarity = ExperiencePolarity.RECOMMEND
+                    all_experiences.append(exp)
                 except (json.JSONDecodeError, TypeError, ValueError) as exc:
                     logger.warning("Skipping corrupted line in experience.jsonl: {}", exc)
         return all_experiences

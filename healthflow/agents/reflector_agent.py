@@ -2,9 +2,17 @@ import json
 from typing import List, Dict, Any
 from loguru import logger
 
+from ..core.contracts import EvaluationVerdict
 from ..core.llm_provider import LLMProvider, LLMMessage
-from ..prompts.templates import get_prompt
-from ..experience.experience_models import Experience, ExperienceType, MemoryLayer, ValidationStatus
+from ..prompts.templates import get_prompt, render_prompt
+from ..experience.experience_models import (
+    Experience,
+    ExperiencePolarity,
+    ExperienceType,
+    MemoryLayer,
+    ValidationStatus,
+)
+
 
 class ReflectorAgent:
     """
@@ -17,31 +25,28 @@ class ReflectorAgent:
         self.last_model_name: str = llm_provider.model_name
         self.last_estimated_cost_usd: float | None = None
 
-    async def synthesize_experience(self, full_history: Dict[str, Any], verified: bool) -> List[Experience]:
+    async def synthesize_experience(self, full_history: Dict[str, Any], final_verdict: EvaluationVerdict) -> List[Experience]:
         """
         Analyze a completed execution history and synthesize reusable experiences.
         """
         system_prompt = get_prompt("reflector_system")
 
         final_attempt = full_history["attempts"][-1]
+        was_success = final_verdict.status == "success"
         history_for_prompt = {
             "user_request": full_history["user_request"],
-            "retrieved_experiences": [exp["content"] for exp in full_history.get("retrieved_experiences", [])],
+            "recommended_experiences": [exp["content"] for exp in full_history.get("recommended_experiences", [])],
+            "avoidance_experiences": [exp["content"] for exp in full_history.get("avoidance_experiences", [])],
             "memory_retrieval": full_history.get("memory_retrieval", {}),
-            "task_family": full_history.get("task_family", "general"),
-            "dataset_signature": full_history.get("dataset_signature", "unknown"),
             "backend": full_history.get("backend", "unknown"),
-            "verification_passed": verified,
-            "task_success": final_attempt.get("gate", {}).get("execution_ok", False),
-            "final_plan": final_attempt["task_list"],
+            "task_success": was_success,
+            "final_plan": final_attempt["plan_markdown"],
             "final_log": final_attempt["execution"]["log"][:8000],
-            "verification_summary": final_attempt.get("verification", {}),
-            "evaluation_score": final_attempt["evaluation"]["score"],
-            "evaluation_reasoning": final_attempt["evaluation"]["reasoning"],
+            "evaluation_verdict": final_verdict.model_dump(mode="json"),
         }
         history_str = json.dumps(history_for_prompt, indent=2)
 
-        user_prompt = get_prompt("reflector_user").format(task_history=history_str)
+        user_prompt = render_prompt("reflector_user", task_history=history_str)
 
         messages = [
             LLMMessage(role="system", content=system_prompt),
@@ -62,29 +67,33 @@ class ReflectorAgent:
                 try:
                     proposed_type = ExperienceType(item["type"])
                     proposed_layer = MemoryLayer(item.get("layer", "strategy"))
-                    if not verified:
+                    if not was_success:
                         proposed_layer = MemoryLayer.FAILURE
                         if proposed_type not in {ExperienceType.WARNING, ExperienceType.VERIFIER_RULE}:
                             proposed_type = ExperienceType.WARNING
                     exp = Experience(
                         type=proposed_type,
                         layer=proposed_layer,
+                        polarity=ExperiencePolarity.AVOID if proposed_layer == MemoryLayer.FAILURE else ExperiencePolarity.RECOMMEND,
                         category=item["category"],
                         content=item["content"],
                         source_task_id=full_history["task_id"],
-                        task_family=full_history.get("task_family", "general"),
-                        dataset_signature=full_history.get("dataset_signature", "unknown"),
+                        provenance={
+                            "backend": full_history.get("backend", "unknown"),
+                            "verdict_status": final_verdict.status,
+                            "failure_type": final_verdict.failure_type,
+                        },
                         stage="reflection",
                         backend=full_history.get("backend", "unknown"),
-                        validation_status=ValidationStatus.VERIFIED if verified else ValidationStatus.FAILED,
+                        validation_status=ValidationStatus.VERIFIED if was_success else ValidationStatus.FAILED,
                         confidence=float(item.get("confidence", 0.6)),
                         conflict_group=item.get("conflict_group"),
                         applicability_scope=item.get(
                             "applicability_scope",
-                            "dataset_exact" if full_history.get("dataset_signature", "unknown") != "unknown" else "task_family",
+                            "task_family",
                         ),
                         safety_critical=self._is_safety_critical(item, proposed_type, proposed_layer),
-                        verifier_supported=bool(item.get("verifier_supported", verified)),
+                        verifier_supported=bool(item.get("verifier_supported", False)),
                         tags=item.get("tags", []),
                     )
                     experiences.append(exp)

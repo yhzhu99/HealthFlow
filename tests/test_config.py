@@ -143,6 +143,33 @@ evaluator = "judge"
             self.assertEqual(config.llm_config_for_role("planner").model_name, "planner-model")
             self.assertEqual(config.llm_config_for_role("evaluator").model_name, "judge-model")
 
+    def test_tool_entries_can_be_loaded_for_cli_and_mcp_surfaces(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+
+[tools.python]
+surface = "cli"
+description = "Workspace python runner"
+invocation_hint = "python script.py"
+
+[tools.local_mcp]
+surface = "mcp"
+description = "Local MCP bridge"
+invocation_hint = "connector-defined"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "test")
+            self.assertEqual(config.tools.entries["python"].surface, "cli")
+            self.assertEqual(config.tools.entries["local_mcp"].surface, "mcp")
+            self.assertEqual(config.tools.entries["local_mcp"].invocation_hint, "connector-defined")
+
     def test_llm_api_key_can_be_loaded_from_env_variable(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
