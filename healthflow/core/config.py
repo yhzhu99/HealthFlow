@@ -73,7 +73,7 @@ class BackendCLIConfig(BaseModel):
     provider_api: str | None = None
     provider_api_key_env: str | None = None
     output_mode: Literal["text", "json_events"] = "text"
-    inherit_active_llm: bool = True
+    inherit_executor_llm: bool = True
     prompt_mode: Literal["append", "stdin"] = "append"
     timeout_seconds: int = 900
     version_args: List[str] = Field(default_factory=lambda: ["--version"])
@@ -151,7 +151,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
             ],
             model="openai/gpt-5.4",
             model_flag="-m",
-            inherit_active_llm=False,
+            inherit_executor_llm=False,
             provider="zenmux",
             provider_base_url="https://zenmux.ai/api/v1",
             provider_api_key_env="ZENMUX_API_KEY",
@@ -182,9 +182,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
 
 class ExecutorConfig(BaseModel):
     active_backend: str = Field("opencode", description="Executor backend to use for task execution.")
-    backends: Dict[str, BackendCLIConfig] = Field(
-        default_factory=default_executor_backends
-    )
+    backends: Dict[str, BackendCLIConfig] = Field(default_factory=default_executor_backends)
 
     @model_validator(mode="after")
     def ensure_active_backend_exists(self):
@@ -195,10 +193,13 @@ class ExecutorConfig(BaseModel):
         return self
 
 
-class LLMRoleConfig(BaseModel):
-    planner: str | None = Field(default=None, description="Optional model key for the planning agent.")
-    evaluator: str | None = Field(default=None, description="Optional model key for the evaluator agent.")
-    reflector: str | None = Field(default=None, description="Optional model key for the reflector agent.")
+class RuntimeLLMConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    planner_llm: str | None = Field(default=None, description="LLM registry key for the planner agent.")
+    evaluator_llm: str | None = Field(default=None, description="LLM registry key for the evaluator agent.")
+    reflector_llm: str | None = Field(default=None, description="LLM registry key for the reflector agent.")
+    executor_llm: str | None = Field(default=None, description="LLM registry key for the executor backend.")
 
 
 class MemoryConfig(BaseModel):
@@ -218,11 +219,12 @@ class LoggingConfig(BaseModel):
 class HealthFlowConfig(BaseModel):
     """The main configuration object, assembled dynamically from the config file."""
 
-    active_llm_name: str
+    planner_llm_name: str
+    evaluator_llm_name: str
+    reflector_llm_name: str
+    executor_llm_name: str
     active_executor_name: str
     llm_registry: Dict[str, LLMProviderConfig]
-    llm: LLMProviderConfig
-    llm_roles: LLMRoleConfig
     system: SystemConfig
     environment: EnvironmentConfig
     executor: ExecutorConfig
@@ -231,25 +233,58 @@ class HealthFlowConfig(BaseModel):
     logging: LoggingConfig
 
     @property
+    def planner_llm(self) -> LLMProviderConfig:
+        return self.llm_registry[self.planner_llm_name]
+
+    @property
+    def evaluator_llm(self) -> LLMProviderConfig:
+        return self.llm_registry[self.evaluator_llm_name]
+
+    @property
+    def reflector_llm(self) -> LLMProviderConfig:
+        return self.llm_registry[self.reflector_llm_name]
+
+    @property
+    def executor_llm(self) -> LLMProviderConfig:
+        return self.llm_registry[self.executor_llm_name]
+
+    @property
+    def runtime_llm_keys(self) -> dict[str, str]:
+        return {
+            "planner": self.planner_llm_name,
+            "evaluator": self.evaluator_llm_name,
+            "reflector": self.reflector_llm_name,
+            "executor": self.executor_llm_name,
+        }
+
+    @property
     def active_executor(self) -> BackendCLIConfig:
         active_executor = self.executor.backends[self.active_executor_name]
         resolved_updates: dict[str, str | None] = {}
-        if active_executor.inherit_active_llm:
+        executor_llm = self.executor_llm
+        if active_executor.inherit_executor_llm:
             if active_executor.model is None:
-                resolved_updates["model"] = self.llm.executor_model_name or self.llm.model_name
-            if self.llm.executor_provider is not None:
-                resolved_updates["provider"] = self.llm.executor_provider
-            if self.llm.executor_provider_base_url is not None:
-                resolved_updates["provider_base_url"] = self.llm.executor_provider_base_url
-            if self.llm.executor_provider_api is not None:
-                resolved_updates["provider_api"] = self.llm.executor_provider_api
-            if self.llm.executor_provider_api_key_env is not None:
-                resolved_updates["provider_api_key_env"] = self.llm.executor_provider_api_key_env
+                resolved_updates["model"] = executor_llm.executor_model_name or executor_llm.model_name
+            if executor_llm.executor_provider is not None:
+                resolved_updates["provider"] = executor_llm.executor_provider
+            if executor_llm.executor_provider_base_url is not None:
+                resolved_updates["provider_base_url"] = executor_llm.executor_provider_base_url
+            if executor_llm.executor_provider_api is not None:
+                resolved_updates["provider_api"] = executor_llm.executor_provider_api
+            if executor_llm.executor_provider_api_key_env is not None:
+                resolved_updates["provider_api_key_env"] = executor_llm.executor_provider_api_key_env
         return active_executor.model_copy(update=resolved_updates)
 
     def llm_config_for_role(self, role: str) -> LLMProviderConfig:
-        configured_name = getattr(self.llm_roles, role, None) or self.active_llm_name
-        return self.llm_registry[configured_name]
+        mapping = {
+            "planner": self.planner_llm_name,
+            "evaluator": self.evaluator_llm_name,
+            "reflector": self.reflector_llm_name,
+            "executor": self.executor_llm_name,
+        }
+        if role not in mapping:
+            raise ValueError(f"Unsupported LLM role '{role}'. Expected one of: {', '.join(mapping)}.")
+        return self.llm_registry[mapping[role]]
 
 
 def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> LLMProviderConfig:
@@ -271,6 +306,7 @@ def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> L
 
     return LLMProviderConfig(**resolved_config)
 
+
 def _validate_top_level_sections(config_data: dict) -> None:
     if "tools" in config_data:
         raise ValueError(
@@ -279,7 +315,13 @@ def _validate_top_level_sections(config_data: dict) -> None:
             "Use [environment] for lightweight runtime defaults."
         )
 
-    allowed_sections = {"llm", "llm_roles", "system", "environment", "executor", "memory", "evaluation", "logging"}
+    if "llm_roles" in config_data:
+        raise ValueError(
+            "Config section '[llm_roles]' is no longer supported. "
+            "Move those selections to '[runtime]' using 'planner_llm', 'evaluator_llm', 'reflector_llm', and 'executor_llm'."
+        )
+
+    allowed_sections = {"llm", "runtime", "system", "environment", "executor", "memory", "evaluation", "logging"}
     unexpected_sections = sorted(section for section in config_data if section not in allowed_sections)
     if unexpected_sections:
         raise ValueError(
@@ -296,10 +338,61 @@ def _validate_system_section(system_data: dict) -> None:
         )
 
 
-def get_config(config_path: Path, active_llm: str, active_executor: str | None = None) -> HealthFlowConfig:
+def _validate_executor_section(executor_data: dict) -> None:
+    for backend_name, backend_config in (executor_data.get("backends") or {}).items():
+        if isinstance(backend_config, dict) and "inherit_active_llm" in backend_config:
+            raise ValueError(
+                f"Config key 'executor.backends.{backend_name}.inherit_active_llm' is no longer supported. "
+                "Rename it to 'inherit_executor_llm'."
+            )
+
+
+def _resolve_runtime_llm_names(
+    config_data: dict,
+    llm_registry: dict[str, LLMProviderConfig],
+    planner_llm: str | None,
+    evaluator_llm: str | None,
+    reflector_llm: str | None,
+    executor_llm: str | None,
+) -> dict[str, str]:
+    runtime = RuntimeLLMConfig(**config_data.get("runtime", {}))
+    resolved = {
+        "planner_llm": planner_llm or runtime.planner_llm,
+        "evaluator_llm": evaluator_llm or runtime.evaluator_llm,
+        "reflector_llm": reflector_llm or runtime.reflector_llm,
+        "executor_llm": executor_llm or runtime.executor_llm,
+    }
+
+    missing = [field for field, value in resolved.items() if not value]
+    if missing:
+        raise ValueError(
+            "Missing runtime LLM selections for "
+            + ", ".join(missing)
+            + ". Define them under '[runtime]' or pass the matching CLI flags."
+        )
+
+    for field_name, llm_name in resolved.items():
+        if llm_name not in llm_registry:
+            raise ValueError(f"Configured runtime.{field_name}='{llm_name}' was not found under '[llm]'.")
+
+    return {
+        field_name: str(llm_name)
+        for field_name, llm_name in resolved.items()
+    }
+
+
+def get_config(
+    config_path: Path,
+    planner_llm: str | None = None,
+    active_executor: str | None = None,
+    *,
+    evaluator_llm: str | None = None,
+    reflector_llm: str | None = None,
+    executor_llm: str | None = None,
+) -> HealthFlowConfig:
     """
-    Loads configuration from a TOML file, validates it, selects the active LLM and
-    executor settings, and returns a unified HealthFlowConfig object.
+    Loads configuration from a TOML file, validates it, resolves the runtime model
+    selections, and returns a unified HealthFlowConfig object.
     """
     if not config_path.exists():
         raise FileNotFoundError(
@@ -312,23 +405,22 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         config_data = toml.load(config_path)
         _validate_top_level_sections(config_data)
         _validate_system_section(config_data.get("system", {}))
-
-        if not active_llm:
-            raise ValueError("'active_llm' parameter is required")
+        _validate_executor_section(config_data.get("executor", {}))
 
         llm_section = config_data.get("llm", {})
-        active_llm_config_data = llm_section.get(active_llm)
-        if not active_llm_config_data:
-            raise ValueError(f"Configuration for LLM '{active_llm}' not found under the '[llm]' section.")
         llm_registry = {
             name: _resolve_llm_provider_config(name, provider_config)
             for name, provider_config in llm_section.items()
         }
-        llm_roles = LLMRoleConfig(**config_data.get("llm_roles", {}))
-        for role_name in ["planner", "evaluator", "reflector"]:
-            configured_name = getattr(llm_roles, role_name)
-            if configured_name and configured_name not in llm_registry:
-                raise ValueError(f"Configured llm_roles.{role_name}='{configured_name}' was not found under '[llm]'.")
+
+        resolved_runtime_llms = _resolve_runtime_llm_names(
+            config_data=config_data,
+            llm_registry=llm_registry,
+            planner_llm=planner_llm,
+            evaluator_llm=evaluator_llm,
+            reflector_llm=reflector_llm,
+            executor_llm=executor_llm,
+        )
 
         executor_section = config_data.get("executor", {})
         executor_backends = executor_section.get("backends")
@@ -338,11 +430,12 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         )
 
         config = HealthFlowConfig(
-            active_llm_name=active_llm,
+            planner_llm_name=resolved_runtime_llms["planner_llm"],
+            evaluator_llm_name=resolved_runtime_llms["evaluator_llm"],
+            reflector_llm_name=resolved_runtime_llms["reflector_llm"],
+            executor_llm_name=resolved_runtime_llms["executor_llm"],
             active_executor_name=executor_config.active_backend,
             llm_registry=llm_registry,
-            llm=llm_registry[active_llm],
-            llm_roles=llm_roles,
             system=SystemConfig(**config_data.get("system", {})),
             environment=EnvironmentConfig(**config_data.get("environment", {})),
             executor=executor_config,
@@ -352,8 +445,11 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         )
 
         logger.info(
-            "Configuration loaded successfully. Active reasoning model: '{}'. Active executor: '{}'",
-            active_llm,
+            "Configuration loaded successfully. Runtime LLMs: planner='{}', evaluator='{}', reflector='{}', executor='{}'. Active executor: '{}'",
+            config.planner_llm_name,
+            config.evaluator_llm_name,
+            config.reflector_llm_name,
+            config.executor_llm_name,
             config.active_executor_name,
         )
         return config

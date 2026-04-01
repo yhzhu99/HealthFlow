@@ -91,7 +91,14 @@ executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "deepseek/deepseek-v3.2", "opencode")
+            config = get_config(
+                config_path,
+                planner_llm="deepseek/deepseek-v3.2",
+                evaluator_llm="deepseek/deepseek-v3.2",
+                reflector_llm="deepseek/deepseek-v3.2",
+                executor_llm="deepseek/deepseek-v3.2",
+                active_executor="opencode",
+            )
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
 
         command = executor._build_command("say hi")

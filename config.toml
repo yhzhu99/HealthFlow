@@ -58,10 +58,11 @@ model_name = "google/gemini-3-flash-preview"
 input_cost_per_million_tokens = 0.50
 output_cost_per_million_tokens = 3.00
 
-[llm_roles]
-planner = "deepseek/deepseek-v3.2"
-evaluator = "openai/gpt-5.4"
-reflector = "google/gemini-3-flash-preview"
+[runtime]
+planner_llm = "deepseek/deepseek-v3.2"
+evaluator_llm = "openai/gpt-5.4"
+reflector_llm = "google/gemini-3-flash-preview"
+executor_llm = "deepseek/deepseek-v3.2"
 
 # --- Executor Configuration ---
 [executor]
@@ -85,7 +86,7 @@ args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypa
 arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"high\"", "-c", "model_reasoning_summary=\"detailed\""]
 model = "openai/gpt-5.4"
 model_flag = "-m"
-inherit_active_llm = false
+inherit_executor_llm = false
 provider = "zenmux"
 provider_base_url = "https://zenmux.ai/api/v1"
 provider_api_key_env = "ZENMUX_API_KEY"

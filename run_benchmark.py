@@ -59,10 +59,20 @@ def load_dataset(dataset_path: Path) -> List[Dict[str, Any]]:
     return tasks
 
 
-def create_output_directory(dataset_name: str, active_executor: str, active_llm: str, qid: str) -> Path:
-    output_dir = Path("benchmark_results") / dataset_name / active_executor / active_llm / str(qid)
+def create_output_directory(dataset_name: str, active_executor: str, runtime_label: str, qid: str) -> Path:
+    output_dir = Path("benchmark_results") / dataset_name / active_executor / runtime_label / str(qid)
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
+
+def _runtime_output_label(config) -> str:
+    runtime_llm_keys = config.runtime_llm_keys
+    if len(set(runtime_llm_keys.values())) == 1:
+        return next(iter(runtime_llm_keys.values())).replace("/", "__")
+    return "__".join(
+        f"{role}={llm_key.replace('/', '__')}"
+        for role, llm_key in runtime_llm_keys.items()
+    )
 
 
 def copy_workspace_files(workspace_path: str | None, output_dir: Path):
@@ -170,11 +180,23 @@ def _force_benchmark_memory_policy(config):
 def _initialize_system(
     config_path: Path,
     experience_path: Path,
-    active_llm: str,
+    planner_llm: str | None,
+    evaluator_llm: str | None,
+    reflector_llm: str | None,
+    executor_llm: str | None,
     active_executor: str | None,
 ) -> HealthFlowSystem:
     try:
-        config = _force_benchmark_memory_policy(get_config(config_path, active_llm, active_executor))
+        config = _force_benchmark_memory_policy(
+            get_config(
+                config_path,
+                planner_llm=planner_llm,
+                evaluator_llm=evaluator_llm,
+                reflector_llm=reflector_llm,
+                executor_llm=executor_llm,
+                active_executor=active_executor,
+            )
+        )
         setup_logging(config)
         return HealthFlowSystem(config=config, experience_path=experience_path)
     except (ValueError, FileNotFoundError) as exc:
@@ -187,7 +209,10 @@ async def run_benchmark_async(
     dataset_name: str,
     config_path: Path,
     experience_path: Path,
-    active_llm: str,
+    planner_llm: str | None,
+    evaluator_llm: str | None,
+    reflector_llm: str | None,
+    executor_llm: str | None,
     active_executor: str | None,
 ):
     console.print(
@@ -209,11 +234,15 @@ async def run_benchmark_async(
     system = _initialize_system(
         config_path=config_path,
         experience_path=experience_path,
-        active_llm=active_llm,
+        planner_llm=planner_llm,
+        evaluator_llm=evaluator_llm,
+        reflector_llm=reflector_llm,
+        executor_llm=executor_llm,
         active_executor=active_executor,
     )
 
-    results_dir = Path("benchmark_results") / dataset_name / system.config.active_executor_name / active_llm
+    runtime_label = _runtime_output_label(system.config)
+    results_dir = Path("benchmark_results") / dataset_name / system.config.active_executor_name / runtime_label
     results_dir.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, Any]] = []
 
@@ -228,7 +257,7 @@ async def run_benchmark_async(
                 for key, value in task_data.items()
                 if key not in {"qid", "task", "answer"}
             }
-            output_dir = create_output_directory(dataset_name, system.config.active_executor_name, active_llm, qid)
+            output_dir = create_output_directory(dataset_name, system.config.active_executor_name, runtime_label, qid)
             progress.update(task_progress, description=f"[cyan]Processing task {qid}...")
 
             try:
@@ -240,7 +269,8 @@ async def run_benchmark_async(
                     "final_summary": str(exc),
                     "workspace_path": None,
                     "backend": system.config.active_executor_name,
-                    "reasoning_model": system.config.llm_config_for_role("planner").model_name,
+                    "planner_model": system.config.llm_config_for_role("planner").model_name,
+                    "runtime_llm_keys": system.config.runtime_llm_keys,
                     "memory_write_policy": system.config.memory.write_policy,
                     "memory_write_policy_forced": True,
                     "memory_write_policy_source": BENCHMARK_MEMORY_POLICY_SOURCE,
@@ -271,7 +301,8 @@ async def run_benchmark_async(
                 "backend": result.get("backend"),
                 "backend_version": result.get("backend_version"),
                 "executor_metadata": result.get("executor_metadata"),
-                "reasoning_model": result.get("reasoning_model"),
+                "planner_model": result.get("planner_model"),
+                "runtime_llm_keys": result.get("runtime_llm_keys"),
                 "memory_write_policy": result.get("memory_write_policy"),
                 "memory_write_policy_forced": True,
                 "memory_write_policy_source": BENCHMARK_MEMORY_POLICY_SOURCE,
@@ -322,7 +353,8 @@ async def run_benchmark_async(
         "average_score": average_score,
         "average_execution_time": average_execution_time,
         "backend": system.config.active_executor_name,
-        "reasoning_model": system.config.llm_config_for_role("planner").model_name,
+        "planner_model": system.config.llm_config_for_role("planner").model_name,
+        "runtime_llm_keys": system.config.runtime_llm_keys,
         "memory_write_policy": system.config.memory.write_policy,
         "memory_write_policy_forced": True,
         "memory_write_policy_source": BENCHMARK_MEMORY_POLICY_SOURCE,
@@ -363,11 +395,10 @@ def run(
     dataset_name: str = typer.Argument(..., help="Name of the dataset (used for output directory)"),
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file"),
     experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to experience file for HealthFlow"),
-    active_llm: str = typer.Option(
-        ...,
-        "--active-llm",
-        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.4)",
-    ),
+    planner_llm: str = typer.Option(None, "--planner-llm", help="Override runtime.planner_llm from config.toml."),
+    evaluator_llm: str = typer.Option(None, "--evaluator-llm", help="Override runtime.evaluator_llm from config.toml."),
+    reflector_llm: str = typer.Option(None, "--reflector-llm", help="Override runtime.reflector_llm from config.toml."),
+    executor_llm: str = typer.Option(None, "--executor-llm", help="Override runtime.executor_llm from config.toml."),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)"),
 ):
     asyncio.run(
@@ -376,7 +407,10 @@ def run(
             dataset_name=dataset_name,
             config_path=config_path,
             experience_path=experience_path,
-            active_llm=active_llm,
+            planner_llm=planner_llm,
+            evaluator_llm=evaluator_llm,
+            reflector_llm=reflector_llm,
+            executor_llm=executor_llm,
             active_executor=active_executor,
         )
     )

@@ -25,7 +25,7 @@ class CliOutputTests(unittest.TestCase):
         with patch.object(run_healthflow, "_initialize_system", return_value=_FakeSystem()):
             result = self.runner.invoke(
                 run_healthflow.app,
-                ["run", "hi, who are you?", "--active-llm", "test-llm"],
+                ["run", "hi, who are you?"],
             )
 
         self.assertEqual(result.exit_code, 0)
@@ -39,7 +39,7 @@ class CliOutputTests(unittest.TestCase):
         with patch.object(run_healthflow, "_initialize_system", return_value=_FakeSystem()):
             result = self.runner.invoke(
                 run_healthflow.app,
-                ["interactive", "--active-llm", "test-llm"],
+                ["interactive"],
                 input="hi, who are you?\nexit\n",
             )
 

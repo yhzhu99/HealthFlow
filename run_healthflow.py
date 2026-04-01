@@ -94,7 +94,7 @@ def _display_task_result(result: dict, *, verbose: bool = False, chat_mode: bool
 ---
 [bold]Backend:[/bold] {result.get('backend', 'N/A')}
 [bold]Backend Version:[/bold] {result.get('backend_version', 'N/A')}
-[bold]Reasoning Model:[/bold] {result.get('reasoning_model', 'N/A')}
+[bold]Planner Model:[/bold] {result.get('planner_model', 'N/A')}
 [bold]Memory Write Policy:[/bold] {result.get('memory_write_policy', 'N/A')}
 [bold]Evaluation Status:[/bold] {result.get('evaluation_status', 'N/A')}
 [bold]Evaluation Score:[/bold] {result.get('evaluation_score', 'N/A')}
@@ -184,7 +184,10 @@ async def main_interactive_loop(system: HealthFlowSystem, *, verbose: bool = Fal
 def _initialize_system(
     config_path: Path,
     experience_path: Path,
-    active_llm: str,
+    planner_llm: str | None,
+    evaluator_llm: str | None,
+    reflector_llm: str | None,
+    executor_llm: str | None,
     active_executor: str | None,
     *,
     verbose: bool = False,
@@ -193,7 +196,14 @@ def _initialize_system(
     try:
         logger.remove()
         logger.add(sys.stderr, level="INFO" if verbose else "WARNING")
-        config = get_config(config_path, active_llm, active_executor)
+        config = get_config(
+            config_path,
+            planner_llm=planner_llm,
+            evaluator_llm=evaluator_llm,
+            reflector_llm=reflector_llm,
+            executor_llm=executor_llm,
+            active_executor=active_executor,
+        )
         setup_logging(config, console_log_level="INFO" if verbose else "WARNING")
         return HealthFlowSystem(
             config=config,
@@ -207,7 +217,10 @@ def _initialize_system(
 def _build_system_factory(
     config_path: Path,
     experience_path: Path,
-    active_llm: str,
+    planner_llm: str | None,
+    evaluator_llm: str | None,
+    reflector_llm: str | None,
+    executor_llm: str | None,
     active_executor: str | None,
     *,
     verbose: bool = False,
@@ -216,7 +229,10 @@ def _build_system_factory(
         return _initialize_system(
             config_path,
             experience_path,
-            active_llm,
+            planner_llm,
+            evaluator_llm,
+            reflector_llm,
+            executor_llm,
             active_executor,
             verbose=verbose,
         )
@@ -228,11 +244,10 @@ def run(
     task: str = typer.Argument(..., help="The high-level analysis task for HealthFlow to accomplish."),
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
-    active_llm: str = typer.Option(
-        ...,
-        "--active-llm",
-        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.4).",
-    ),
+    planner_llm: str = typer.Option(None, "--planner-llm", help="Override runtime.planner_llm from config.toml."),
+    evaluator_llm: str = typer.Option(None, "--evaluator-llm", help="Override runtime.evaluator_llm from config.toml."),
+    reflector_llm: str = typer.Option(None, "--reflector-llm", help="Override runtime.reflector_llm from config.toml."),
+    executor_llm: str = typer.Option(None, "--executor-llm", help="Override runtime.executor_llm from config.toml."),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)."),
     report: bool = typer.Option(False, "--report", help="Generate a standard markdown report.md in the task workspace."),
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
@@ -240,18 +255,26 @@ def run(
     """
     Run a single task through the HealthFlow system.
     """
-    system = _initialize_system(config_path, experience_path, active_llm, active_executor, verbose=verbose)
+    system = _initialize_system(
+        config_path,
+        experience_path,
+        planner_llm,
+        evaluator_llm,
+        reflector_llm,
+        executor_llm,
+        active_executor,
+        verbose=verbose,
+    )
     asyncio.run(run_single_task_flow(system, task, report_requested=report, verbose=verbose))
 
 @app.command()
 def interactive(
     config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
     experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
-    active_llm: str = typer.Option(
-        ...,
-        "--active-llm",
-        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.4).",
-    ),
+    planner_llm: str = typer.Option(None, "--planner-llm", help="Override runtime.planner_llm from config.toml."),
+    evaluator_llm: str = typer.Option(None, "--evaluator-llm", help="Override runtime.evaluator_llm from config.toml."),
+    reflector_llm: str = typer.Option(None, "--reflector-llm", help="Override runtime.reflector_llm from config.toml."),
+    executor_llm: str = typer.Option(None, "--executor-llm", help="Override runtime.executor_llm from config.toml."),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)."),
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
 ):
@@ -259,21 +282,42 @@ def interactive(
     Starts HealthFlow in an interactive, chat-like mode for multiple tasks.
     """
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        system = _initialize_system(config_path, experience_path, active_llm, active_executor, verbose=verbose)
+        system = _initialize_system(
+            config_path,
+            experience_path,
+            planner_llm,
+            evaluator_llm,
+            reflector_llm,
+            executor_llm,
+            active_executor,
+            verbose=verbose,
+        )
         asyncio.run(main_interactive_loop(system, verbose=verbose))
         return
 
     try:
         from healthflow.interactive_cli import InteractiveShell
     except ModuleNotFoundError:
-        system = _initialize_system(config_path, experience_path, active_llm, active_executor, verbose=verbose)
+        system = _initialize_system(
+            config_path,
+            experience_path,
+            planner_llm,
+            evaluator_llm,
+            reflector_llm,
+            executor_llm,
+            active_executor,
+            verbose=verbose,
+        )
         asyncio.run(main_interactive_loop(system, verbose=verbose))
         return
 
     system_factory = _build_system_factory(
         config_path,
         experience_path,
-        active_llm,
+        planner_llm,
+        evaluator_llm,
+        reflector_llm,
+        executor_llm,
         active_executor,
         verbose=verbose,
     )

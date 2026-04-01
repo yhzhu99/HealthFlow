@@ -12,6 +12,25 @@ from healthflow.execution.factory import create_executor_adapter
 
 
 class ConfigTests(unittest.TestCase):
+    def _get_config(
+        self,
+        config_path: Path,
+        *,
+        planner_llm: str = "test",
+        evaluator_llm: str | None = None,
+        reflector_llm: str | None = None,
+        executor_llm: str | None = None,
+        active_executor: str | None = None,
+    ):
+        return get_config(
+            config_path,
+            planner_llm=planner_llm,
+            evaluator_llm=evaluator_llm or planner_llm,
+            reflector_llm=reflector_llm or planner_llm,
+            executor_llm=executor_llm or planner_llm,
+            active_executor=active_executor,
+        )
+
     def test_executor_defaults_are_applied_when_backends_are_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
@@ -24,7 +43,7 @@ model_name = "model"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "test")
+            config = self._get_config(config_path)
             self.assertEqual(config.active_executor_name, "opencode")
             self.assertIn("opencode", config.executor.backends)
             self.assertIn("claude_code", config.executor.backends)
@@ -48,7 +67,7 @@ model_name = "model"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "test")
+            config = self._get_config(config_path)
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
@@ -72,7 +91,7 @@ active_backend = "pi"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "test")
+            config = self._get_config(config_path)
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, PiExecutor)
 
@@ -91,7 +110,7 @@ active_backend = "codex"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "test")
+            config = self._get_config(config_path)
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CodexExecutor)
             self.assertEqual(config.active_executor.binary, "codex")
@@ -121,12 +140,12 @@ timeout_seconds = 30
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "test")
+            config = self._get_config(config_path)
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
 
-    def test_executor_model_defaults_to_active_llm_model_name(self):
+    def test_executor_model_defaults_to_executor_llm_model_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
@@ -138,7 +157,7 @@ model_name = "openai/gpt-5.4"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "default")
+            config = self._get_config(config_path, planner_llm="default")
 
             self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
 
@@ -157,12 +176,12 @@ active_backend = "codex"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "default")
+            config = self._get_config(config_path, planner_llm="default")
 
             self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
-            self.assertFalse(config.active_executor.inherit_active_llm)
+            self.assertFalse(config.active_executor.inherit_executor_llm)
 
-    def test_llm_roles_can_override_default_reasoning_model(self):
+    def test_runtime_section_can_target_specific_roles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
@@ -177,16 +196,67 @@ api_key = "key"
 base_url = "https://example.com/v1"
 model_name = "judge-model"
 
-[llm_roles]
-evaluator = "judge"
+[runtime]
+planner_llm = "default"
+evaluator_llm = "judge"
+reflector_llm = "default"
+executor_llm = "default"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "default")
+            config = get_config(config_path)
             self.assertEqual(config.llm_config_for_role("planner").model_name, "planner-model")
             self.assertEqual(config.llm_config_for_role("evaluator").model_name, "judge-model")
 
-    def test_unknown_llm_role_target_raises_clear_error(self):
+    def test_cli_runtime_overrides_take_precedence_over_runtime_section(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.default]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "planner-model"
+
+[llm.alt]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "alt-model"
+
+[runtime]
+planner_llm = "default"
+evaluator_llm = "default"
+reflector_llm = "default"
+executor_llm = "default"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(
+                config_path,
+                planner_llm="alt",
+                evaluator_llm="default",
+                reflector_llm="default",
+                executor_llm="default",
+            )
+            self.assertEqual(config.planner_llm_name, "alt")
+            self.assertEqual(config.planner_llm.model_name, "alt-model")
+
+    def test_missing_runtime_selection_raises_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+""".strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, r"Missing runtime LLM selections"):
+                get_config(config_path)
+
+    def test_legacy_llm_roles_section_raises_migration_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
@@ -201,8 +271,8 @@ reflector = "missing-model"
 """.strip(),
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(ValueError, r"llm_roles\.reflector='missing-model'"):
-                get_config(config_path, "default")
+            with self.assertRaisesRegex(ValueError, r"\[llm_roles\]"):
+                self._get_config(config_path, planner_llm="default")
 
     def test_executor_inherits_executor_model_name_when_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -221,7 +291,7 @@ executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "deepseek")
+            config = self._get_config(config_path, planner_llm="deepseek")
 
             self.assertEqual(config.active_executor.model, "deepseek-chat")
             self.assertEqual(config.active_executor.provider, "deepseek")
@@ -229,7 +299,7 @@ executor_provider_api_key_env = "DEEPSEEK_API_KEY"
             self.assertEqual(config.active_executor.provider_api, "anthropic-messages")
             self.assertEqual(config.active_executor.provider_api_key_env, "DEEPSEEK_API_KEY")
 
-    def test_claude_code_backend_inherits_executor_provider_settings_from_active_llm(self):
+    def test_claude_code_backend_inherits_executor_provider_settings_from_executor_llm(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
@@ -249,13 +319,33 @@ active_backend = "claude_code"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "deepseek")
+            config = self._get_config(config_path, planner_llm="deepseek")
 
             self.assertEqual(config.active_executor.model, "deepseek-chat")
             self.assertEqual(config.active_executor.provider, "deepseek")
             self.assertEqual(config.active_executor.provider_base_url, "https://api.deepseek.com/anthropic")
             self.assertEqual(config.active_executor.provider_api, "anthropic-messages")
             self.assertEqual(config.active_executor.provider_api_key_env, "DEEPSEEK_API_KEY")
+
+    def test_legacy_inherit_active_llm_key_raises_migration_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+
+[executor.backends.opencode]
+binary = "opencode"
+args = ["run"]
+inherit_active_llm = false
+""".strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, r"inherit_active_llm"):
+                self._get_config(config_path)
 
     def test_deepseek_executor_model_name_rejects_provider_prefixed_values(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -273,7 +363,7 @@ executor_model_name = "deepseek/deepseek-chat"
             )
 
             with self.assertRaisesRegex(ValueError, "bare model id"):
-                get_config(config_path, "deepseek")
+                self._get_config(config_path, planner_llm="deepseek")
 
     def test_environment_defaults_can_be_overridden(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -293,7 +383,7 @@ run_prefix = "uv run"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "test")
+            config = self._get_config(config_path)
             self.assertEqual(config.environment.python_version, "3.12.2")
             self.assertEqual(config.environment.install_command, "uv add --dev")
 
@@ -315,7 +405,7 @@ run_prefix = "uv run"
             )
             config_path.write_text(legacy_config, encoding="utf-8")
             with self.assertRaisesRegex(ValueError, r"Legacy tools configuration"):
-                get_config(config_path, "test")
+                self._get_config(config_path)
 
     def test_llm_api_key_can_be_loaded_from_env_variable(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -330,11 +420,11 @@ model_name = "openai/gpt-5.2"
                 encoding="utf-8",
             )
             with patch.dict("os.environ", {"ZENMUX_API_KEY": "env-key"}, clear=False):
-                config = get_config(config_path, "openai/gpt-5.2")
+                config = self._get_config(config_path, planner_llm="openai/gpt-5.2")
 
-            self.assertEqual(config.llm.api_key, "env-key")
-            self.assertEqual(config.llm.api_key_env, "ZENMUX_API_KEY")
-            self.assertEqual(config.llm.model_name, "openai/gpt-5.2")
+            self.assertEqual(config.planner_llm.api_key, "env-key")
+            self.assertEqual(config.planner_llm.api_key_env, "ZENMUX_API_KEY")
+            self.assertEqual(config.planner_llm.model_name, "openai/gpt-5.2")
 
     def test_inline_api_key_takes_precedence_over_api_key_env(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -350,9 +440,9 @@ model_name = "model"
                 encoding="utf-8",
             )
             with patch.dict("os.environ", {"ZENMUX_API_KEY": "env-key"}, clear=False):
-                config = get_config(config_path, "test")
+                config = self._get_config(config_path)
 
-            self.assertEqual(config.llm.api_key, "inline-key")
+            self.assertEqual(config.planner_llm.api_key, "inline-key")
 
     def test_missing_env_backed_api_key_raises_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -367,13 +457,10 @@ model_name = "model"
                 encoding="utf-8",
             )
             with patch.dict("os.environ", {}, clear=True):
-                with self.assertRaisesRegex(
-                    ValueError,
-                    "ZENMUX_API_KEY",
-                ):
-                    get_config(config_path, "test")
+                with self.assertRaisesRegex(ValueError, "ZENMUX_API_KEY"):
+                    self._get_config(config_path)
 
-    def test_repo_config_example_parses_with_env_backed_models_and_llm_roles(self):
+    def test_repo_config_example_parses_with_env_backed_models_and_runtime_roles(self):
         config_path = Path(__file__).resolve().parents[1] / "config.toml"
         with patch.dict(
             "os.environ",
@@ -383,12 +470,12 @@ model_name = "model"
             },
             clear=False,
         ):
-            config = get_config(config_path, "deepseek/deepseek-v3.2")
+            config = get_config(config_path)
 
-        self.assertEqual(config.active_llm_name, "deepseek/deepseek-v3.2")
-        self.assertEqual(config.llm_config_for_role("planner").model_name, "deepseek-chat")
-        self.assertEqual(config.llm_config_for_role("evaluator").model_name, "openai/gpt-5.4")
-        self.assertEqual(config.llm_config_for_role("reflector").model_name, "google/gemini-3-flash-preview")
+        self.assertEqual(config.planner_llm_name, "deepseek/deepseek-v3.2")
+        self.assertEqual(config.evaluator_llm_name, "openai/gpt-5.4")
+        self.assertEqual(config.reflector_llm_name, "google/gemini-3-flash-preview")
+        self.assertEqual(config.executor_llm_name, "deepseek/deepseek-v3.2")
         self.assertEqual(config.active_executor.provider, "deepseek")
         self.assertEqual(config.active_executor.model, "deepseek-chat")
 
@@ -408,7 +495,7 @@ shell = "/usr/bin/zsh"
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, r"system\.shell"):
-                get_config(config_path, "test")
+                self._get_config(config_path)
 
     def test_unknown_memory_keys_raise_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -427,7 +514,7 @@ strategy_k = 3
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "strategy_k"):
-                get_config(config_path, "test")
+                self._get_config(config_path)
 
     def test_unknown_policy_sections_raise_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -445,7 +532,7 @@ require_verifier_pass = true
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, r"\[verification\]"):
-                get_config(config_path, "test")
+                self._get_config(config_path)
 
     def test_system_config_rejects_zero_max_attempts(self):
         with self.assertRaises(ValidationError):

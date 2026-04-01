@@ -6,7 +6,6 @@ from healthflow.core.config import (
     ExecutorConfig,
     HealthFlowConfig,
     LLMProviderConfig,
-    LLMRoleConfig,
     LoggingConfig,
     MemoryConfig,
     SystemConfig,
@@ -23,7 +22,10 @@ from run_benchmark import (
 class BenchmarkRunnerTests(unittest.TestCase):
     def test_force_benchmark_memory_policy_overrides_config_without_mutating_original(self):
         config = HealthFlowConfig(
-            active_llm_name="test-llm",
+            planner_llm_name="test-llm",
+            evaluator_llm_name="test-llm",
+            reflector_llm_name="test-llm",
+            executor_llm_name="test-llm",
             active_executor_name="opencode",
             llm_registry={
                 "test-llm": LLMProviderConfig(
@@ -32,12 +34,6 @@ class BenchmarkRunnerTests(unittest.TestCase):
                     model_name="test-model",
                 )
             },
-            llm=LLMProviderConfig(
-                api_key="key",
-                base_url="https://example.com/v1",
-                model_name="test-model",
-            ),
-            llm_roles=LLMRoleConfig(),
             system=SystemConfig(),
             environment=EnvironmentConfig(),
             executor=ExecutorConfig(active_backend="opencode", backends=default_executor_backends()),
@@ -51,7 +47,8 @@ class BenchmarkRunnerTests(unittest.TestCase):
         self.assertEqual(config.memory.write_policy, "append")
         self.assertEqual(frozen_config.memory.write_policy, BENCHMARK_MEMORY_WRITE_POLICY)
         self.assertEqual(frozen_config.active_executor_name, config.active_executor_name)
-        self.assertEqual(frozen_config.active_llm_name, config.active_llm_name)
+        self.assertEqual(frozen_config.planner_llm_name, config.planner_llm_name)
+        self.assertEqual(frozen_config.executor_llm_name, config.executor_llm_name)
 
     def test_aggregate_cost_totals_combines_stage_and_executor_costs(self):
         results = [

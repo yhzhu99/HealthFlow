@@ -170,8 +170,9 @@ class HealthFlowSystem:
         result["backend"] = self.config.active_executor_name
         result["executor_model"] = self.config.active_executor.model
         result["executor_provider"] = self.config.active_executor.provider
-        result["reasoning_model"] = self.config.llm_config_for_role("planner").model_name
+        result["planner_model"] = self.config.llm_config_for_role("planner").model_name
         result["llm_role_models"] = self._role_model_names()
+        result["runtime_llm_keys"] = self.config.runtime_llm_keys
         result["memory_write_policy"] = self.config.memory.write_policy
         result["execution_environment"] = self.config.environment.model_dump(mode="json")
         result["run_result_path"] = str(task_workspace / "run_result.json")
@@ -284,8 +285,9 @@ class HealthFlowSystem:
             "backend": self.config.active_executor_name,
             "executor_model": self.config.active_executor.model,
             "executor_provider": self.config.active_executor.provider,
-            "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+            "planner_model": self.config.llm_config_for_role("planner").model_name,
             "llm_role_models": self._role_model_names(),
+            "runtime_llm_keys": self.config.runtime_llm_keys,
             "memory_write_policy": self.config.memory.write_policy,
             "response_mode": direct_response.mode,
             "direct_response_category": direct_response.category,
@@ -375,8 +377,9 @@ class HealthFlowSystem:
             "backend": self.config.active_executor_name,
             "executor_model": self.config.active_executor.model,
             "executor_provider": self.config.active_executor.provider,
-            "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+            "planner_model": self.config.llm_config_for_role("planner").model_name,
             "llm_role_models": self._role_model_names(),
+            "runtime_llm_keys": self.config.runtime_llm_keys,
             "memory_write_policy": self.config.memory.write_policy,
             "report_requested": report_requested,
             "execution_environment": self.config.environment.model_dump(mode="json"),
@@ -436,7 +439,7 @@ class HealthFlowSystem:
                 workflow_recommendations=workflow_recommendations,
                 previous_feedback=previous_feedback,
             )
-            planning_usage = self._capture_agent_usage(self.meta_agent)
+            planning_usage = self._capture_agent_usage(self.meta_agent, "planner")
             plan_markdown = plan.to_markdown()
             task_list_path = task_workspace / f"task_list_v{attempt_num}.md"
             task_list_path.write_text(plan_markdown, encoding="utf-8")
@@ -474,7 +477,7 @@ class HealthFlowSystem:
                 generated_answer=generated_answer,
             )
             verdict = self._normalize_evaluation_verdict(verdict)
-            evaluation_usage = self._capture_agent_usage(self.evaluator)
+            evaluation_usage = self._capture_agent_usage(self.evaluator, "evaluator")
             final_verdict = verdict
 
             attempt_history = {
@@ -551,7 +554,7 @@ class HealthFlowSystem:
                 full_history,
                 final_verdict=final_verdict,
             )
-            reflection_usage = self._capture_agent_usage(self.reflector)
+            reflection_usage = self._capture_agent_usage(self.reflector, "reflector")
             if isinstance(reflection_output, list):
                 new_experiences = reflection_output
                 memory_updates = []
@@ -636,8 +639,9 @@ class HealthFlowSystem:
                 "backend": self.config.active_executor_name,
                 "executor_model": self.config.active_executor.model,
                 "executor_provider": self.config.active_executor.provider,
-                "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+                "planner_model": self.config.llm_config_for_role("planner").model_name,
                 "llm_role_models": self._role_model_names(),
+                "runtime_llm_keys": self.config.runtime_llm_keys,
                 "memory_write_policy": self.config.memory.write_policy,
                 "workflow_recommendations": [],
                 "memory_context_path": str(memory_context_path),
@@ -1154,8 +1158,9 @@ class HealthFlowSystem:
                 "backend": self.config.active_executor_name,
                 "executor_model": self.config.active_executor.model,
                 "executor_provider": self.config.active_executor.provider,
-                "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+                "planner_model": self.config.llm_config_for_role("planner").model_name,
                 "llm_role_models": result.get("llm_role_models"),
+                "runtime_llm_keys": result.get("runtime_llm_keys"),
                 "memory_write_policy": self.config.memory.write_policy,
                 "execution_environment": result.get("execution_environment"),
                 "workflow_recommendations": result.get("workflow_recommendations"),
@@ -1187,10 +1192,10 @@ class HealthFlowSystem:
             "reflector": getattr(self.reflector, "last_model_name", self.config.llm_config_for_role("reflector").model_name),
         }
 
-    def _capture_agent_usage(self, agent: Any) -> dict:
+    def _capture_agent_usage(self, agent: Any, role: str) -> dict:
         usage = getattr(agent, "last_usage", {}) or {}
         return {
-            "model_name": getattr(agent, "last_model_name", self.config.llm.model_name),
+            "model_name": getattr(agent, "last_model_name", self.config.llm_config_for_role(role).model_name),
             "usage": usage,
             "estimated_cost_usd": getattr(agent, "last_estimated_cost_usd", None),
         }
