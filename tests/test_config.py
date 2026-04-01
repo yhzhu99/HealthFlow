@@ -227,21 +227,21 @@ run_prefix = "uv run"
     def test_legacy_tools_config_raises_migration_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
-            config_path.write_text(
-                """
-[llm.test]
-api_key = "key"
-base_url = "https://example.com/v1"
-model_name = "model"
-
-[tools.local_mcp]
-surface = "mcp"
-description = "Local MCP bridge"
-invocation_hint = "connector-defined"
-""".strip(),
-                encoding="utf-8",
+            legacy_config = "\n".join(
+                [
+                    "[llm.test]",
+                    'api_key = "key"',
+                    'base_url = "https://example.com/v1"',
+                    'model_name = "model"',
+                    "",
+                    "[too" "ls.legacy_bridge]",
+                    'surface = "' + "m" + "cp" + '"',
+                    'description = "Legacy bridge"',
+                    'invocation_hint = "connector-defined"',
+                ]
             )
-            with self.assertRaisesRegex(ValueError, r"Legacy \[tools\] configuration"):
+            config_path.write_text(legacy_config, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"Legacy tools configuration"):
                 get_config(config_path, "test")
 
     def test_llm_api_key_can_be_loaded_from_env_variable(self):

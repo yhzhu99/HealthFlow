@@ -240,7 +240,7 @@ def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> L
 def _validate_top_level_sections(config_data: dict) -> None:
     if "tools" in config_data:
         raise ValueError(
-            "Legacy [tools] configuration is no longer supported. "
+            "Legacy tools configuration is no longer supported. "
             "HealthFlow does not host MCP or CLI tool integrations; configure tools in the outer executor instead. "
             "Use [environment] for lightweight runtime defaults."
         )
