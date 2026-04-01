@@ -3,6 +3,7 @@ import io
 import unittest
 from contextlib import suppress
 
+from prompt_toolkit.document import Document
 from rich.console import Console
 
 from healthflow.interactive_cli import InteractiveShell
@@ -85,6 +86,31 @@ class InteractiveShellTests(unittest.IsolatedAsyncioTestCase):
         should_exit = await self.shell._handle_input("fail")
 
         self.assertFalse(should_exit)
+
+    def test_command_completion_prefix_requires_strict_line_start_slash(self):
+        self.assertEqual(InteractiveShell.command_completion_prefix("/"), "/")
+        self.assertEqual(InteractiveShell.command_completion_prefix("/he"), "/he")
+        self.assertIsNone(InteractiveShell.command_completion_prefix(" /"))
+        self.assertIsNone(InteractiveShell.command_completion_prefix("hello /"))
+        self.assertIsNone(InteractiveShell.command_completion_prefix("/help now"))
+
+    def test_completer_only_suggests_commands_from_line_start(self):
+        leading_slash = [
+            completion.text
+            for completion in self.shell._completer.get_completions(Document(text="/"), None)
+        ]
+        inline_text = [
+            completion.text
+            for completion in self.shell._completer.get_completions(Document(text="hello /"), None)
+        ]
+        leading_space = [
+            completion.text
+            for completion in self.shell._completer.get_completions(Document(text=" /"), None)
+        ]
+
+        self.assertEqual(leading_slash, ["/help", "/clear", "/new", "/exit"])
+        self.assertEqual(inline_text, [])
+        self.assertEqual(leading_space, [])
 
     async def test_double_escape_cancels_active_run(self):
         active_task = asyncio.create_task(asyncio.sleep(30))

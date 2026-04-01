@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
@@ -26,6 +26,26 @@ except ImportError:  # pragma: no cover - unsupported platforms.
 ShellTaskRunner = Callable[[Any, str], Awaitable[dict[str, Any]]]
 SystemFactory = Callable[[], Any]
 PromptSessionFactory = Callable[[], Any]
+
+
+class SlashCommandCompleter(Completer):
+    def __init__(self, commands: dict[str, str]):
+        self._commands = commands
+
+    def get_completions(self, document: Any, complete_event: Any):
+        prefix = InteractiveShell.command_completion_prefix(document.text_before_cursor)
+        if prefix is None:
+            return
+
+        lowered_prefix = prefix.lower()
+        for command, description in self._commands.items():
+            if command.lower().startswith(lowered_prefix):
+                yield Completion(
+                    command,
+                    start_position=-len(prefix),
+                    display=command,
+                    display_meta=description,
+                )
 
 
 class EscapeMonitor:
@@ -111,7 +131,7 @@ class InteractiveShell:
         self._prompt_session_factory = prompt_session_factory or self._default_prompt_session_factory
         self._escape_monitor_factory = escape_monitor_factory or self._default_escape_monitor_factory
         self._time_source = time_source or time.monotonic
-        self._completer = WordCompleter(sorted(self.COMMANDS), ignore_case=True, sentence=False)
+        self._completer = SlashCommandCompleter(self.COMMANDS)
         self._verbose = verbose
 
         self._session_index = 0
@@ -176,6 +196,14 @@ class InteractiveShell:
             return self._handle_command(user_input)
         await self._run_task(user_input)
         return False
+
+    @classmethod
+    def command_completion_prefix(cls, text: str) -> str | None:
+        if not text.startswith("/"):
+            return None
+        if any(character.isspace() for character in text):
+            return None
+        return text
 
     def _handle_command(self, user_input: str) -> bool:
         parts = user_input.split()
