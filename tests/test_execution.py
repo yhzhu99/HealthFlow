@@ -79,7 +79,7 @@ class ExecutionFactoryTests(unittest.TestCase):
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
                 """
-[llm."deepseek/deepseek-v3.2"]
+[llm."deepseek/deepseek-chat"]
 api_key = "key"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-chat"
@@ -93,10 +93,10 @@ executor_provider_api_key_env = "DEEPSEEK_API_KEY"
             )
             config = get_config(
                 config_path,
-                planner_llm="deepseek/deepseek-v3.2",
-                evaluator_llm="deepseek/deepseek-v3.2",
-                reflector_llm="deepseek/deepseek-v3.2",
-                executor_llm="deepseek/deepseek-v3.2",
+                planner_llm="deepseek/deepseek-chat",
+                evaluator_llm="deepseek/deepseek-chat",
+                reflector_llm="deepseek/deepseek-chat",
+                executor_llm="deepseek/deepseek-chat",
                 active_executor="opencode",
             )
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
@@ -106,6 +106,36 @@ executor_provider_api_key_env = "DEEPSEEK_API_KEY"
         self.assertEqual(
             command,
             ["opencode", "run", "--variant", "high", "--format", "json", "-m", "deepseek/deepseek-chat", "say hi"],
+        )
+
+    def test_opencode_command_uses_executor_llm_reasoning_effort(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+reasoning_effort = "medium"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(
+                config_path,
+                planner_llm="test",
+                evaluator_llm="test",
+                reflector_llm="test",
+                executor_llm="test",
+                active_executor="opencode",
+            )
+            executor = create_executor_adapter(config.active_executor_name, config.active_executor)
+
+        command = executor._build_command("say hi")
+
+        self.assertEqual(
+            command,
+            ["opencode", "run", "--variant", "medium", "--format", "json", "-m", "zenmux/model", "say hi"],
         )
 
     def test_appended_prompt_is_redacted_from_saved_command(self):

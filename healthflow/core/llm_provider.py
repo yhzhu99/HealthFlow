@@ -3,7 +3,7 @@ from typing import Any, Callable, List, TypeVar
 
 import httpx
 from loguru import logger
-from openai import AsyncOpenAI
+from openai import NOT_GIVEN, AsyncOpenAI
 from pydantic import BaseModel, Field
 from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
@@ -117,14 +117,26 @@ class LLMProvider:
         try:
             # Set response format based on json_mode flag
             response_format = {"type": "json_object"} if json_mode else {"type": "text"}
-
-            completion = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[msg.model_dump() for msg in messages],
+            request_kwargs = self._completion_request_kwargs(
+                messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_format=response_format,
             )
+
+            try:
+                completion = await self.client.chat.completions.create(**request_kwargs)
+            except Exception as exc:
+                if not self._should_retry_without_reasoning_effort(exc):
+                    raise
+                logger.warning(
+                    "Provider rejected reasoning_effort='{}' for model '{}'; retrying without it. Error: {}",
+                    self.config.reasoning_effort,
+                    self.model_name,
+                    exc,
+                )
+                request_kwargs["reasoning_effort"] = NOT_GIVEN
+                completion = await self.client.chat.completions.create(**request_kwargs)
             content = completion.choices[0].message.content or ""
             usage = self._normalize_usage(getattr(completion, "usage", None))
             estimated_cost_usd = self._estimate_cost_usd(usage)
@@ -142,6 +154,44 @@ class LLMProvider:
             logger.error(f"An unexpected error occurred during LLM API call: {e}")
             # This will trigger a retry if tenacity is configured for it
             raise
+
+    def _completion_request_kwargs(
+        self,
+        *,
+        messages: List[LLMMessage],
+        temperature: float,
+        max_tokens: int,
+        response_format: dict[str, str],
+    ) -> dict[str, Any]:
+        return {
+            "model": self.model_name,
+            "messages": [msg.model_dump() for msg in messages],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "response_format": response_format,
+            "reasoning_effort": self.config.reasoning_effort or NOT_GIVEN,
+        }
+
+    def _should_retry_without_reasoning_effort(self, exc: Exception) -> bool:
+        if not self.config.reasoning_effort:
+            return False
+
+        message = str(exc).lower()
+        if "reasoning_effort" not in message and "reasoning effort" not in message:
+            return False
+
+        unsupported_markers = (
+            "unsupported",
+            "unknown",
+            "unrecognized",
+            "unexpected",
+            "extra_forbidden",
+            "extra inputs are not permitted",
+            "invalid",
+            "not allowed",
+            "not supported",
+        )
+        return any(marker in message for marker in unsupported_markers)
 
     async def generate_structured(
         self,

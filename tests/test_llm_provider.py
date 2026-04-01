@@ -1,7 +1,11 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+from openai import NOT_GIVEN
 
 from healthflow.core.config import LLMProviderConfig
-from healthflow.core.llm_provider import LLMProvider, LLMResponse, parse_json_content
+from healthflow.core.llm_provider import LLMMessage, LLMProvider, LLMResponse, parse_json_content
 
 
 class _StubStructuredProvider(LLMProvider):
@@ -50,6 +54,59 @@ class StructuredGenerationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parsed, {"status": "ok"})
         self.assertEqual(response.model_name, "test-model")
         self.assertEqual(len(provider.calls), 2)
+
+
+class ProviderGenerateTests(unittest.IsolatedAsyncioTestCase):
+    async def test_generate_passes_reasoning_effort_when_configured(self):
+        mock_create = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="hello"))],
+                usage=None,
+            )
+        )
+        mock_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=mock_create)))
+
+        with patch("healthflow.core.llm_provider.AsyncOpenAI", return_value=mock_client):
+            provider = LLMProvider(
+                LLMProviderConfig(
+                    api_key="key",
+                    base_url="https://example.com/v1",
+                    model_name="test-model",
+                    reasoning_effort="high",
+                )
+            )
+            await provider.generate([LLMMessage(role="user", content="hi")])
+
+        self.assertEqual(mock_create.await_count, 1)
+        self.assertEqual(mock_create.await_args.kwargs["reasoning_effort"], "high")
+
+    async def test_generate_retries_without_reasoning_effort_when_provider_rejects_it(self):
+        mock_create = AsyncMock(
+            side_effect=[
+                ValueError("Unsupported parameter: reasoning_effort"),
+                SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="hello"))],
+                    usage=None,
+                ),
+            ]
+        )
+        mock_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=mock_create)))
+
+        with patch("healthflow.core.llm_provider.AsyncOpenAI", return_value=mock_client):
+            provider = LLMProvider(
+                LLMProviderConfig(
+                    api_key="key",
+                    base_url="https://example.com/v1",
+                    model_name="test-model",
+                    reasoning_effort="high",
+                )
+            )
+            response = await provider.generate([LLMMessage(role="user", content="hi")])
+
+        self.assertEqual(response.content, "hello")
+        self.assertEqual(mock_create.await_count, 2)
+        self.assertEqual(mock_create.await_args_list[0].kwargs["reasoning_effort"], "high")
+        self.assertIs(mock_create.await_args_list[1].kwargs["reasoning_effort"], NOT_GIVEN)
 
 
 if __name__ == "__main__":

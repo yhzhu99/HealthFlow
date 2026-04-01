@@ -8,6 +8,9 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+ReasoningEffort = Literal["low", "medium", "high"]
+
+
 class LLMProviderConfig(BaseModel):
     """Configuration for a single LLM provider."""
 
@@ -37,6 +40,10 @@ class LLMProviderConfig(BaseModel):
     executor_provider_api_key_env: str | None = Field(
         default=None,
         description="Optional environment variable name to use for executor-side provider authentication.",
+    )
+    reasoning_effort: ReasoningEffort | None = Field(
+        default=None,
+        description="Optional reasoning effort to request when the provider supports it.",
     )
     timeout: int = Field(180, description="Request timeout in seconds.")
     input_cost_per_million_tokens: float | None = Field(
@@ -72,6 +79,7 @@ class BackendCLIConfig(BaseModel):
     provider_base_url: str | None = None
     provider_api: str | None = None
     provider_api_key_env: str | None = None
+    reasoning_effort: ReasoningEffort | None = None
     output_mode: Literal["text", "json_events"] = "text"
     inherit_executor_llm: bool = True
     prompt_mode: Literal["append", "stdin"] = "append"
@@ -118,7 +126,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
                 "--output-format",
                 "text",
                 "--effort",
-                "high",
+                "$reasoning_effort",
             ],
             env={
                 "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -128,6 +136,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
             provider_base_url="https://zenmux.ai/api/anthropic",
             provider_api="anthropic-messages",
             provider_api_key_env="ZENMUX_API_KEY",
+            reasoning_effort="high",
             prompt_mode="append",
         ),
         "codex": BackendCLIConfig(
@@ -145,7 +154,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
                 "-c",
                 'model_providers.$provider={name="ZenMux", base_url="$provider_base_url", env_key="$provider_api_key_env", wire_api="responses"}',
                 "-c",
-                'model_reasoning_effort="high"',
+                'model_reasoning_effort="$reasoning_effort"',
                 "-c",
                 'model_reasoning_summary="detailed"',
             ],
@@ -155,26 +164,29 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
             provider="zenmux",
             provider_base_url="https://zenmux.ai/api/v1",
             provider_api_key_env="ZENMUX_API_KEY",
+            reasoning_effort="high",
             prompt_mode="stdin",
         ),
         "opencode": BackendCLIConfig(
             binary="opencode",
-            args=["run", "--variant", "high", "--format", "json"],
+            args=["run", "--variant", "$reasoning_effort", "--format", "json"],
             model_flag="-m",
             model_template="$provider/$model",
             provider="zenmux",
+            reasoning_effort="high",
             output_mode="json_events",
             prompt_mode="append",
         ),
         "pi": BackendCLIConfig(
             binary="pi",
-            args=["--print", "--thinking", "high"],
+            args=["--print", "--thinking", "$reasoning_effort"],
             model_flag="--model",
             provider_flag="--provider",
             provider="zenmux",
             provider_base_url="https://zenmux.ai/api/v1",
             provider_api="openai-completions",
             provider_api_key_env="ZENMUX_API_KEY",
+            reasoning_effort="high",
             prompt_mode="append",
         ),
     }
@@ -273,6 +285,8 @@ class HealthFlowConfig(BaseModel):
                 resolved_updates["provider_api"] = executor_llm.executor_provider_api
             if executor_llm.executor_provider_api_key_env is not None:
                 resolved_updates["provider_api_key_env"] = executor_llm.executor_provider_api_key_env
+            if executor_llm.reasoning_effort is not None:
+                resolved_updates["reasoning_effort"] = executor_llm.reasoning_effort
         return active_executor.model_copy(update=resolved_updates)
 
     def llm_config_for_role(self, role: str) -> LLMProviderConfig:

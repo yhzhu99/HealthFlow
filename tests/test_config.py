@@ -71,7 +71,8 @@ model_name = "model"
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
-            self.assertEqual(config.active_executor.args, ["run", "--variant", "high", "--format", "json"])
+            self.assertEqual(config.active_executor.args, ["run", "--variant", "$reasoning_effort", "--format", "json"])
+            self.assertEqual(config.active_executor.reasoning_effort, "high")
             self.assertEqual(config.active_executor.prompt_mode, "append")
             self.assertEqual(config.active_executor.output_mode, "json_events")
             self.assertEqual(config.active_executor.model, "model")
@@ -116,7 +117,8 @@ active_backend = "codex"
             self.assertEqual(config.active_executor.binary, "codex")
             self.assertEqual(config.active_executor.prompt_mode, "stdin")
             self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
-            self.assertIn('model_reasoning_effort="high"', config.active_executor.arg_templates)
+            self.assertEqual(config.active_executor.reasoning_effort, "high")
+            self.assertIn('model_reasoning_effort="$reasoning_effort"', config.active_executor.arg_templates)
             self.assertIn('model_reasoning_summary="detailed"', config.active_executor.arg_templates)
 
     def test_custom_configured_backend_uses_generic_executor(self):
@@ -425,6 +427,7 @@ model_name = "openai/gpt-5.2"
             self.assertEqual(config.planner_llm.api_key, "env-key")
             self.assertEqual(config.planner_llm.api_key_env, "ZENMUX_API_KEY")
             self.assertEqual(config.planner_llm.model_name, "openai/gpt-5.2")
+            self.assertIsNone(config.planner_llm.reasoning_effort)
 
     def test_inline_api_key_takes_precedence_over_api_key_env(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -472,12 +475,17 @@ model_name = "model"
         ):
             config = get_config(config_path)
 
-        self.assertEqual(config.planner_llm_name, "deepseek/deepseek-v3.2")
+        self.assertEqual(config.planner_llm_name, "deepseek/deepseek-chat")
         self.assertEqual(config.evaluator_llm_name, "openai/gpt-5.4")
         self.assertEqual(config.reflector_llm_name, "google/gemini-3-flash-preview")
-        self.assertEqual(config.executor_llm_name, "deepseek/deepseek-v3.2")
+        self.assertEqual(config.executor_llm_name, "deepseek/deepseek-chat")
+        self.assertIsNone(config.planner_llm.reasoning_effort)
+        self.assertEqual(config.evaluator_llm.reasoning_effort, "high")
+        self.assertEqual(config.reflector_llm.reasoning_effort, "high")
+        self.assertIsNone(config.executor_llm.reasoning_effort)
         self.assertEqual(config.active_executor.provider, "deepseek")
         self.assertEqual(config.active_executor.model, "deepseek-chat")
+        self.assertEqual(config.active_executor.reasoning_effort, "high")
 
     def test_system_shell_raises_migration_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
