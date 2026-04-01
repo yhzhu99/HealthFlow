@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sys
-import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -22,8 +21,7 @@ RAW_ROOT = BENCHMARK_ROOT / "raw" / "mimic_iv_demo"
 PROCESSED_ROOT = BENCHMARK_ROOT / "processed" / "mimic_iv_demo"
 EXTRACTED_ROOT = PROCESSED_ROOT / "_extracted"
 OUTPUT_PATH = PROCESSED_ROOT / "mimic_iv_demo_formatted_ehr.parquet"
-EXTERNAL_CONFIG_PATH = Path("/Users/akai/Desktop/data/mimic_preprocessor/mimic_datasets/mimic_iv/3.1/config.toml")
-EXTERNAL_ITEM2VAR_PATH = Path("/Users/akai/Desktop/data/mimic_preprocessor/mimic_datasets/mimic_iv/3.1/mimic4_item2var.csv")
+METADATA_BUNDLE_PATH = BENCHMARK_ROOT / "metadata" / "mimic_iv_demo_ehr_metadata.json"
 MAX_WINDOW = 7
 
 EXTRACT_TARGETS = {
@@ -39,9 +37,8 @@ ICUSTAY_USECOLS = ["subject_id", "hadm_id", "stay_id", "intime", "outtime", "los
 CHARTEVENT_USECOLS = ["subject_id", "hadm_id", "stay_id", "charttime", "itemid", "valuenum", "value"]
 
 
-def load_config() -> dict[str, Any]:
-    with EXTERNAL_CONFIG_PATH.open("rb") as handle:
-        return tomllib.load(handle)
+def load_metadata_bundle() -> dict[str, Any]:
+    return json.loads(METADATA_BUNDLE_PATH.read_text(encoding="utf-8"))
 
 
 def prepare_extracted_sources() -> dict[str, Path]:
@@ -137,8 +134,13 @@ def process_patients(extracted_paths: dict[str, Path]) -> pd.DataFrame:
     return processed
 
 
-def process_events(extracted_paths: dict[str, Path], config: dict[str, Any]) -> pd.DataFrame:
-    item2var = pd.read_csv(EXTERNAL_ITEM2VAR_PATH)
+def process_events(
+    extracted_paths: dict[str, Path],
+    config: dict[str, Any],
+    item2var_rows: list[dict[str, Any]],
+) -> pd.DataFrame:
+    item2var = pd.DataFrame(item2var_rows)
+    item2var["ItemID"] = pd.to_numeric(item2var["ItemID"], errors="raise").astype("int64")
     chartevents = pd.read_csv(extracted_paths["chartevents.csv"], usecols=CHARTEVENT_USECOLS, low_memory=False)
     chartevents["charttime"] = pd.to_datetime(chartevents["charttime"], errors="coerce")
 
@@ -308,20 +310,18 @@ def aggregate_ehr(
 
 
 def main() -> None:
-    config = load_config()
+    metadata_bundle = load_metadata_bundle()
+    config = metadata_bundle["config"]
     extracted_paths = prepare_extracted_sources()
     patients = process_patients(extracted_paths)
-    events = process_events(extracted_paths, config)
+    events = process_events(extracted_paths, config, metadata_bundle["item2var"])
     frame = aggregate_ehr(patients, events, config)
 
-    item2var = pd.read_csv(EXTERNAL_ITEM2VAR_PATH)
     metadata = {
         "healthflow.source_dataset": "mimic_iv_demo",
         "healthflow.source_dir": str(RAW_ROOT.relative_to(BENCHMARK_ROOT)),
-        "healthflow.external_config_path": str(EXTERNAL_CONFIG_PATH),
-        "healthflow.external_item2var_path": str(EXTERNAL_ITEM2VAR_PATH),
-        "healthflow.config_toml": EXTERNAL_CONFIG_PATH.read_text(encoding="utf-8"),
-        "healthflow.mimic4_item2var.json": item2var.to_dict(orient="records"),
+        "healthflow.metadata_bundle_path": str(METADATA_BUNDLE_PATH.relative_to(BENCHMARK_ROOT)),
+        "healthflow.metadata_bundle.json": metadata_bundle,
         "healthflow.processing.json": {
             "max_window": MAX_WINDOW,
             "one_hot_encode_categorical": True,
@@ -344,6 +344,7 @@ def main() -> None:
         "patients": int(frame["PatientID"].nunique()),
         "admissions": int(frame["AdmissionID"].nunique()),
         "columns": len(frame.columns),
+        "metadata_bundle": str(METADATA_BUNDLE_PATH),
         "output_file": str(OUTPUT_PATH),
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
