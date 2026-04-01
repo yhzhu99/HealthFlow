@@ -33,7 +33,7 @@ DATASET_ROOT = PROJECT_ROOT / "data" / "ehrflowbench"
 MARKDOWN_ROOT = DATASET_ROOT / "raw" / "papers" / "markdowns"
 PROMPT_PATH = DATASET_ROOT / "scripts" / "prompt_ehrflowbench.md"
 CONFIG_PATH = PROJECT_ROOT / "config.toml"
-DEFAULT_OUTPUT_ROOT = DATASET_ROOT / "raw" / "papers" / "generated_tasks"
+DEFAULT_OUTPUT_ROOT = DATASET_ROOT / "processed" / "papers" / "generated_tasks"
 
 
 class GeneratedTask(BaseModel):
