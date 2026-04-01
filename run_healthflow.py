@@ -59,8 +59,8 @@ def _display_task_result(result: dict):
 [bold]Run Result JSON:[/bold] {result.get('run_result_path', 'N/A')}
 [bold]Report Requested:[/bold] {report_requested}
 [bold]Report Generated:[/bold] {report_generated}
-[bold]Report Path:[/bold] {result.get('report_path', 'N/A')}
-[bold]Report Error:[/bold] {result.get('report_error', 'N/A')}
+[bold]Report Path:[/bold] {result.get('report_path') or 'N/A'}
+[bold]Report Error:[/bold] {result.get('report_error') or 'N/A'}
 
 ---
 [bold]Workspace:[/bold] {result.get('workspace_path', 'N/A')}
