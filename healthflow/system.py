@@ -227,6 +227,7 @@ class HealthFlowSystem:
                 workspace_artifacts=workspace_artifacts,
                 generated_answer=generated_answer,
             )
+            verdict = self._normalize_evaluation_verdict(verdict)
             evaluation_usage = self._capture_agent_usage(self.evaluator)
             final_verdict = verdict
 
@@ -330,6 +331,26 @@ class HealthFlowSystem:
             "evaluation_path": str(task_workspace / "evaluation.json"),
             "memory_context_path": str(task_workspace / "memory_context.json"),
         }
+
+    def _normalize_evaluation_verdict(self, verdict: EvaluationVerdict) -> EvaluationVerdict:
+        threshold = self.config.evaluation.success_threshold
+        if verdict.status == "success" and verdict.score < threshold:
+            logger.warning(
+                "Evaluator returned success with below-threshold score {}. Lifting the score to {} for consistency.",
+                verdict.score,
+                threshold,
+            )
+            return verdict.model_copy(update={"score": threshold})
+        if verdict.status != "success" and verdict.score >= threshold:
+            adjusted_score = max(threshold - 0.1, 0.0)
+            logger.warning(
+                "Evaluator returned non-success status '{}' with above-threshold score {}. Lowering the score to {} for consistency.",
+                verdict.status,
+                verdict.score,
+                adjusted_score,
+            )
+            return verdict.model_copy(update={"score": adjusted_score})
+        return verdict
 
     def _extract_answer_from_workspace(self, task_workspace: Path, execution_log: str, user_request: str) -> str:
         final_report = task_workspace / "final_report.md"

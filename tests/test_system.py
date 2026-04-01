@@ -58,6 +58,20 @@ class _FakeReflector:
         return []
 
 
+class _LowScoreSuccessEvaluator(_FakeEvaluator):
+    async def evaluate(self, **kwargs) -> EvaluationVerdict:
+        return EvaluationVerdict(
+            status="success",
+            score=1.0,
+            failure_type="none",
+            feedback="The task completed successfully.",
+            repair_instructions=[],
+            retry_recommended=False,
+            memory_worthy_insights=["Successful runs should not be rejected due to contradictory evaluator scores."],
+            reasoning="The artifacts and final answer satisfy the task.",
+        )
+
+
 class _FakeExecutor:
     async def execute(self, context, working_dir: Path) -> ExecutionResult:
         (working_dir / "final_report.md").write_text(
@@ -170,6 +184,45 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(cost_analysis["attempts"][0]["attempt_total_estimated_cost_usd"], 0.1252)
             self.assertEqual(cost_analysis["run_total"]["reflection"]["estimated_cost_usd"], 0.0003)
             self.assertEqual(cost_analysis["run_total"]["total_estimated_cost_usd"], 0.1255)
+
+    async def test_run_task_normalizes_contradictory_success_verdicts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = HealthFlowConfig(
+                active_llm_name="test-llm",
+                active_executor_name="claude_code",
+                llm_registry={
+                    "test-llm": LLMProviderConfig(
+                        api_key="key",
+                        base_url="https://example.com/v1",
+                        model_name="test-model",
+                    ),
+                },
+                llm=LLMProviderConfig(
+                    api_key="key",
+                    base_url="https://example.com/v1",
+                    model_name="test-model",
+                ),
+                llm_roles=LLMRoleConfig(),
+                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
+                tools=ToolsConfig(),
+                memory=MemoryConfig(write_policy="append"),
+                evaluation=EvaluationConfig(success_threshold=8.0),
+                logging=LoggingConfig(),
+            )
+            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            system.meta_agent = _FakeMetaAgent()
+            system.evaluator = _LowScoreSuccessEvaluator()
+            system.reflector = _FakeReflector()
+            system.executor = _FakeExecutor()
+
+            result = await system.run_task("Create final_report.md with executor smoke ok.")
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["evaluation_status"], "success")
+            self.assertEqual(result["evaluation_score"], 8.0)
 
 
 if __name__ == "__main__":
