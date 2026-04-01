@@ -181,7 +181,7 @@ class MemoryConfig(BaseModel):
 
 
 class EvaluationConfig(BaseModel):
-    success_threshold: float = Field(8.0, description="Score (out of 10) to consider a task successful.")
+    success_threshold: float = Field(0.8, description="Score (0-1) required to consider a task successful.")
 
 
 class LoggingConfig(BaseModel):
@@ -327,10 +327,10 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         raise ValueError(f"Error parsing configuration file '{config_path}': {e}") from e
 
 
-def setup_logging(config: HealthFlowConfig):
+def setup_logging(config: HealthFlowConfig, console_log_level: str | None = None):
     """Configures the Loguru logger based on the loaded configuration."""
     logger.remove()
-    logger.add(sys.stderr, level=config.logging.log_level.upper())
+    logger.add(sys.stderr, level=(console_log_level or "WARNING").upper())
     logger.add(
         config.logging.log_file,
         level=config.logging.log_level.upper(),

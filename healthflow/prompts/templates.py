@@ -111,7 +111,7 @@ Evaluation criteria:
 Output format:
 {
   "status": "<success|needs_retry|failed>",
-  "score": <float>,
+  "score": <float between 0 and 1>,
   "failure_type": "<none or structured failure category>",
   "feedback": "<specific next-step feedback>",
   "repair_instructions": ["<repair step>"],

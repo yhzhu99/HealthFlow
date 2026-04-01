@@ -102,7 +102,7 @@ class ReportingTests(unittest.TestCase):
                             },
                             "evaluation": {
                                 "status": "success",
-                                "score": 9.1,
+                                "score": 0.91,
                                 "retry_recommended": False,
                                 "feedback": "Artifacts were easy to inspect.",
                             },
@@ -127,7 +127,7 @@ class ReportingTests(unittest.TestCase):
             json.dumps(
                 {
                     "status": "success",
-                    "score": 9.1,
+                    "score": 0.91,
                     "feedback": "Artifacts were easy to inspect.",
                     "reasoning": "The requested output files are present.",
                     "repair_instructions": [],
@@ -187,7 +187,7 @@ class ReportingTests(unittest.TestCase):
                     },
                     "memory_write_policy": "append",
                     "evaluation_status": "success",
-                    "evaluation_score": 9.1,
+                    "evaluation_score": 0.91,
                     "execution_time": 12.34,
                     "final_summary": "Task completed successfully.",
                     "usage_summary": {

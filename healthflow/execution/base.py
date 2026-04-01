@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -123,6 +124,15 @@ class ExecutionResult:
     timed_out: bool = False
     usage: Dict[str, Any] = field(default_factory=dict)
     telemetry: Dict[str, Any] = field(default_factory=dict)
+    cancelled: bool = False
+    cancel_reason: str | None = None
+
+
+class ExecutionCancelledError(asyncio.CancelledError):
+    def __init__(self, result: ExecutionResult, cancel_reason: str = "Execution cancelled by user."):
+        super().__init__(cancel_reason)
+        self.result = result
+        self.cancel_reason = cancel_reason
 
 
 class ExecutorAdapter(ABC):

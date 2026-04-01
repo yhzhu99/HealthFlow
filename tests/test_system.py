@@ -15,6 +15,7 @@ from healthflow.core.config import (
 )
 from healthflow.core.config import default_executor_backends
 from healthflow.execution.base import ExecutionResult
+from healthflow.experience.experience_models import Experience, MemoryKind, SourceOutcome
 from healthflow.system import HealthFlowSystem
 
 
@@ -45,7 +46,7 @@ class _FakeEvaluator:
     async def evaluate(self, **kwargs) -> EvaluationVerdict:
         return EvaluationVerdict(
             status="success",
-            score=9.5,
+            score=0.95,
             failure_type="none",
             feedback="Looks good.",
             repair_instructions=[],
@@ -65,11 +66,29 @@ class _FakeReflector:
         return []
 
 
+class _MemoryWritingReflector(_FakeReflector):
+    async def synthesize_experience(self, full_history, final_verdict: EvaluationVerdict):
+        return [
+            Experience(
+                kind=MemoryKind.WORKFLOW,
+                category="repository_summary",
+                content="Save a concise repository map when the task asks for structure or orientation.",
+                source_task_id=full_history["task_id"],
+                task_family=full_history.get("data_profile", {}).get("task_family", "general_analysis"),
+                dataset_signature=full_history.get("data_profile", {}).get("dataset_signature", "unknown"),
+                stage="reflection",
+                backend=full_history.get("backend", "unknown"),
+                source_outcome=SourceOutcome.SUCCESS,
+                applicability_scope="workflow_generic",
+            )
+        ]
+
+
 class _LowScoreSuccessEvaluator(_FakeEvaluator):
     async def evaluate(self, **kwargs) -> EvaluationVerdict:
         return EvaluationVerdict(
             status="success",
-            score=1.0,
+            score=0.1,
             failure_type="none",
             feedback="The task completed successfully.",
             repair_instructions=[],
@@ -83,7 +102,7 @@ class _FailedEvaluator(_FakeEvaluator):
     async def evaluate(self, **kwargs) -> EvaluationVerdict:
         return EvaluationVerdict(
             status="failed",
-            score=2.0,
+            score=0.2,
             failure_type="analysis_incomplete",
             feedback="The task did not satisfy the requested deliverable.",
             repair_instructions=["Produce the missing deliverable."],
@@ -181,7 +200,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 environment=EnvironmentConfig(),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
                 memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=8.0),
+                evaluation=EvaluationConfig(success_threshold=0.8),
                 logging=LoggingConfig(),
             )
             experience_path = workspace_root / "memory" / "experience.jsonl"
@@ -277,7 +296,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 environment=EnvironmentConfig(),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
                 memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=8.0),
+                evaluation=EvaluationConfig(success_threshold=0.8),
                 logging=LoggingConfig(),
             )
             system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
@@ -288,9 +307,9 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
             result = await system.run_task("Create final_report.md with executor smoke ok.")
 
-            self.assertTrue(result["success"])
+            self.assertFalse(result["success"])
             self.assertEqual(result["evaluation_status"], "success")
-            self.assertEqual(result["evaluation_score"], 8.0)
+            self.assertEqual(result["evaluation_score"], 0.1)
 
     async def test_run_task_generates_report_for_failed_runs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -316,7 +335,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 environment=EnvironmentConfig(),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
                 memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=8.0),
+                evaluation=EvaluationConfig(success_threshold=0.8),
                 logging=LoggingConfig(),
             )
             system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
@@ -335,6 +354,50 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             report_text = Path(result["report_path"]).read_text(encoding="utf-8")
             self.assertIn("`failed`", report_text)
             self.assertIn("The task did not satisfy the requested deliverable.", report_text)
+
+    async def test_run_task_writes_memory_when_reflection_produces_experience(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = HealthFlowConfig(
+                active_llm_name="test-llm",
+                active_executor_name="claude_code",
+                llm_registry={
+                    "test-llm": LLMProviderConfig(
+                        api_key="key",
+                        base_url="https://example.com/v1",
+                        model_name="test-model",
+                    ),
+                },
+                llm=LLMProviderConfig(
+                    api_key="key",
+                    base_url="https://example.com/v1",
+                    model_name="test-model",
+                ),
+                llm_roles=LLMRoleConfig(),
+                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+                environment=EnvironmentConfig(),
+                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
+                memory=MemoryConfig(write_policy="append"),
+                evaluation=EvaluationConfig(success_threshold=0.8),
+                logging=LoggingConfig(),
+            )
+            experience_path = workspace_root / "memory" / "experience.jsonl"
+            system = HealthFlowSystem(config=config, experience_path=experience_path)
+            system.meta_agent = _FakeMetaAgent()
+            system.evaluator = _FakeEvaluator()
+            system.reflector = _MemoryWritingReflector()
+            system.executor = _FakeExecutor()
+
+            result = await system.run_task("Summarize the repository structure briefly.")
+
+            self.assertTrue(result["success"])
+            self.assertTrue(experience_path.exists())
+            saved_lines = [line for line in experience_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(len(saved_lines), 1)
+            saved_memory = json.loads(saved_lines[0])
+            self.assertEqual(saved_memory["category"], "repository_summary")
+            self.assertEqual(saved_memory["kind"], "workflow")
 
     async def test_run_task_uses_direct_response_path_for_lightweight_conversation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -360,7 +423,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 environment=EnvironmentConfig(),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
                 memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=8.0),
+                evaluation=EvaluationConfig(success_threshold=0.8),
                 logging=LoggingConfig(),
             )
             experience_path = workspace_root / "memory" / "experience.jsonl"
@@ -409,7 +472,7 @@ class SystemAnswerExtractionTests(unittest.TestCase):
                 environment=EnvironmentConfig(),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
                 memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=8.0),
+                evaluation=EvaluationConfig(success_threshold=0.8),
                 logging=LoggingConfig(),
             )
             system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")

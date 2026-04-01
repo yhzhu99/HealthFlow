@@ -75,7 +75,7 @@ class EvaluationVerdict(BaseModel):
         ...,
         description="Top-level outcome classification for the attempt.",
     )
-    score: float = Field(..., ge=0.0, le=10.0, description="Overall quality score for the attempt.")
+    score: float = Field(..., ge=0.0, le=1.0, description="Overall quality score for the attempt on a 0-1 scale.")
     failure_type: str = Field(
         default="none",
         description="Structured failure category. Use 'none' on success.",

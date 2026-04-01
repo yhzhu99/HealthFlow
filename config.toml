@@ -116,11 +116,11 @@ workspace_dir = "workspace/tasks"
 
 # --- Memory Configuration ---
 [memory]
-write_policy = "freeze" # append | freeze | reset_before_run
+write_policy = "append" # append | freeze | reset_before_run
 
 # --- Evaluation Configuration ---
 [evaluation]
-success_threshold = 8.0
+success_threshold = 0.8
 
 # --- Logging Configuration ---
 [logging]

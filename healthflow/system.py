@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -20,7 +21,7 @@ from .core.contracts import EvaluationVerdict
 from .core.direct_responses import DirectResponse, maybe_build_direct_response
 from .core.llm_provider import create_llm_provider
 from .ehr import detect_risk_findings, profile_workspace_data
-from .execution import ExecutionContext, WorkflowRecommendationBroker, create_executor_adapter
+from .execution import ExecutionCancelledError, ExecutionContext, WorkflowRecommendationBroker, create_executor_adapter
 from .experience.experience_manager import ExperienceManager
 from .experience.experience_models import RetrievalContext
 from .reporting import generate_task_report
@@ -85,15 +86,32 @@ class HealthFlowSystem:
                     handle.write(content)
 
         start_time = time.time()
-        result = await self._run_task_flow(
-            task_id,
-            task_workspace,
-            user_request,
-            live,
-            spinner,
-            report_requested,
-            uploaded_files=uploaded_files,
-        )
+        try:
+            result = await self._run_task_flow(
+                task_id,
+                task_workspace,
+                user_request,
+                live,
+                spinner,
+                report_requested,
+                uploaded_files=uploaded_files,
+            )
+        except ExecutionCancelledError as exc:
+            logger.warning("[{}] Task cancelled during execution.", task_id)
+            result = self._build_cancelled_task_result(
+                task_id=task_id,
+                task_workspace=task_workspace,
+                user_request=user_request,
+                execution_result=exc.result,
+                cancel_reason=exc.cancel_reason,
+            )
+        except asyncio.CancelledError:
+            logger.warning("[{}] Task cancelled before completion.", task_id)
+            result = self._build_cancelled_task_result(
+                task_id=task_id,
+                task_workspace=task_workspace,
+                user_request=user_request,
+            )
         execution_time = round(time.time() - start_time, 2)
         result["execution_time"] = execution_time
         result["workspace_path"] = str(task_workspace)
@@ -112,9 +130,11 @@ class HealthFlowSystem:
         result["report_path"] = None
         result["report_error"] = None
         result["response_mode"] = result.get("response_mode", "orchestrated")
+        result["cancelled"] = result.get("cancelled", False)
+        result["cancel_reason"] = result.get("cancel_reason")
         self._write_run_metadata_artifacts(task_workspace, task_id, user_request, execution_time, result)
 
-        if report_requested:
+        if report_requested and not result.get("cancelled", False):
             try:
                 report_path = generate_task_report(task_workspace)
                 result["report_generated"] = True
@@ -267,6 +287,8 @@ class HealthFlowSystem:
             "evaluation_path": str(task_workspace / "evaluation.json"),
             "memory_context_path": str(task_workspace / "memory_context.json"),
             "response_mode": direct_response.mode,
+            "cancelled": False,
+            "cancel_reason": None,
         }
 
     async def _run_unified_flow(
@@ -461,7 +483,10 @@ class HealthFlowSystem:
             if not verdict.retry_recommended:
                 break
 
-        should_write_memory = self.config.memory.write_policy != "freeze"
+        should_write_memory = (
+            self.config.memory.write_policy != "freeze"
+            and self._should_synthesize_memory(full_history)
+        )
         if should_write_memory:
             if spinner and live:
                 spinner.text = "Synthesizing memory..."
@@ -521,26 +546,196 @@ class HealthFlowSystem:
             "evaluation_path": str(task_workspace / "evaluation.json"),
             "memory_context_path": str(task_workspace / "memory_context.json"),
             "response_mode": "orchestrated",
+            "cancelled": False,
+            "cancel_reason": None,
+        }
+
+    def _build_cancelled_task_result(
+        self,
+        *,
+        task_id: str,
+        task_workspace: Path,
+        user_request: str,
+        execution_result=None,
+        cancel_reason: str = "Task cancelled by user.",
+    ) -> dict[str, Any]:
+        generated_answer = (
+            self._extract_answer_from_workspace(task_workspace, execution_result.log, user_request)
+            if execution_result is not None
+            else "Task cancelled before completion."
+        )
+        evaluation = self._cancelled_evaluation_payload(cancel_reason)
+        self._write_json(task_workspace / "evaluation.json", evaluation)
+
+        memory_context_path = task_workspace / "memory_context.json"
+        if not memory_context_path.exists():
+            self._write_json(memory_context_path, self._minimal_memory_context(user_request, cancel_reason))
+
+        full_history_path = task_workspace / "full_history.json"
+        if not full_history_path.exists():
+            full_history: dict[str, Any] = {
+                "task_id": task_id,
+                "user_request": user_request,
+                "backend": self.config.active_executor_name,
+                "executor_model": self.config.active_executor.model,
+                "executor_provider": self.config.active_executor.provider,
+                "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+                "llm_role_models": self._role_model_names(),
+                "memory_write_policy": self.config.memory.write_policy,
+                "workflow_recommendations": [],
+                "memory_context_path": str(memory_context_path),
+                "memory_retrieval": self._minimal_memory_context(user_request, cancel_reason),
+                "attempts": [],
+                "cancelled": True,
+                "cancel_reason": cancel_reason,
+            }
+            if execution_result is not None:
+                full_history["attempts"].append(
+                    self._cancelled_attempt_history(
+                        execution_result=execution_result,
+                        task_workspace=task_workspace,
+                        generated_answer=generated_answer,
+                    )
+                )
+            self._write_json(full_history_path, full_history)
+
+        usage_summary = {
+            "planning": {},
+            "evaluation": {},
+            "execution": self._aggregate_execution_records(
+                [{"execution": self._execution_record_from_result(execution_result)}]
+            )
+            if execution_result is not None
+            else {},
+        }
+        cost_summary = self._summarize_run_costs(usage_summary)
+        cost_analysis = {
+            "attempts": [],
+            "run_total": {
+                "attempts": 1 if execution_result is not None else 0,
+                "planning": {},
+                "execution": usage_summary["execution"],
+                "evaluation": {},
+                "reflection": {},
+                "llm_estimated_cost_usd": cost_summary["llm_estimated_cost_usd"],
+                "executor_estimated_cost_usd": cost_summary["executor_estimated_cost_usd"],
+                "total_estimated_cost_usd": cost_summary["total_estimated_cost_usd"],
+            },
+        }
+        self._write_json(task_workspace / "cost_analysis.json", cost_analysis)
+
+        return {
+            "success": False,
+            "final_summary": cancel_reason,
+            "answer": generated_answer,
+            "evaluation_status": "cancelled",
+            "evaluation_score": 0.0,
+            "memory_write_policy": self.config.memory.write_policy,
+            "workflow_recommendations": [],
+            "backend_version": execution_result.backend_version if execution_result is not None else None,
+            "executor_metadata": execution_result.executor_metadata if execution_result is not None else {},
+            "usage_summary": usage_summary,
+            "cost_summary": cost_summary,
+            "cost_analysis": cost_analysis,
+            "log_path": execution_result.log_path if execution_result is not None else None,
+            "prompt_path": execution_result.prompt_path if execution_result is not None else None,
+            "evaluation_path": str(task_workspace / "evaluation.json"),
+            "memory_context_path": str(memory_context_path),
+            "response_mode": "orchestrated",
+            "cancelled": True,
+            "cancel_reason": cancel_reason,
+        }
+
+    def _cancelled_attempt_history(
+        self,
+        *,
+        execution_result,
+        task_workspace: Path,
+        generated_answer: str,
+    ) -> dict[str, Any]:
+        execution_record = self._execution_record_from_result(execution_result)
+        workspace_artifacts = self._workspace_artifact_paths(task_workspace)
+        return {
+            "attempt": 1,
+            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "memory": {
+                "retrieval": self._minimal_memory_context("cancelled", execution_result.cancel_reason or "Execution cancelled by user."),
+                "safeguards": [],
+                "workflows": [],
+                "datasets": [],
+                "execution": [],
+            },
+            "plan": {},
+            "plan_markdown": "",
+            "planning": {},
+            "execution": execution_record,
+            "artifacts": {
+                "workspace_paths": workspace_artifacts,
+                "generated_answer": generated_answer,
+            },
+            "gate": {
+                "execution_ok": False,
+                "evaluation_threshold_ok": False,
+                "verdict_success": False,
+                "retry_recommended": False,
+            },
+            "evaluation": self._cancelled_evaluation_payload(execution_result.cancel_reason or "Execution cancelled by user."),
+            "evaluation_meta": {},
+        }
+
+    def _execution_record_from_result(self, execution_result) -> dict[str, Any]:
+        if execution_result is None:
+            return {}
+        return {
+            "success": execution_result.success,
+            "return_code": execution_result.return_code,
+            "log": execution_result.log,
+            "log_path": execution_result.log_path,
+            "prompt_path": execution_result.prompt_path,
+            "backend": execution_result.backend,
+            "backend_version": execution_result.backend_version,
+            "executor_metadata": execution_result.executor_metadata,
+            "command": execution_result.command,
+            "duration_seconds": execution_result.duration_seconds,
+            "timed_out": execution_result.timed_out,
+            "usage": execution_result.usage,
+            "telemetry": execution_result.telemetry,
+            "cancelled": execution_result.cancelled,
+            "cancel_reason": execution_result.cancel_reason,
+        }
+
+    def _cancelled_evaluation_payload(self, cancel_reason: str) -> dict[str, Any]:
+        return {
+            "status": "cancelled",
+            "score": 0.0,
+            "failure_type": "cancelled_by_user",
+            "feedback": cancel_reason,
+            "repair_instructions": [],
+            "violated_constraints": [],
+            "repair_hypotheses": [],
+            "retry_recommended": False,
+            "memory_worthy_insights": [],
+            "reasoning": cancel_reason,
+        }
+
+    def _minimal_memory_context(self, query: str, cancel_reason: str) -> dict[str, Any]:
+        return {
+            "query": query,
+            "task_family": "unknown",
+            "domain_focus": "unknown",
+            "dataset_signature": "unknown",
+            "capacity": 0,
+            "selection_policy": ["Memory retrieval did not complete before cancellation."],
+            "selected": [],
+            "safeguard_overrides": [],
+            "suppressed_duplicates": [],
+            "suppressed_conflicts": [],
+            "suppressed": [],
+            "skipped": True,
+            "skip_reason": cancel_reason,
         }
 
     def _normalize_evaluation_verdict(self, verdict: EvaluationVerdict) -> EvaluationVerdict:
-        threshold = self.config.evaluation.success_threshold
-        if verdict.status == "success" and verdict.score < threshold:
-            logger.warning(
-                "Evaluator returned success with below-threshold score {}. Lifting the score to {} for consistency.",
-                verdict.score,
-                threshold,
-            )
-            return verdict.model_copy(update={"score": threshold})
-        if verdict.status != "success" and verdict.score >= threshold:
-            adjusted_score = max(threshold - 0.1, 0.0)
-            logger.warning(
-                "Evaluator returned non-success status '{}' with above-threshold score {}. Lowering the score to {} for consistency.",
-                verdict.status,
-                verdict.score,
-                adjusted_score,
-            )
-            return verdict.model_copy(update={"score": adjusted_score})
         return verdict
 
     def _extract_answer_from_workspace(self, task_workspace: Path, execution_log: str, user_request: str) -> str:
@@ -674,6 +869,46 @@ class HealthFlowSystem:
                 artifact_paths.append(str(path))
         return artifact_paths
 
+    def _should_synthesize_memory(self, full_history: dict[str, Any]) -> bool:
+        attempts = full_history.get("attempts", [])
+        if not attempts:
+            return False
+
+        data_profile = full_history.get("data_profile", {})
+        if data_profile.get("domain_focus") == "ehr":
+            return True
+        if data_profile.get("task_family") != "general_analysis":
+            return True
+        if len(attempts) > 1:
+            return True
+
+        workspace_paths = attempts[-1].get("artifacts", {}).get("workspace_paths", [])
+        non_runtime_paths = [path for path in workspace_paths if not self._is_runtime_artifact_path(path)]
+        if non_runtime_paths:
+            return True
+
+        return len(str(full_history.get("user_request", "")).split()) > 20
+
+    def _is_runtime_artifact_path(self, relative_path: str) -> bool:
+        runtime_prefixes = (".healthflow_pi_agent/",)
+        runtime_suffixes = ("_execution.log", "_prompt.md")
+        runtime_names = {
+            "task_state.json",
+            "memory_context.json",
+            "evaluation.json",
+            "cost_analysis.json",
+            "run_manifest.json",
+            "run_result.json",
+            "full_history.json",
+        }
+        if relative_path.startswith(runtime_prefixes):
+            return True
+        if relative_path in runtime_names:
+            return True
+        if relative_path.startswith("task_list_v") or relative_path.startswith("memory_context_v"):
+            return True
+        return relative_path.endswith(runtime_suffixes)
+
     def _format_memory_lines(self, experiences: list[Any]) -> list[str]:
         lines: list[str] = []
         for exp in experiences:
@@ -790,6 +1025,8 @@ class HealthFlowSystem:
                 "report_path": result.get("report_path"),
                 "report_error": result.get("report_error"),
                 "response_mode": result.get("response_mode"),
+                "cancelled": result.get("cancelled", False),
+                "cancel_reason": result.get("cancel_reason"),
             },
         )
 

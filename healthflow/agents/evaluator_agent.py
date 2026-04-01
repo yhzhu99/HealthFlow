@@ -77,7 +77,7 @@ class EvaluatorAgent:
                 logger.debug(f"Invalid JSON response from LLM: {response.content}")
             return EvaluationVerdict(
                 status="failed",
-                score=1.0,
+                score=0.0,
                 failure_type="evaluator_malformed_response",
                 feedback="Evaluation Agent failed. The LLM evaluation response was malformed or empty.",
                 repair_instructions=["Retry with a simpler execution path and ensure the final answer is explicit."],
