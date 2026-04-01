@@ -15,18 +15,20 @@ if str(SCRIPT_ROOT) not in sys.path:
 
 from ehr_common import (
     build_stratified_split_metadata,
+    ensure_directory,
     extract_gzip_file,
     write_json,
     write_parquet_with_metadata,
 )
 
 
-BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
+BENCHMARK_ROOT = Path(__file__).resolve().parents[2]
 RAW_ROOT = BENCHMARK_ROOT / "raw" / "mimic_iv_demo"
 PROCESSED_ROOT = BENCHMARK_ROOT / "processed" / "mimic_iv_demo"
 EXTRACTED_ROOT = PROCESSED_ROOT / "_extracted"
 OUTPUT_PATH = PROCESSED_ROOT / "mimic_iv_demo_formatted_ehr.parquet"
 SPLIT_METADATA_PATH = PROCESSED_ROOT / "split_metadata.json"
+VALUE_REFERENCE_PATH = PROCESSED_ROOT / "mimic_iv_demo_value_reference.md"
 METADATA_BUNDLE_PATH = BENCHMARK_ROOT / "scripts" / "prepare_ehr" / "mimic_iv_demo_ehr_metadata.json"
 MAX_WINDOW = 7
 SEED = 42
@@ -67,6 +69,19 @@ def format_gcs(values: pd.Series) -> pd.Series:
     normalized = values.fillna("").astype(str).str.strip()
     normalized = normalized.replace("", np.nan)
     return normalized
+
+
+def encode_categorical_feature(
+    values: pd.Series,
+    *,
+    feature: str,
+    config: dict[str, Any],
+) -> pd.Series:
+    if feature == "Capillary refill rate":
+        return pd.to_numeric(values, errors="coerce")
+
+    mapping = config["mapping_values"].get(feature, {})
+    return pd.to_numeric(values.map(lambda value: mapping.get(str(value), np.nan)), errors="coerce")
 
 
 def format_temperature(values: pd.Series, mimic_labels: pd.Series) -> pd.Series:
@@ -273,39 +288,30 @@ def aggregate_ehr(
         if feature not in frame.columns:
             frame[feature] = pd.NA
 
+    categorical_features = [
+        feature for feature, is_categorical in config["is_categorical_channel"].items() if is_categorical
+    ]
+    for feature in categorical_features:
+        if feature == "Glascow coma scale total":
+            continue
+        frame[feature] = encode_categorical_feature(frame[feature], feature=feature, config=config)
+
     gcs_numeric_df = pd.concat(
-        [
-            pd.to_numeric(
-                frame[gcs_feature].map(lambda value: config["mapping_values"].get(gcs_feature, {}).get(str(value), value)),
-                errors="coerce",
-            )
-            for gcs_feature in config["gcs_features"]
-        ],
+        [frame[gcs_feature] for gcs_feature in config["gcs_features"]],
         axis=1,
     )
     frame["Glascow coma scale total"] = gcs_numeric_df.sum(axis=1).astype("Int64")
 
-    categorical_features = [
-        feature for feature, is_categorical in config["is_categorical_channel"].items() if is_categorical
-    ]
-    numeric_features = [
-        feature for feature in config["labtest_features"] if not config["is_categorical_channel"].get(feature, False)
-    ]
-    for feature in numeric_features:
+    for feature in config["labtest_features"]:
         frame[feature] = pd.to_numeric(frame[feature], errors="coerce")
 
     frame["RecordID"] = frame["PatientID"].astype(str) + "_" + frame["AdmissionID"].astype(str)
-    ordered_columns = ["RecordID", "PatientID", "AdmissionID", "RecordTime"] + config["label_features"] + config["demographic_features"] + numeric_features
-    one_hot_columns: list[str] = []
-    for feature in categorical_features:
-        values = config["possible_values"].get(feature, [])
-        feature_series = frame[feature].astype(str)
-        for value in values:
-            column_name = f"{feature}->{value}"
-            frame[column_name] = (feature_series == str(value)).astype(int)
-            one_hot_columns.append(column_name)
-
-    frame = frame.drop(columns=categorical_features)
+    ordered_columns = (
+        ["RecordID", "PatientID", "AdmissionID", "RecordTime"]
+        + config["label_features"]
+        + config["demographic_features"]
+        + config["labtest_features"]
+    )
     frame["RecordTime"] = frame["RecordTime"].astype(str)
     frame["PatientID"] = frame["PatientID"].astype("int64")
     frame["AdmissionID"] = frame["AdmissionID"].astype("int64")
@@ -314,7 +320,55 @@ def aggregate_ehr(
     frame["Age"] = frame["Age"].astype("int64")
     frame["Sex"] = frame["Sex"].astype("Int64")
 
-    return frame[ordered_columns + one_hot_columns]
+    return frame[ordered_columns]
+
+
+def build_value_reference_markdown(metadata_bundle: dict[str, Any]) -> str:
+    config = metadata_bundle["config"]
+    categorical_features = [
+        feature
+        for feature, is_categorical in config["is_categorical_channel"].items()
+        if is_categorical
+    ]
+    lines = [
+        "# MIMIC-IV Demo Value Reference",
+        "",
+        "The formatted parquet stores categorical clinical channels as scalar-coded values.",
+        "Use this file to interpret the numeric values that appear in `mimic_iv_demo_formatted_ehr.parquet`.",
+        "",
+    ]
+
+    for feature in categorical_features:
+        lines.append(f"## {feature}")
+        lines.append("")
+        lines.append("| Stored value | Meaning / original labels |")
+        lines.append("| --- | --- |")
+
+        if feature == "Capillary refill rate":
+            lines.append("| 0.0 | Normal capillary refill |")
+            lines.append("| 1.0 | Abnormal capillary refill |")
+            lines.append("")
+            continue
+
+        mapping = config["mapping_values"].get(feature, {})
+        grouped_labels: dict[str, list[str]] = {}
+        for label in config["possible_values"].get(feature, []):
+            code = mapping.get(str(label), label)
+            grouped_labels.setdefault(str(code), []).append(str(label))
+
+        for code, labels in grouped_labels.items():
+            label_text = ", ".join(dict.fromkeys(labels))
+            lines.append(f"| {code} | {label_text} |")
+
+        if feature == "Glascow coma scale total":
+            lines.append("| 3-15 | Sum of eye opening, motor response, and verbal response scores |")
+
+        normal_value = config["normal_values"].get(feature)
+        if normal_value is not None:
+            lines.append(f"| normal_value | {normal_value} |")
+        lines.append("")
+
+    return "\n".join(lines) + "\n"
 
 
 def main() -> None:
@@ -333,6 +387,8 @@ def main() -> None:
         seed=SEED,
     )
     write_json(SPLIT_METADATA_PATH, split_metadata)
+    ensure_directory(VALUE_REFERENCE_PATH.parent)
+    VALUE_REFERENCE_PATH.write_text(build_value_reference_markdown(metadata_bundle), encoding="utf-8")
 
     metadata = {
         "healthflow.source_dataset": "mimic_iv_demo",
@@ -340,11 +396,12 @@ def main() -> None:
         "healthflow.key_column": "RecordID",
         "healthflow.metadata_bundle_path": str(METADATA_BUNDLE_PATH.relative_to(BENCHMARK_ROOT)),
         "healthflow.split_metadata_path": str(SPLIT_METADATA_PATH.relative_to(BENCHMARK_ROOT)),
+        "healthflow.value_reference_path": str(VALUE_REFERENCE_PATH.relative_to(BENCHMARK_ROOT)),
         "healthflow.metadata_bundle.json": metadata_bundle,
         "healthflow.processing.json": {
             "seed": SEED,
             "max_window": MAX_WINDOW,
-            "one_hot_encode_categorical": True,
+            "one_hot_encode_categorical": False,
             "split_strategy": {
                 "method": "stratified",
                 "ratios": {
@@ -356,9 +413,8 @@ def main() -> None:
             "categorical_features": [
                 feature for feature, is_categorical in config["is_categorical_channel"].items() if is_categorical
             ],
-            "numeric_features": [
-                feature for feature in config["labtest_features"] if not config["is_categorical_channel"].get(feature, False)
-            ],
+            "categorical_encoding": "scalar_code_with_reference_file",
+            "numeric_features": config["labtest_features"],
             "extracted_sources": {
                 str(source.relative_to(BENCHMARK_ROOT)): str(target.relative_to(BENCHMARK_ROOT))
                 for source, target in EXTRACT_TARGETS.items()
@@ -374,6 +430,7 @@ def main() -> None:
         "columns": len(frame.columns),
         "metadata_bundle": str(METADATA_BUNDLE_PATH),
         "split_metadata_file": str(SPLIT_METADATA_PATH),
+        "value_reference_file": str(VALUE_REFERENCE_PATH),
         "split_key_counts": split_metadata["split_key_counts"],
         "output_file": str(OUTPUT_PATH),
     }
