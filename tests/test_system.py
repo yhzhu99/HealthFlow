@@ -113,6 +113,32 @@ class _FailedEvaluator(_FakeEvaluator):
         )
 
 
+class _GeneratedAnswerCompletenessEvaluator(_FakeEvaluator):
+    async def evaluate(self, **kwargs) -> EvaluationVerdict:
+        generated_answer = kwargs["generated_answer"]
+        if "Current time" in generated_answer and "Hong Kong weather today" in generated_answer:
+            return EvaluationVerdict(
+                status="success",
+                score=0.95,
+                failure_type="none",
+                feedback="The generated answer includes both requested fields.",
+                repair_instructions=[],
+                retry_recommended=False,
+                memory_worthy_insights=["Generated answers should preserve every requested field from the final stop block."],
+                reasoning="Both the time and weather are present in the final extracted answer.",
+            )
+        return EvaluationVerdict(
+            status="needs_retry",
+            score=0.2,
+            failure_type="output_assembly.omitted_requested_field",
+            feedback="The generated answer omitted one of the requested fields.",
+            repair_instructions=["Preserve both the current time and Hong Kong weather in the extracted answer."],
+            retry_recommended=True,
+            memory_worthy_insights=["Multi-item prompts need answer extraction that keeps all requested fields together."],
+            reasoning="The extracted answer is incomplete.",
+        )
+
+
 class _FakeExecutor:
     async def execute(self, context, working_dir: Path) -> ExecutionResult:
         (working_dir / "final_report.md").write_text(
@@ -153,6 +179,48 @@ class _FakeExecutor:
                 "tool_names": ["read"],
                 "step_reasons": {"stop": 1},
             },
+        )
+
+
+class _MultiPartStopStepExecutor:
+    async def execute(self, context, working_dir: Path) -> ExecutionResult:
+        log_text = "\n".join(
+            [
+                "EVENT: step_start #1",
+                "STDOUT: I'll inspect the workspace to locate the captured time and weather data, then provide a corrected answer with both elements.",
+                "EVENT: step_finish #1 reason=tool-calls cost=$0.000642 tokens(in=911, out=116, total=12291, cache_read=11264, cache_write=0)",
+                "EVENT: step_start #2",
+                "STDOUT: Perfect! I can see from the execution log that the script ran successfully and captured both the time and weather data. The log shows:",
+                "STDOUT: ",
+                "STDOUT: 1. **Current time:** 2026-04-01 23:58:25",
+                "STDOUT: 2. **Hong Kong weather:** Overcast, 23.2°C (feels like 26.9°C), 85% humidity, no precipitation, light wind from southeast (143°)",
+                "STDOUT: ",
+                "STDOUT: Now I'll provide the corrected final answer with both elements explicitly included:",
+                "STDOUT: ",
+                "STDOUT: 🕐 **Current time:** 2026-04-01 23:58:25",
+                "STDOUT: ",
+                "STDOUT: 🌤️ **Hong Kong weather today:** Overcast, 23.2°C (feels like 26.9°C), 85% humidity, no precipitation, light wind from southeast (143°)",
+                "EVENT: step_finish #2 reason=stop cost=$0.000916 tokens(in=1653, out=169, total=14558, cache_read=12736, cache_write=0)",
+            ]
+        )
+        log_path = working_dir / "opencode_execution.log"
+        log_path.write_text(log_text, encoding="utf-8")
+        return ExecutionResult(
+            success=True,
+            return_code=0,
+            log=log_text,
+            log_path=str(log_path),
+            prompt_path=None,
+            backend="opencode",
+            command=["opencode", "run"],
+            duration_seconds=0.01,
+            timed_out=False,
+            usage={
+                "wall_time_seconds": 0.01,
+                "timed_out": False,
+                "estimated_cost_usd": 0.0009,
+            },
+            telemetry={},
         )
 
 
@@ -410,6 +478,46 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(saved_memory["category"], "repository_summary")
             self.assertEqual(saved_memory["kind"], "workflow")
 
+    async def test_run_task_recovers_multi_item_answer_from_stop_block(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = HealthFlowConfig(
+                active_llm_name="test-llm",
+                active_executor_name="claude_code",
+                llm_registry={
+                    "test-llm": LLMProviderConfig(
+                        api_key="key",
+                        base_url="https://example.com/v1",
+                        model_name="test-model",
+                    ),
+                },
+                llm=LLMProviderConfig(
+                    api_key="key",
+                    base_url="https://example.com/v1",
+                    model_name="test-model",
+                ),
+                llm_roles=LLMRoleConfig(),
+                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+                environment=EnvironmentConfig(),
+                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
+                memory=MemoryConfig(write_policy="append"),
+                evaluation=EvaluationConfig(success_threshold=0.8),
+                logging=LoggingConfig(),
+            )
+            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            system.meta_agent = _FakeMetaAgent()
+            system.evaluator = _GeneratedAnswerCompletenessEvaluator()
+            system.reflector = _FakeReflector()
+            system.executor = _MultiPartStopStepExecutor()
+
+            result = await system.run_task("please tell me the time now and how's the weather in hk today")
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["evaluation_status"], "success")
+            self.assertIn("Current time", result["answer"])
+            self.assertIn("Hong Kong weather today", result["answer"])
+
     async def test_run_task_uses_direct_response_path_for_lightweight_conversation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
@@ -523,34 +631,37 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SystemAnswerExtractionTests(unittest.TestCase):
-    def test_extract_answer_prefers_substantive_reply_over_process_narration(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workspace_root = Path(tmpdir) / "workspace"
-            workspace_dir = workspace_root / "tasks"
-            config = HealthFlowConfig(
-                active_llm_name="test-llm",
-                active_executor_name="claude_code",
-                llm_registry={
-                    "test-llm": LLMProviderConfig(
-                        api_key="key",
-                        base_url="https://example.com/v1",
-                        model_name="test-model",
-                    ),
-                },
-                llm=LLMProviderConfig(
+    def _build_system(self, workspace_root: Path, workspace_dir: Path) -> HealthFlowSystem:
+        config = HealthFlowConfig(
+            active_llm_name="test-llm",
+            active_executor_name="claude_code",
+            llm_registry={
+                "test-llm": LLMProviderConfig(
                     api_key="key",
                     base_url="https://example.com/v1",
                     model_name="test-model",
                 ),
-                llm_roles=LLMRoleConfig(),
-                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-                environment=EnvironmentConfig(),
-                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=0.8),
-                logging=LoggingConfig(),
-            )
-            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            },
+            llm=LLMProviderConfig(
+                api_key="key",
+                base_url="https://example.com/v1",
+                model_name="test-model",
+            ),
+            llm_roles=LLMRoleConfig(),
+            system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+            environment=EnvironmentConfig(),
+            executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
+            memory=MemoryConfig(write_policy="append"),
+            evaluation=EvaluationConfig(success_threshold=0.8),
+            logging=LoggingConfig(),
+        )
+        return HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+
+    def test_extract_answer_prefers_substantive_reply_over_process_narration(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            system = self._build_system(workspace_root, workspace_dir)
             workspace_dir.mkdir(parents=True, exist_ok=True)
             task_workspace = workspace_dir / "task"
             task_workspace.mkdir(parents=True, exist_ok=True)
@@ -570,6 +681,69 @@ class SystemAnswerExtractionTests(unittest.TestCase):
             self.assertIn("I am HealthFlow", answer)
             self.assertIn("How can I assist you today?", answer)
             self.assertNotEqual(answer, "How can I assist you today?")
+
+    def test_extract_answer_keeps_multi_item_stop_step_together(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            system = self._build_system(workspace_root, workspace_dir)
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+            task_workspace = workspace_dir / "task"
+            task_workspace.mkdir(parents=True, exist_ok=True)
+            execution_log = "\n".join(
+                [
+                    "EVENT: step_start #1",
+                    "STDOUT: I'll inspect the workspace to locate the captured time and weather data, then provide a corrected answer with both elements.",
+                    "EVENT: step_finish #1 reason=tool-calls cost=$0.000642 tokens(in=911, out=116, total=12291, cache_read=11264, cache_write=0)",
+                    "EVENT: step_start #2",
+                    "STDOUT: Perfect! I can see from the execution log that the script ran successfully and captured both the time and weather data. The log shows:",
+                    "STDOUT: ",
+                    "STDOUT: 1. **Current time:** 2026-04-01 23:58:25",
+                    "STDOUT: 2. **Hong Kong weather:** Overcast, 23.2°C (feels like 26.9°C), 85% humidity, no precipitation, light wind from southeast (143°)",
+                    "STDOUT: ",
+                    "STDOUT: Now I'll provide the corrected final answer with both elements explicitly included:",
+                    "STDOUT: ",
+                    "STDOUT: 🕐 **Current time:** 2026-04-01 23:58:25",
+                    "STDOUT: ",
+                    "STDOUT: 🌤️ **Hong Kong weather today:** Overcast, 23.2°C (feels like 26.9°C), 85% humidity, no precipitation, light wind from southeast (143°)",
+                    "EVENT: step_finish #2 reason=stop cost=$0.000916 tokens(in=1653, out=169, total=14558, cache_read=12736, cache_write=0)",
+                ]
+            )
+
+            answer = system._extract_answer_from_workspace(
+                task_workspace,
+                execution_log,
+                "please tell me the time now and how's the weather in hk today",
+            )
+
+            self.assertTrue(answer.startswith("🕐 **Current time:**"))
+            self.assertIn("Hong Kong weather today", answer)
+            self.assertNotIn("Now I'll provide", answer)
+            self.assertNotIn("1. **Current time:**", answer)
+
+    def test_extract_answer_supports_inline_final_answer_markers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            system = self._build_system(workspace_root, workspace_dir)
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+            task_workspace = workspace_dir / "task"
+            task_workspace.mkdir(parents=True, exist_ok=True)
+            execution_log = "\n".join(
+                [
+                    "EVENT: step_start #1",
+                    "STDOUT: final answer: executor smoke ok",
+                    "EVENT: step_finish #1 reason=stop cost=$0.000100 tokens(in=10, out=3, total=13, cache_read=0, cache_write=0)",
+                ]
+            )
+
+            answer = system._extract_answer_from_workspace(
+                task_workspace,
+                execution_log,
+                "create final_report.md with executor smoke ok",
+            )
+
+            self.assertEqual(answer, "executor smoke ok")
 
 
 if __name__ == "__main__":
