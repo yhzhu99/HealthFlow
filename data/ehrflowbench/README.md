@@ -1,6 +1,7 @@
 # EHRFlowBench
 
 This benchmark is rebuilt from extracted paper tasks into reproducible local-data proxy tasks.
+The repository keeps the rebuild code and lightweight metadata, but `raw/`, `processed/`, and `scripts/upstream/extract_task/assets/` are local-only and gitignored.
 
 The canonical grading source of truth is:
 
@@ -11,6 +12,8 @@ The canonical grading source of truth is:
 The original papers provide provenance and task motivation only.
 
 ## Raw
+
+These inputs are prepared locally and are not committed to git.
 
 - `raw/papers/selected_ids.txt`
 - `raw/papers/extracted_tasks/`
@@ -24,7 +27,7 @@ Dataset sources described in the paper:
 
 - TJH: https://github.com/HAIRLAB/Pre_Surv_COVID_19
 - MIMIC-IV demo MEDS: https://physionet.org/content/mimic-iv-demo-meds/0.0.1/
-- Extracted-paper corpus: `data/ehrflowbench/scripts/upstream/filter_paper/results/`, `data/ehrflowbench/scripts/upstream/extract_task/tasks/`, and an optional local markdown mirror under `data/ehrflowbench/scripts/upstream/extract_task/assets/markdowns/`
+- Extracted-paper corpus: `data/ehrflowbench/scripts/upstream/filter_paper/results/`, `data/ehrflowbench/scripts/upstream/extract_task/tasks/`, and an optional local markdown mirror under `data/ehrflowbench/scripts/upstream/extract_task/assets/markdowns/` (local cache only, not committed)
 
 ## Scripts
 
@@ -36,6 +39,8 @@ Dataset sources described in the paper:
 `prepare_raw.py` always refreshes selected paper IDs and extracted task files. It refreshes `raw/papers/paper_titles.csv` and can materialize `raw/papers/markdowns/` only when the optional upstream markdown mirror is available locally.
 
 ## Processed
+
+These outputs are produced locally by the rebuild scripts and are not committed to git.
 
 - `processed/eval.jsonl`
 - `processed/train.jsonl`

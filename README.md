@@ -191,8 +191,10 @@ python run_training.py data/train_set.jsonl ehrflow_train \
 ### Benchmarking
 
 Benchmarking uses the same task JSONL shape and the same core runtime as interactive or single-task execution.
+The repository does not vendor benchmark `raw/` or `processed/` data anymore, so rebuild or fetch the local dataset artifacts first.
 
 ```bash
+python data/ehrflowbench/scripts/rebuild.py
 python run_benchmark.py data/ehrflowbench/processed/eval.jsonl ehrflow_eval \
   --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor opencode
@@ -202,9 +204,9 @@ Results are written under `benchmark_results/<dataset>/<executor>/<reasoning_mod
 
 ## Benchmark Framing
 
-- **EHRFlowBench** is a paper-derived **proxy benchmark**. The canonical source of truth is the local task prompt plus `processed/expected/<qid>/`, not the original paper metric table.
-- `data/ehrflowbench/processed/paper_map.csv` records provenance, proxy linkage mode, source-task eligibility, and review status for every canonical task.
-- **MedAgentBoard** is a deterministic workflow benchmark grounded entirely in the committed TJH and MIMIC demo data under `data/medagentboard/`.
+- **EHRFlowBench** is a paper-derived **proxy benchmark**. The canonical source of truth is the locally rebuilt task prompt plus `processed/expected/<qid>/`, not the original paper metric table.
+- `data/ehrflowbench/processed/paper_map.csv` is a local rebuild artifact that records provenance, proxy linkage mode, source-task eligibility, and review status for every canonical task.
+- **MedAgentBoard** is a deterministic workflow benchmark grounded in local TJH and MIMIC demo data prepared under `data/medagentboard/`.
 
 ## Configuration
 

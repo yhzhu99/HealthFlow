@@ -12,7 +12,10 @@ TASK.md
 tmp/
 prompt.md
 !data/**
+# Benchmark datasets are local-only artifacts; keep scripts/docs in git.
 data/*/raw/**
+data/*/processed/**
+data/ehrflowbench/scripts/upstream/extract_task/assets/**
 *.Zone.Identifier
 workspace/
 benchmark_results/
