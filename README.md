@@ -61,7 +61,6 @@ These files are the main source of truth for rebuttal-oriented inspection.
 ## Runtime Boundary
 
 - **Core runtime**: the MERF loop in `healthflow/system.py`.
-- **Task-level reporting**: optional post-run report generation helpers under `healthflow/reporting/`.
 - **Domain specialization**: EHR-specific helpers under `healthflow/ehr/`.
 - **Dataset prep and benchmark evaluation**: repository-level workflows under `data/`, intentionally decoupled from `healthflow/`.
 
@@ -305,7 +304,6 @@ By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entr
 - `healthflow/system.py`: orchestration loop
 - `healthflow/execution/`: executor layer
 - `healthflow/ehr/`: optional EHR specialization helpers kept outside the core loop
-- `healthflow/reporting/`: post-run report generation helpers
 - `healthflow/experience/`: EHR-adaptive memory and retrieval audit
 - `healthflow/tools/`: tool catalog and optional tool-surface metadata
 

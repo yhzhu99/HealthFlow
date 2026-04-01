@@ -9,7 +9,6 @@ from typing import List
 import aiofiles
 from loguru import logger
 
-from ..core.llm_provider import LLMProvider
 from .experience_models import Experience
 from .experience_models import MemoryAuditEntry, MemoryKind, MemoryRetrievalAudit, MemoryRetrievalResult
 from .experience_models import MemoryScoreBreakdown, MemoryUpdate, MemoryUpdateAction, RetrievalContext, SourceOutcome
@@ -32,9 +31,8 @@ class ExperienceManager:
     for future runs.
     """
 
-    def __init__(self, experience_path: Path, llm_provider: LLMProvider = None):
+    def __init__(self, experience_path: Path):
         self.experience_path = experience_path
-        self.llm_provider = llm_provider
         self.experience_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.experience_path.exists():
             self.experience_path.touch()

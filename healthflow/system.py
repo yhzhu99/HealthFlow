@@ -50,8 +50,7 @@ class HealthFlowSystem:
                 provider_cache[provider_key] = create_llm_provider(role_config)
             return provider_cache[provider_key]
 
-        self.llm_provider = provider_for("planner")
-        self.experience_manager = ExperienceManager(experience_path, self.llm_provider)
+        self.experience_manager = ExperienceManager(experience_path)
 
         self.meta_agent = MetaAgent(provider_for("planner"))
         self.evaluator = EvaluatorAgent(provider_for("evaluator"))
@@ -521,34 +520,6 @@ class HealthFlowSystem:
         tags.extend(f"column:{item}" for item in data_profile.target_columns[:3])
         tags.extend(f"column:{item}" for item in data_profile.time_columns[:3])
         return list(dict.fromkeys(tags))
-
-    def _summarize_retrieval_audit(self, audit: dict | Any) -> str:
-        selected_entries = getattr(audit, "selected", None)
-        if selected_entries is None and isinstance(audit, dict):
-            selected_entries = audit.get("selected", [])
-        if not selected_entries:
-            return "- No prior memory was retrieved for this task."
-
-        lines = []
-        for entry in selected_entries:
-            kind = entry.kind.value if hasattr(entry, "kind") else entry["kind"]
-            source_outcome = (
-                entry.source_outcome.value if hasattr(entry, "source_outcome") else entry["source_outcome"]
-            )
-            category = entry.category if hasattr(entry, "category") else entry["category"]
-            content_preview = (
-                entry.content_preview if hasattr(entry, "content_preview") else entry["content_preview"]
-            )
-            prefix = "Safeguard" if kind == "safeguard" else "Use"
-            lines.append(
-                f"- {prefix}: [{kind}/{source_outcome}] {category} -> {content_preview}"
-            )
-        safeguard_overrides = getattr(audit, "safeguard_overrides", None)
-        if safeguard_overrides is None and isinstance(audit, dict):
-            safeguard_overrides = audit.get("safeguard_overrides", [])
-        if safeguard_overrides:
-            lines.append(f"- Safeguard override count: {len(safeguard_overrides)} conflicting memories were suppressed.")
-        return "\n".join(lines)
 
     def _write_json(self, path: Path, payload: Any) -> None:
         with open(path, "w", encoding="utf-8") as handle:
