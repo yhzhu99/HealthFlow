@@ -21,7 +21,7 @@ from .core.llm_provider import create_llm_provider
 from .ehr import detect_risk_findings, profile_workspace_data
 from .execution import ExecutionContext, WorkflowRecommendationBroker, create_executor_adapter
 from .experience.experience_manager import ExperienceManager
-from .experience.experience_models import Experience, RetrievalContext
+from .experience.experience_models import RetrievalContext
 from .reporting import generate_task_report
 
 

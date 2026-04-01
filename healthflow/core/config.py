@@ -62,7 +62,6 @@ class SystemConfig(BaseModel):
         description="Maximum number of full task attempts in the self-correction loop.",
     )
     workspace_dir: str = Field("workspace/tasks", description="Directory for task artifacts.")
-    shell: str = Field("/usr/bin/zsh", description="Shell to use for subprocess execution.")
 
 
 class EnvironmentConfig(BaseModel):
@@ -253,6 +252,15 @@ def _validate_top_level_sections(config_data: dict) -> None:
         )
 
 
+def _validate_system_section(system_data: dict) -> None:
+    if "shell" in system_data:
+        raise ValueError(
+            "Config key 'system.shell' is no longer supported. "
+            "HealthFlow executes configured backends directly rather than through a configurable shell. "
+            "Remove 'shell' from the '[system]' section."
+        )
+
+
 def get_config(config_path: Path, active_llm: str, active_executor: str | None = None) -> HealthFlowConfig:
     """
     Loads configuration from a TOML file, validates it, selects the active LLM and
@@ -268,6 +276,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
     try:
         config_data = toml.load(config_path)
         _validate_top_level_sections(config_data)
+        _validate_system_section(config_data.get("system", {}))
 
         if not active_llm:
             raise ValueError("'active_llm' parameter is required")

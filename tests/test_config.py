@@ -185,6 +185,24 @@ evaluator = "judge"
             self.assertEqual(config.llm_config_for_role("planner").model_name, "planner-model")
             self.assertEqual(config.llm_config_for_role("evaluator").model_name, "judge-model")
 
+    def test_unknown_llm_role_target_raises_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.default]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "planner-model"
+
+[llm_roles]
+reflector = "missing-model"
+""".strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, r"llm_roles\.reflector='missing-model'"):
+                get_config(config_path, "default")
+
     def test_executor_inherits_executor_model_name_when_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
@@ -299,6 +317,41 @@ model_name = "model"
                     "ZENMUX_API_KEY",
                 ):
                     get_config(config_path, "test")
+
+    def test_repo_config_example_parses_with_env_backed_models_and_llm_roles(self):
+        config_path = Path(__file__).resolve().parents[1] / "config.toml"
+        with patch.dict(
+            "os.environ",
+            {
+                "ZENMUX_API_KEY": "zenmux-key",
+                "DEEPSEEK_API_KEY": "deepseek-key",
+            },
+            clear=False,
+        ):
+            config = get_config(config_path, "deepseek/deepseek-v3.2")
+
+        self.assertEqual(config.active_llm_name, "deepseek/deepseek-v3.2")
+        self.assertEqual(config.llm_config_for_role("planner").model_name, "deepseek-chat")
+        self.assertEqual(config.llm_config_for_role("evaluator").model_name, "openai/gpt-5.4")
+        self.assertEqual(config.llm_config_for_role("reflector").model_name, "google/gemini-3-flash-preview")
+
+    def test_system_shell_raises_migration_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+
+[system]
+shell = "/usr/bin/zsh"
+""".strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, r"system\.shell"):
+                get_config(config_path, "test")
 
     def test_unknown_memory_keys_raise_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
