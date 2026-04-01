@@ -1,56 +1,620 @@
 {
-  "benchmark": "hle",
-  "selection_policy": "Keep only strict deterministic medical multiple-choice items whose canonical answer is a single uppercase option label.",
-  "answer_rule": "accepted answers must match /^[A-Z]$/ in the committed raw source.",
-  "included_row_count": 30,
-  "included_qids": [
-    "1",
-    "2",
-    "4",
-    "5",
-    "7",
-    "8",
-    "11",
-    "12",
-    "16",
-    "17",
-    "18",
-    "19",
-    "20",
-    "21",
-    "22",
-    "23",
-    "25",
-    "26",
-    "27",
-    "29",
-    "31",
-    "32",
-    "33",
-    "34",
-    "36",
-    "38",
-    "40",
-    "42",
-    "43",
-    "44"
-  ],
-  "excluded_row_count": 15,
-  "excluded_qids": [
-    "3",
-    "6",
-    "9",
-    "10",
-    "13",
-    "14",
-    "15",
-    "24",
-    "28",
-    "30",
-    "35",
-    "37",
-    "39",
-    "41",
-    "45"
+  "dataset": "hle",
+  "source_file": "raw/test-00000-of-00001.parquet",
+  "seed": 42,
+  "sample_size": 100,
+  "filters": {
+    "category": "Biology/Medicine",
+    "answer_type": "multipleChoice",
+    "exclude_images": true
+  },
+  "category_count": 280,
+  "candidate_answer_type_count": 166,
+  "image_filtered_count": 19,
+  "parse_rejection_count": 0,
+  "candidate_count": 147,
+  "selected_count": 100,
+  "parse_rejections": [],
+  "selected_rows": [
+    {
+      "qid": 1,
+      "source_id": "66e88728ba7d8bc0d5806f3a",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 2,
+      "source_id": "66e991ec2dad0e536fb92ece",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 3,
+      "source_id": "66ea1dd348eb93c2aef1c735",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 4,
+      "source_id": "66edc60801af2a724035ad4b",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 5,
+      "source_id": "66edd3dc1ee489494038d9eb",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 6,
+      "source_id": "66ee0b4d95cd6c1ce2259e50",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 7,
+      "source_id": "66ee158c5db68805b7d3d27b",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 8,
+      "source_id": "66ee93ba02314f06feb186cf",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 9,
+      "source_id": "66ef3de8b8a1ba6e0ba23498",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 10,
+      "source_id": "66efa01e327e4a95dc760d01",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 11,
+      "source_id": "66f0f4efd23ed0ac5f43b25f",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 12,
+      "source_id": "66f31140cdc5dafd297e9b5a",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 13,
+      "source_id": "66f57a7e9f9308128679f668",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 14,
+      "source_id": "66f77487fb10531253ee7842",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 15,
+      "source_id": "66f9a8a4e613d5c62b6c0d22",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 16,
+      "source_id": "66fc5e611f5f3f3b48ae9566",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 17,
+      "source_id": "66fc89ce455038a48ed359e4",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 18,
+      "source_id": "66fcde117e54294eb4a8fbba",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 19,
+      "source_id": "66fcf81e8a146dd80cfb2296",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 20,
+      "source_id": "66fda7a057cea4445778e88a",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 21,
+      "source_id": "66fdaf20d1e0bb15b8fc1eb6",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 22,
+      "source_id": "66fded1fbc6d46a25c41ee8d",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 23,
+      "source_id": "66fe596c0eeb4521791d31ef",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 24,
+      "source_id": "66ff063787bfb80443d02df6",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 25,
+      "source_id": "670010ff77983eff561814b2",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 26,
+      "source_id": "670013827794cc36bc974f27",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 27,
+      "source_id": "67018145e8c125b41caa9ee3",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 28,
+      "source_id": "6702b8bebb1c7fc12ef340a6",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 29,
+      "source_id": "670c23124d86f843dc5efa7e",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 30,
+      "source_id": "670c775842b25f65425c86c2",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 31,
+      "source_id": "670d5ce6d57c80b4d4090cb4",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 32,
+      "source_id": "670f289fb671096a201efee4",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 33,
+      "source_id": "6716e894e9b87625209506ca",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 34,
+      "source_id": "671a947c9deaf77048dcc8b7",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 35,
+      "source_id": "671ab94ffad7ae30b89eff8f",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 36,
+      "source_id": "671abddb40e08981d8fd796a",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 37,
+      "source_id": "671ac641136758472327f851",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 38,
+      "source_id": "671bea6afd01315eb4f1c376",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 39,
+      "source_id": "671cbba2784e3ba406eefb34",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 40,
+      "source_id": "671d42b4a2d3581545c21fec",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 41,
+      "source_id": "671f083dc8da11076ce9960e",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 42,
+      "source_id": "671f09d6d0f22fd6e50482eb",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 43,
+      "source_id": "671f0c2578ab3005e439aeba",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 44,
+      "source_id": "671f23ab12f081da543ed684",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 45,
+      "source_id": "671f2b0ee38f776acdad8aa1",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 46,
+      "source_id": "671f34ddd50b0306ddc17a41",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 47,
+      "source_id": "671f39dcd579cf064f22d3c1",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 48,
+      "source_id": "67202822dbc5086c0bdd4e1c",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 49,
+      "source_id": "672179e4c8cc0ac89395e8d0",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 50,
+      "source_id": "67222f190f0526aefdf441fd",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 51,
+      "source_id": "6722c0ddd60ad77b5374fdc9",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 52,
+      "source_id": "6723ba00339572beba8f91b2",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 53,
+      "source_id": "6723fc382a5a297be25c2d79",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 54,
+      "source_id": "672403fa5461772b24b2e651",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 55,
+      "source_id": "67240e5586f4c71a70e0b498",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 56,
+      "source_id": "6724102248afc025aa35bce8",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 57,
+      "source_id": "6724109dab2b4ea54da1ad90",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 58,
+      "source_id": "6724134c03192a89cb2296c0",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 59,
+      "source_id": "672416e85247738dfbb432fa",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 60,
+      "source_id": "67241cbe9909a95d1bf7aa00",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 61,
+      "source_id": "6724217c9909a95d1bf7aa1c",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 62,
+      "source_id": "6724a088d917564737255346",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 63,
+      "source_id": "6724db7012a8d5ea6a619372",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 64,
+      "source_id": "6724ff2892419e4380b56880",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 65,
+      "source_id": "672500151d07f0962c8993d7",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 66,
+      "source_id": "67253c33ad98e94b47ea3477",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 67,
+      "source_id": "67254a56046774791d0f1a41",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 68,
+      "source_id": "672555acc27a6276611a3005",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 69,
+      "source_id": "67255df04c0e045943574e41",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 70,
+      "source_id": "67256b14ac4f9591b137e180",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 71,
+      "source_id": "67256db1afb4a043e613c929",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 72,
+      "source_id": "67256e36e5e6cc87293fc3f0",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 73,
+      "source_id": "67257fe9be53ed439b973ff9",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 74,
+      "source_id": "67258c4124b290d28a9f8abe",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 75,
+      "source_id": "6725b1b58255543498bdcbd1",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 76,
+      "source_id": "6725c3719aac82ce9cf99f23",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 77,
+      "source_id": "67264a55cae736a4a682949a",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 78,
+      "source_id": "672b2749f64de603265f9fc4",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 79,
+      "source_id": "672bca9fab085c84b90e223d",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 80,
+      "source_id": "672eff1c72cfb81d78f82cdb",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 81,
+      "source_id": "6730d8d2f51df13db2f61050",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 82,
+      "source_id": "67315c7e7fcf9ea998467bd6",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 83,
+      "source_id": "6731fa3bb08cf72258a21348",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 84,
+      "source_id": "67352c39a52dd47230de9a2b",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 85,
+      "source_id": "67366bc5b5eda7e01fa935c6",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 86,
+      "source_id": "6736a9b0b949d548db8da965",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 87,
+      "source_id": "6737006d3f0517b6e8a60733",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 88,
+      "source_id": "67372744600c9c0daa5d8f3f",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 89,
+      "source_id": "673784c950c4b58b2154e4ef",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 90,
+      "source_id": "67383288f2df805520bc86b5",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 91,
+      "source_id": "6738373cf2df805520bc86ce",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 92,
+      "source_id": "6738df8c201a2bd66499797a",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 93,
+      "source_id": "673a5f9b329d98c7d4b69d5f",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 94,
+      "source_id": "673b6ca1a646afb63047219f",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 95,
+      "source_id": "67666a593e38774fc651f9f3",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 96,
+      "source_id": "67672352c393c4ff629cb820",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 97,
+      "source_id": "676727c0c393c4ff629cb82b",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 98,
+      "source_id": "6767969869b88c321c96665a",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 99,
+      "source_id": "6777764d6b3f27cf12b17555",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    },
+    {
+      "qid": 100,
+      "source_id": "677c1cf633409bfdbb11942d",
+      "category": "Biology/Medicine",
+      "answer_type": "multipleChoice"
+    }
   ]
 }

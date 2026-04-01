@@ -1,112 +1,1122 @@
 {
-  "benchmark": "medagentsbench",
-  "selection_policy": "Use the committed benchmark-local hard-set subset as the canonical deterministic evaluation split.",
-  "splits": [
+  "dataset": "medagentsbench",
+  "seed": 42,
+  "sample_size_per_dataset": 10,
+  "selected_count": 100,
+  "subdatasets": [
     {
-      "split": "eval",
-      "row_count": 100,
-      "qids": [
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        "10",
-        "11",
-        "12",
-        "13",
-        "14",
-        "15",
-        "16",
-        "17",
-        "18",
-        "19",
-        "20",
-        "21",
-        "22",
-        "23",
-        "24",
-        "25",
-        "26",
-        "27",
-        "28",
-        "29",
-        "30",
-        "31",
-        "32",
-        "33",
-        "34",
-        "35",
-        "36",
-        "37",
-        "38",
-        "39",
-        "40",
-        "41",
-        "42",
-        "43",
-        "44",
-        "45",
-        "46",
-        "47",
-        "48",
-        "49",
-        "50",
-        "51",
-        "52",
-        "53",
-        "54",
-        "55",
-        "56",
-        "57",
-        "58",
-        "59",
-        "60",
-        "61",
-        "62",
-        "63",
-        "64",
-        "65",
-        "66",
-        "67",
-        "68",
-        "69",
-        "70",
-        "71",
-        "72",
-        "73",
-        "74",
-        "75",
-        "76",
-        "77",
-        "78",
-        "79",
-        "80",
-        "81",
-        "82",
-        "83",
-        "84",
-        "85",
-        "86",
-        "87",
-        "88",
-        "89",
-        "90",
-        "91",
-        "92",
-        "93",
-        "94",
-        "95",
-        "96",
-        "97",
-        "98",
-        "99",
-        "100"
+      "name": "AfrimedQA",
+      "source_file": "raw/AfrimedQA/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 32,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "03833fa3fcd1dc1c02317c0359804bf36433f93412fc7c0e5e42d4f3cca611b9",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "1af1e2c3fac36ae2c1fd1c4b35407a9bd371a3d174ef3f0a40f07f677483c380",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "1c6fbf8ec8e16e234c6f4975d9e09b71abd3ac619bccaeb705bccc04b35d5ed6",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "257d3828b0c75d2c54ad51eaa955e95d8858ba85d4202eaf531083e999c31b22",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "34a77f8803e5b17972bfa85271a0049cb682fb70d47e920b4d0b76e58a0cbff1",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "73ad8028e1919710c9114affe42b75457960eef4f266af4f1c1a3c6a04d5afed",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "7eac144e248dbe6975d8549abb22673d800b0477df9a5162cc73d4b9129cd525",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "bceba23e050e150e25db095eb97019d73daba89bc86df02f94d39525e84dd78c",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "d544a9740c72dcab4271857d5c9255c84e4e710aee6b00354ea0829190dc017f",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "ef73b23ad24c5483df6724ecff6904dc382126ed6689b952c03f74458e96009e",
+          "removed_empty_labels": []
+        }
       ]
+    },
+    {
+      "name": "MMLU",
+      "source_file": "raw/MMLU/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 73,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "123",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "125",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "173",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "203",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "207",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "493",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "628",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "642",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "721",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "1293",
+          "removed_empty_labels": []
+        }
+      ]
+    },
+    {
+      "name": "MMLU-Pro",
+      "source_file": "raw/MMLU-Pro/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 100,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "6013",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "6050",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "6051",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "6055",
+          "removed_empty_labels": [
+            "H",
+            "I",
+            "J"
+          ]
+        },
+        {
+          "source_id": "6079",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "6093",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "6109",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "6270",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "6278",
+          "removed_empty_labels": [
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "J"
+          ]
+        },
+        {
+          "source_id": "6299",
+          "removed_empty_labels": []
+        }
+      ]
+    },
+    {
+      "name": "MedBullets",
+      "source_file": "raw/MedBullets/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 89,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "9",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "44",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "45",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "56",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "92",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "98",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "121",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "249",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "284",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "298",
+          "removed_empty_labels": []
+        }
+      ]
+    },
+    {
+      "name": "MedExQA",
+      "source_file": "raw/MedExQA/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 100,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "108_biomedical_engineer",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "137_biomedical_engineer",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "13_speech_pathologist",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "166_occupational_therapist",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "20_clinical_laboratory_scientist",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "21_speech_pathologist",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "24_occupational_therapist",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "58_speech_pathologist",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "62_speech_pathologist",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "7_occupational_therapist",
+          "removed_empty_labels": []
+        }
+      ]
+    },
+    {
+      "name": "MedMCQA",
+      "source_file": "raw/MedMCQA/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 100,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "070ff387-f612-43ac-a23e-ab3e8ed192b4",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "19567e6c-e0f7-4201-816d-23b58786f586",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "1bcbe056-96b4-41aa-a7aa-044d7d2ac555",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "2674faba-e6d7-4790-b13e-97c597408919",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "3b514c9e-965c-463a-b141-9dcecd91c957",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "406b5b4f-9ad4-42c0-9669-12d038df4ac8",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "54f0597f-d43c-4813-b202-935ae07e4e20",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "d4e13d7b-8ca9-447e-b93d-e8b86afd017a",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "df8ae3bc-aef6-48d0-8033-d715cfe36b3d",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "e9c312b7-2cc1-41ec-8daa-a55d69514721",
+          "removed_empty_labels": []
+        }
+      ]
+    },
+    {
+      "name": "MedQA",
+      "source_file": "raw/MedQA/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 100,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "33",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "149",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "155",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "178",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "237",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "241",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "265",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "676",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "714",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "784",
+          "removed_empty_labels": []
+        }
+      ]
+    },
+    {
+      "name": "MedXpertQA-R",
+      "source_file": "raw/MedXpertQA-R/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 100,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "Text-101",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-114",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-117",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-121",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-140",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-144",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-15",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-71",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-79",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-89",
+          "removed_empty_labels": []
+        }
+      ]
+    },
+    {
+      "name": "MedXpertQA-U",
+      "source_file": "raw/MedXpertQA-U/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 100,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "Text-118",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-158",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-160",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-19",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-242",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-258",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-271",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-491",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-523",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "Text-76",
+          "removed_empty_labels": []
+        }
+      ]
+    },
+    {
+      "name": "PubMedQA",
+      "source_file": "raw/PubMedQA/test_hard-00000-of-00001.parquet",
+      "seed": 42,
+      "candidate_count": 100,
+      "selected_count": 10,
+      "selected_rows": [
+        {
+          "source_id": "9465206",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "12094116",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "12407608",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "12970636",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "17565137",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "17894828",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "18284441",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "25488308",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "26037986",
+          "removed_empty_labels": []
+        },
+        {
+          "source_id": "27050489",
+          "removed_empty_labels": []
+        }
+      ]
+    }
+  ],
+  "selected_rows": [
+    {
+      "qid": 1,
+      "source_dataset": "AfrimedQA",
+      "source_id": "03833fa3fcd1dc1c02317c0359804bf36433f93412fc7c0e5e42d4f3cca611b9",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 2,
+      "source_dataset": "AfrimedQA",
+      "source_id": "1af1e2c3fac36ae2c1fd1c4b35407a9bd371a3d174ef3f0a40f07f677483c380",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 3,
+      "source_dataset": "AfrimedQA",
+      "source_id": "1c6fbf8ec8e16e234c6f4975d9e09b71abd3ac619bccaeb705bccc04b35d5ed6",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 4,
+      "source_dataset": "AfrimedQA",
+      "source_id": "257d3828b0c75d2c54ad51eaa955e95d8858ba85d4202eaf531083e999c31b22",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 5,
+      "source_dataset": "AfrimedQA",
+      "source_id": "34a77f8803e5b17972bfa85271a0049cb682fb70d47e920b4d0b76e58a0cbff1",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 6,
+      "source_dataset": "AfrimedQA",
+      "source_id": "73ad8028e1919710c9114affe42b75457960eef4f266af4f1c1a3c6a04d5afed",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 7,
+      "source_dataset": "AfrimedQA",
+      "source_id": "7eac144e248dbe6975d8549abb22673d800b0477df9a5162cc73d4b9129cd525",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 8,
+      "source_dataset": "AfrimedQA",
+      "source_id": "bceba23e050e150e25db095eb97019d73daba89bc86df02f94d39525e84dd78c",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 9,
+      "source_dataset": "AfrimedQA",
+      "source_id": "d544a9740c72dcab4271857d5c9255c84e4e710aee6b00354ea0829190dc017f",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 10,
+      "source_dataset": "AfrimedQA",
+      "source_id": "ef73b23ad24c5483df6724ecff6904dc382126ed6689b952c03f74458e96009e",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 11,
+      "source_dataset": "MMLU",
+      "source_id": "123",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 12,
+      "source_dataset": "MMLU",
+      "source_id": "125",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 13,
+      "source_dataset": "MMLU",
+      "source_id": "173",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 14,
+      "source_dataset": "MMLU",
+      "source_id": "203",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 15,
+      "source_dataset": "MMLU",
+      "source_id": "207",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 16,
+      "source_dataset": "MMLU",
+      "source_id": "493",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 17,
+      "source_dataset": "MMLU",
+      "source_id": "628",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 18,
+      "source_dataset": "MMLU",
+      "source_id": "642",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 19,
+      "source_dataset": "MMLU",
+      "source_id": "721",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 20,
+      "source_dataset": "MMLU",
+      "source_id": "1293",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 21,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6013",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 22,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6050",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 23,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6051",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 24,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6055",
+      "removed_empty_labels": [
+        "H",
+        "I",
+        "J"
+      ]
+    },
+    {
+      "qid": 25,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6079",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 26,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6093",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 27,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6109",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 28,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6270",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 29,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6278",
+      "removed_empty_labels": [
+        "E",
+        "F",
+        "G",
+        "H",
+        "I",
+        "J"
+      ]
+    },
+    {
+      "qid": 30,
+      "source_dataset": "MMLU-Pro",
+      "source_id": "6299",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 31,
+      "source_dataset": "MedBullets",
+      "source_id": "9",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 32,
+      "source_dataset": "MedBullets",
+      "source_id": "44",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 33,
+      "source_dataset": "MedBullets",
+      "source_id": "45",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 34,
+      "source_dataset": "MedBullets",
+      "source_id": "56",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 35,
+      "source_dataset": "MedBullets",
+      "source_id": "92",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 36,
+      "source_dataset": "MedBullets",
+      "source_id": "98",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 37,
+      "source_dataset": "MedBullets",
+      "source_id": "121",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 38,
+      "source_dataset": "MedBullets",
+      "source_id": "249",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 39,
+      "source_dataset": "MedBullets",
+      "source_id": "284",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 40,
+      "source_dataset": "MedBullets",
+      "source_id": "298",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 41,
+      "source_dataset": "MedExQA",
+      "source_id": "108_biomedical_engineer",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 42,
+      "source_dataset": "MedExQA",
+      "source_id": "137_biomedical_engineer",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 43,
+      "source_dataset": "MedExQA",
+      "source_id": "13_speech_pathologist",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 44,
+      "source_dataset": "MedExQA",
+      "source_id": "166_occupational_therapist",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 45,
+      "source_dataset": "MedExQA",
+      "source_id": "20_clinical_laboratory_scientist",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 46,
+      "source_dataset": "MedExQA",
+      "source_id": "21_speech_pathologist",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 47,
+      "source_dataset": "MedExQA",
+      "source_id": "24_occupational_therapist",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 48,
+      "source_dataset": "MedExQA",
+      "source_id": "58_speech_pathologist",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 49,
+      "source_dataset": "MedExQA",
+      "source_id": "62_speech_pathologist",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 50,
+      "source_dataset": "MedExQA",
+      "source_id": "7_occupational_therapist",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 51,
+      "source_dataset": "MedMCQA",
+      "source_id": "070ff387-f612-43ac-a23e-ab3e8ed192b4",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 52,
+      "source_dataset": "MedMCQA",
+      "source_id": "19567e6c-e0f7-4201-816d-23b58786f586",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 53,
+      "source_dataset": "MedMCQA",
+      "source_id": "1bcbe056-96b4-41aa-a7aa-044d7d2ac555",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 54,
+      "source_dataset": "MedMCQA",
+      "source_id": "2674faba-e6d7-4790-b13e-97c597408919",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 55,
+      "source_dataset": "MedMCQA",
+      "source_id": "3b514c9e-965c-463a-b141-9dcecd91c957",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 56,
+      "source_dataset": "MedMCQA",
+      "source_id": "406b5b4f-9ad4-42c0-9669-12d038df4ac8",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 57,
+      "source_dataset": "MedMCQA",
+      "source_id": "54f0597f-d43c-4813-b202-935ae07e4e20",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 58,
+      "source_dataset": "MedMCQA",
+      "source_id": "d4e13d7b-8ca9-447e-b93d-e8b86afd017a",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 59,
+      "source_dataset": "MedMCQA",
+      "source_id": "df8ae3bc-aef6-48d0-8033-d715cfe36b3d",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 60,
+      "source_dataset": "MedMCQA",
+      "source_id": "e9c312b7-2cc1-41ec-8daa-a55d69514721",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 61,
+      "source_dataset": "MedQA",
+      "source_id": "33",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 62,
+      "source_dataset": "MedQA",
+      "source_id": "149",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 63,
+      "source_dataset": "MedQA",
+      "source_id": "155",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 64,
+      "source_dataset": "MedQA",
+      "source_id": "178",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 65,
+      "source_dataset": "MedQA",
+      "source_id": "237",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 66,
+      "source_dataset": "MedQA",
+      "source_id": "241",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 67,
+      "source_dataset": "MedQA",
+      "source_id": "265",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 68,
+      "source_dataset": "MedQA",
+      "source_id": "676",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 69,
+      "source_dataset": "MedQA",
+      "source_id": "714",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 70,
+      "source_dataset": "MedQA",
+      "source_id": "784",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 71,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-101",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 72,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-114",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 73,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-117",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 74,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-121",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 75,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-140",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 76,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-144",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 77,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-15",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 78,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-71",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 79,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-79",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 80,
+      "source_dataset": "MedXpertQA-R",
+      "source_id": "Text-89",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 81,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-118",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 82,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-158",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 83,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-160",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 84,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-19",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 85,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-242",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 86,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-258",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 87,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-271",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 88,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-491",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 89,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-523",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 90,
+      "source_dataset": "MedXpertQA-U",
+      "source_id": "Text-76",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 91,
+      "source_dataset": "PubMedQA",
+      "source_id": "9465206",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 92,
+      "source_dataset": "PubMedQA",
+      "source_id": "12094116",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 93,
+      "source_dataset": "PubMedQA",
+      "source_id": "12407608",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 94,
+      "source_dataset": "PubMedQA",
+      "source_id": "12970636",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 95,
+      "source_dataset": "PubMedQA",
+      "source_id": "17565137",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 96,
+      "source_dataset": "PubMedQA",
+      "source_id": "17894828",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 97,
+      "source_dataset": "PubMedQA",
+      "source_id": "18284441",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 98,
+      "source_dataset": "PubMedQA",
+      "source_id": "25488308",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 99,
+      "source_dataset": "PubMedQA",
+      "source_id": "26037986",
+      "removed_empty_labels": []
+    },
+    {
+      "qid": 100,
+      "source_dataset": "PubMedQA",
+      "source_id": "27050489",
+      "removed_empty_labels": []
     }
   ]
 }
