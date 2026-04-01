@@ -595,6 +595,7 @@ class HealthFlowSystem:
                         execution_result=execution_result,
                         task_workspace=task_workspace,
                         generated_answer=generated_answer,
+                        user_request=user_request,
                     )
                 )
             self._write_json(full_history_path, full_history)
@@ -652,6 +653,7 @@ class HealthFlowSystem:
         execution_result,
         task_workspace: Path,
         generated_answer: str,
+        user_request: str,
     ) -> dict[str, Any]:
         execution_record = self._execution_record_from_result(execution_result)
         workspace_artifacts = self._workspace_artifact_paths(task_workspace)
@@ -659,7 +661,10 @@ class HealthFlowSystem:
             "attempt": 1,
             "memory_context_path": str(task_workspace / "memory_context.json"),
             "memory": {
-                "retrieval": self._minimal_memory_context("cancelled", execution_result.cancel_reason or "Execution cancelled by user."),
+                "retrieval": self._minimal_memory_context(
+                    user_request,
+                    execution_result.cancel_reason or "Execution cancelled by user.",
+                ),
                 "safeguards": [],
                 "workflows": [],
                 "datasets": [],
