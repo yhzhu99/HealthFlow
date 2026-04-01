@@ -1,0 +1,397 @@
+{
+  "source": {
+    "dataset": "mimic_iv_demo",
+    "config_origin": "vendored from mimic_preprocessor mimic_iv/3.1 config.toml",
+    "item2var_origin": "vendored from mimic_preprocessor mimic_iv/3.1 mimic4_item2var.csv"
+  },
+  "config": {
+    "basic_features": [
+      "PatientID",
+      "RecordTime"
+    ],
+    "label_features": [
+      "Outcome",
+      "LOS",
+      "Readmission"
+    ],
+    "demographic_features": [
+      "Age",
+      "Sex"
+    ],
+    "gcs_features": [
+      "Glascow coma scale eye opening",
+      "Glascow coma scale motor response",
+      "Glascow coma scale verbal response"
+    ],
+    "labtest_features": [
+      "Capillary refill rate",
+      "Diastolic blood pressure",
+      "Fraction inspired oxygen",
+      "Glascow coma scale eye opening",
+      "Glascow coma scale motor response",
+      "Glascow coma scale total",
+      "Glascow coma scale verbal response",
+      "Glucose",
+      "Heart Rate",
+      "Height",
+      "Mean blood pressure",
+      "Oxygen saturation",
+      "Respiratory rate",
+      "Systolic blood pressure",
+      "Temperature",
+      "Weight",
+      "pH"
+    ],
+    "is_categorical_channel": {
+      "Capillary refill rate": true,
+      "Diastolic blood pressure": false,
+      "Fraction inspired oxygen": false,
+      "Glascow coma scale eye opening": true,
+      "Glascow coma scale motor response": true,
+      "Glascow coma scale total": true,
+      "Glascow coma scale verbal response": true,
+      "Glucose": false,
+      "Heart Rate": false,
+      "Height": false,
+      "Mean blood pressure": false,
+      "Oxygen saturation": false,
+      "Respiratory rate": false,
+      "Systolic blood pressure": false,
+      "Temperature": false,
+      "Weight": false,
+      "pH": false
+    },
+    "possible_values": {
+      "Capillary refill rate": [
+        "0.0",
+        "1.0"
+      ],
+      "Diastolic blood pressure": [],
+      "Fraction inspired oxygen": [],
+      "Glascow coma scale eye opening": [
+        "1 No Response",
+        "2 To pain",
+        "3 To speech",
+        "4 Spontaneously",
+        "None",
+        "Spontaneously",
+        "To Pain",
+        "To Speech"
+      ],
+      "Glascow coma scale motor response": [
+        "1 No Response",
+        "2 Abnorm extensn",
+        "3 Abnorm flexion",
+        "4 Flex-withdraws",
+        "5 Localizes Pain",
+        "6 Obeys Commands",
+        "Abnormal Flexion",
+        "Abnormal extension",
+        "Flex-withdraws",
+        "Localizes Pain",
+        "No response",
+        "Obeys Commands"
+      ],
+      "Glascow coma scale total": [
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "Glascow coma scale verbal response": [
+        "1 No Response",
+        "1.0 ET/Trach",
+        "2 Incomp sounds",
+        "3 Inapprop words",
+        "4 Confused",
+        "5 Oriented",
+        "Confused",
+        "Inappropriate Words",
+        "Incomprehensible sounds",
+        "No Response",
+        "No Response-ETT",
+        "Oriented"
+      ],
+      "Glucose": [],
+      "Heart Rate": [],
+      "Height": [],
+      "Mean blood pressure": [],
+      "Oxygen saturation": [],
+      "Respiratory rate": [],
+      "Systolic blood pressure": [],
+      "Temperature": [],
+      "Weight": [],
+      "pH": []
+    },
+    "mapping_values": {
+      "Glascow coma scale total": {
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "10": 10,
+        "11": 11,
+        "12": 12,
+        "13": 13,
+        "14": 14,
+        "15": 15
+      },
+      "Glascow coma scale verbal response": {
+        "No Response-ETT": 1,
+        "No Response": 1,
+        "1 No Response": 1,
+        "1.0 ET/Trach": 1,
+        "2 Incomp sounds": 2,
+        "Incomprehensible sounds": 2,
+        "3 Inapprop words": 3,
+        "Inappropriate Words": 3,
+        "4 Confused": 4,
+        "Confused": 4,
+        "5 Oriented": 5,
+        "Oriented": 5
+      },
+      "Glascow coma scale eye opening": {
+        "None": 0,
+        "1 No Response": 1,
+        "2 To pain": 2,
+        "To Pain": 2,
+        "3 To speech": 3,
+        "To Speech": 3,
+        "4 Spontaneously": 4,
+        "Spontaneously": 4
+      },
+      "Glascow coma scale motor response": {
+        "1 No Response": 1,
+        "No response": 1,
+        "2 Abnorm extensn": 2,
+        "Abnormal extension": 2,
+        "3 Abnorm flexion": 3,
+        "Abnormal Flexion": 3,
+        "4 Flex-withdraws": 4,
+        "Flex-withdraws": 4,
+        "5 Localizes Pain": 5,
+        "Localizes Pain": 5,
+        "6 Obeys Commands": 6,
+        "Obeys Commands": 6
+      }
+    },
+    "normal_values": {
+      "Capillary refill rate": "0.0",
+      "Diastolic blood pressure": "59.0",
+      "Fraction inspired oxygen": "0.21",
+      "Glascow coma scale eye opening": "4 Spontaneously",
+      "Glascow coma scale motor response": "6 Obeys Commands",
+      "Glascow coma scale total": "15",
+      "Glascow coma scale verbal response": "5 Oriented",
+      "Glucose": "128.0",
+      "Heart Rate": "86",
+      "Height": "170.0",
+      "Mean blood pressure": "77.0",
+      "Oxygen saturation": "98.0",
+      "Respiratory rate": "19",
+      "Systolic blood pressure": "118.0",
+      "Temperature": "36.6",
+      "Weight": "81.0",
+      "pH": "7.4"
+    }
+  },
+  "item2var": [
+    {
+      "ItemID": "223951",
+      "Variable": "Capillary refill rate",
+      "MimicLabel": "Capillary Refill R"
+    },
+    {
+      "ItemID": "224308",
+      "Variable": "Capillary refill rate",
+      "MimicLabel": "Capillary Refill L"
+    },
+    {
+      "ItemID": "220051",
+      "Variable": "Diastolic blood pressure",
+      "MimicLabel": "Arterial Blood Pressure diastolic"
+    },
+    {
+      "ItemID": "220180",
+      "Variable": "Diastolic blood pressure",
+      "MimicLabel": "Non Invasive Blood Pressure diastolic"
+    },
+    {
+      "ItemID": "224643",
+      "Variable": "Diastolic blood pressure",
+      "MimicLabel": "Manual Blood Pressure Diastolic Left"
+    },
+    {
+      "ItemID": "225310",
+      "Variable": "Diastolic blood pressure",
+      "MimicLabel": "ART BP Diastolic"
+    },
+    {
+      "ItemID": "223835",
+      "Variable": "Fraction inspired oxygen",
+      "MimicLabel": "Inspired O2 Fraction"
+    },
+    {
+      "ItemID": "220739",
+      "Variable": "Glascow coma scale eye opening",
+      "MimicLabel": "GCS - Eye Opening"
+    },
+    {
+      "ItemID": "223901",
+      "Variable": "Glascow coma scale motor response",
+      "MimicLabel": "GCS - Motor Response"
+    },
+    {
+      "ItemID": "223900",
+      "Variable": "Glascow coma scale verbal response",
+      "MimicLabel": "GCS - Verbal Response"
+    },
+    {
+      "ItemID": "220621",
+      "Variable": "Glucose",
+      "MimicLabel": "Glucose (serum)"
+    },
+    {
+      "ItemID": "225664",
+      "Variable": "Glucose",
+      "MimicLabel": "Glucose finger stick"
+    },
+    {
+      "ItemID": "226537",
+      "Variable": "Glucose",
+      "MimicLabel": "Glucose (whole blood)"
+    },
+    {
+      "ItemID": "220045",
+      "Variable": "Heart Rate",
+      "MimicLabel": "Heart Rate"
+    },
+    {
+      "ItemID": "226707",
+      "Variable": "Height",
+      "MimicLabel": "Height"
+    },
+    {
+      "ItemID": "226730",
+      "Variable": "Height",
+      "MimicLabel": "Height (cm)"
+    },
+    {
+      "ItemID": "220052",
+      "Variable": "Mean blood pressure",
+      "MimicLabel": "Arterial Blood Pressure mean"
+    },
+    {
+      "ItemID": "220181",
+      "Variable": "Mean blood pressure",
+      "MimicLabel": "Non Invasive Blood Pressure mean"
+    },
+    {
+      "ItemID": "224322",
+      "Variable": "Mean blood pressure",
+      "MimicLabel": "IABP Mean"
+    },
+    {
+      "ItemID": "225312",
+      "Variable": "Mean blood pressure",
+      "MimicLabel": "ART BP mean"
+    },
+    {
+      "ItemID": "220227",
+      "Variable": "Oxygen saturation",
+      "MimicLabel": "Arterial O2 Saturation"
+    },
+    {
+      "ItemID": "220277",
+      "Variable": "Oxygen saturation",
+      "MimicLabel": "O2 saturation pulseoxymetry"
+    },
+    {
+      "ItemID": "220210",
+      "Variable": "Respiratory rate",
+      "MimicLabel": "Respiratory Rate"
+    },
+    {
+      "ItemID": "224422",
+      "Variable": "Respiratory rate",
+      "MimicLabel": "Spont RR"
+    },
+    {
+      "ItemID": "224689",
+      "Variable": "Respiratory rate",
+      "MimicLabel": "Respiratory Rate (spontaneous)"
+    },
+    {
+      "ItemID": "224690",
+      "Variable": "Respiratory rate",
+      "MimicLabel": "Respiratory Rate (Total)"
+    },
+    {
+      "ItemID": "220050",
+      "Variable": "Systolic blood pressure",
+      "MimicLabel": "Arterial Blood Pressure systolic"
+    },
+    {
+      "ItemID": "220179",
+      "Variable": "Systolic blood pressure",
+      "MimicLabel": "Non Invasive Blood Pressure systolic"
+    },
+    {
+      "ItemID": "224167",
+      "Variable": "Systolic blood pressure",
+      "MimicLabel": "Manual Blood Pressure Systolic Left"
+    },
+    {
+      "ItemID": "225309",
+      "Variable": "Systolic blood pressure",
+      "MimicLabel": "ART BP Systolic"
+    },
+    {
+      "ItemID": "227243",
+      "Variable": "Systolic blood pressure",
+      "MimicLabel": "Manual Blood Pressure Systolic Right"
+    },
+    {
+      "ItemID": "223761",
+      "Variable": "Temperature",
+      "MimicLabel": "Temperature Fahrenheit"
+    },
+    {
+      "ItemID": "223762",
+      "Variable": "Temperature",
+      "MimicLabel": "Temperature Celsius"
+    },
+    {
+      "ItemID": "226512",
+      "Variable": "Weight",
+      "MimicLabel": "Admission Weight (Kg)"
+    },
+    {
+      "ItemID": "226531",
+      "Variable": "Weight",
+      "MimicLabel": "Admission Weight (lbs.)"
+    },
+    {
+      "ItemID": "220274",
+      "Variable": "pH",
+      "MimicLabel": "PH (Venous)"
+    },
+    {
+      "ItemID": "223830",
+      "Variable": "pH",
+      "MimicLabel": "PH (Arterial)"
+    }
+  ]
+}
