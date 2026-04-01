@@ -267,6 +267,8 @@ reasoning_effort = "medium"
             path_entries = environment["PATH"].split(":")
             self.assertEqual(path_entries[0], str(Path.cwd() / ".venv" / "bin"))
             self.assertTrue(shutil.which("sh", path=environment["PATH"]))
+            self.assertTrue(shutil.which("oneehr", path=environment["PATH"]))
+            self.assertTrue(shutil.which("tu", path=environment["PATH"]))
 
     def test_pi_executor_writes_runtime_models_json(self):
         executor = PiExecutor(
@@ -336,6 +338,9 @@ reasoning_effort = "medium"
                 executor_brief="Prefer a small reproducible script if the logic is non-trivial.",
             ),
             execution_environment=EnvironmentConfig(),
+            available_project_cli_tools=[
+                "`oneehr`: Available in the project environment for EHR modeling pipelines. Prefer `uv run oneehr <subcommand>` from the repo root."
+            ],
             workflow_recommendations=["Prefer workspace-local Python entrypoints via `uv run`."],
         )
         prompt = context.render_prompt()
@@ -347,9 +352,12 @@ reasoning_effort = "medium"
         self.assertIn("answer as HealthFlow", prompt)
         self.assertIn("## Execution Environment", prompt)
         self.assertIn("HealthFlow does not manage MCP servers", prompt)
+        self.assertIn("## Available Project CLI Tools", prompt)
+        self.assertIn("uv run oneehr", prompt)
         self.assertIn("## EHR Safeguards", prompt)
         self.assertIn("## Workflow Recommendations", prompt)
         self.assertIn("## Workflow Memory", prompt)
+        self.assertIn("explicitly approved project-local workflow", prompt)
         self.assertIn("Keep execution narration out of the final user-facing reply", prompt)
 
     def test_shared_executor_prompt_adds_report_guidance_without_requiring_executor_report_file(self):
@@ -374,6 +382,26 @@ reasoning_effort = "medium"
         self.assertIn("system-generated report", prompt)
         self.assertIn("key artifacts you produced", prompt)
         self.assertNotIn("final_report.md", prompt)
+
+    def test_shared_executor_prompt_falls_back_when_no_project_cli_tools_are_surfaced(self):
+        context = ExecutionContext(
+            user_request="Summarize the workspace.",
+            plan=ExecutionPlan(
+                objective="Summarize the workspace.",
+                assumptions_to_check=["Confirm what files are available in the workspace."],
+                recommended_steps=["Inspect the workspace.", "Summarize the findings."],
+                recommended_workflows=["Prefer reproducible Python scripts."],
+                avoidances=["Do not write outside the workspace."],
+                success_signals=["A concise summary is returned."],
+                executor_brief="Inspect the workspace before responding.",
+            ),
+            execution_environment=EnvironmentConfig(),
+        )
+
+        prompt = context.render_prompt()
+
+        self.assertIn("## Available Project CLI Tools", prompt)
+        self.assertIn("No task-specific project CLI tools were surfaced", prompt)
 
     def test_repo_root_does_not_depend_on_claude_md(self):
         repo_root = Path(__file__).resolve().parents[1]

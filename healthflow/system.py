@@ -369,6 +369,7 @@ class HealthFlowSystem:
         data_profile = profile_workspace_data(task_workspace, user_request)
         risk_findings = detect_risk_findings(user_request, data_profile)
         workflow_recommendations = self._workflow_recommendations(user_request, data_profile)
+        available_project_cli_tools = self._available_project_cli_tools(user_request, data_profile)
         task_state = {
             "data_profile": asdict(data_profile),
             "risk_findings": [asdict(item) for item in risk_findings],
@@ -387,6 +388,7 @@ class HealthFlowSystem:
             "memory_write_policy": self.config.memory.write_policy,
             "report_requested": report_requested,
             "execution_environment": self.config.environment.model_dump(mode="json"),
+            "available_project_cli_tools": available_project_cli_tools,
             "workflow_recommendations": workflow_recommendations,
             "task_state_path": str(task_workspace / "task_state.json"),
             "data_profile": task_state["data_profile"],
@@ -453,6 +455,7 @@ class HealthFlowSystem:
                 plan=plan,
                 execution_environment=self.config.environment,
                 workflow_recommendations=workflow_recommendations,
+                available_project_cli_tools=available_project_cli_tools,
                 report_requested=report_requested,
                 safeguard_memory=self._format_memory_lines(safeguard_experiences),
                 workflow_memory=self._format_memory_lines(workflow_experiences),
@@ -1107,6 +1110,9 @@ class HealthFlowSystem:
 
     def _workflow_recommendations(self, user_request: str, data_profile) -> list[str]:
         return self.workflow_broker.recommend(user_request, data_profile)
+
+    def _available_project_cli_tools(self, user_request: str, data_profile) -> list[str]:
+        return self.workflow_broker.available_project_cli_tools(user_request, data_profile)
 
     def _build_retrieval_context(
         self,
