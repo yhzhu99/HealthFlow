@@ -92,6 +92,8 @@ class HealthFlowSystem:
         result["execution_time"] = execution_time
         result["workspace_path"] = str(task_workspace)
         result["backend"] = self.config.active_executor_name
+        result["executor_model"] = self.config.active_executor.model
+        result["executor_provider"] = self.config.active_executor.provider
         result["reasoning_model"] = self.config.llm_config_for_role("planner").model_name
         result["llm_role_models"] = self._role_model_names()
         result["memory_write_policy"] = self.config.memory.write_policy
@@ -109,6 +111,8 @@ class HealthFlowSystem:
                 "user_request": user_request,
                 "workspace_path": str(task_workspace),
                 "backend": self.config.active_executor_name,
+                "executor_model": self.config.active_executor.model,
+                "executor_provider": self.config.active_executor.provider,
                 "reasoning_model": self.config.llm_config_for_role("planner").model_name,
                 "llm_role_models": result.get("llm_role_models"),
                 "memory_write_policy": self.config.memory.write_policy,
@@ -150,6 +154,8 @@ class HealthFlowSystem:
             "task_id": task_id,
             "user_request": user_request,
             "backend": self.config.active_executor_name,
+            "executor_model": self.config.active_executor.model,
+            "executor_provider": self.config.active_executor.provider,
             "reasoning_model": self.config.llm_config_for_role("planner").model_name,
             "llm_role_models": self._role_model_names(),
             "memory_write_policy": self.config.memory.write_policy,

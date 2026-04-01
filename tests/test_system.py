@@ -143,6 +143,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertTrue(result["success"])
             self.assertEqual(result["backend"], "claude_code")
+            self.assertEqual(result["executor_model"], "test-model")
             self.assertEqual(result["evaluation_status"], "success")
             self.assertTrue(Path(result["run_result_path"]).exists())
             self.assertTrue(Path(result["run_manifest_path"]).exists())
@@ -159,6 +160,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
             run_result = json.loads(Path(result["run_result_path"]).read_text(encoding="utf-8"))
             self.assertEqual(run_result["backend"], "claude_code")
+            self.assertEqual(run_result["executor_model"], "test-model")
             self.assertEqual(run_result["memory_write_policy"], "append")
             self.assertEqual(run_result["cost_summary"]["executor_estimated_cost_usd"], 0.1234)
             self.assertEqual(run_result["evaluation_status"], "success")

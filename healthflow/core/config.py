@@ -34,6 +34,18 @@ class BackendCLIConfig(BaseModel):
 
     binary: str
     args: List[str] = Field(default_factory=list)
+    arg_templates: List[str] = Field(default_factory=list)
+    env: Dict[str, str] = Field(default_factory=dict)
+    model: str | None = None
+    model_flag: str | None = None
+    model_template: str = "$model"
+    provider: str | None = None
+    provider_flag: str | None = None
+    provider_base_url: str | None = None
+    provider_api: str | None = None
+    provider_api_key_env: str | None = None
+    output_mode: Literal["text", "json_events"] = "text"
+    inherit_active_llm: bool = True
     prompt_mode: Literal["append", "stdin"] = "append"
     timeout_seconds: int = 900
     version_args: List[str] = Field(default_factory=lambda: ["--version"])
@@ -53,7 +65,21 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
     return {
         "claude_code": BackendCLIConfig(
             binary="claude",
-            args=["--dangerously-skip-permissions", "--print"],
+            args=[
+                "--bare",
+                "--setting-sources",
+                "local",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--output-format",
+                "text",
+            ],
+            env={
+                "ANTHROPIC_BASE_URL": "https://zenmux.ai/api/anthropic",
+                "ANTHROPIC_API_KEY": "${ZENMUX_API_KEY}",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+            },
+            model_flag="--model",
             prompt_mode="append",
         ),
         "codex": BackendCLIConfig(
@@ -65,16 +91,36 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
                 "never",
                 "--dangerously-bypass-approvals-and-sandbox",
             ],
+            arg_templates=[
+                "-c",
+                'model_provider="$provider"',
+                "-c",
+                'model_providers.$provider={name="ZenMux", base_url="$provider_base_url", env_key="$provider_api_key_env", wire_api="responses"}',
+            ],
+            model_flag="-m",
+            provider="zenmux",
+            provider_base_url="https://zenmux.ai/api/v1",
+            provider_api_key_env="ZENMUX_API_KEY",
             prompt_mode="stdin",
         ),
         "opencode": BackendCLIConfig(
             binary="opencode",
-            args=["run", "--format", "json"],
+            args=["run"],
+            model_flag="-m",
+            model_template="$provider/$model",
+            provider="zenmux",
+            output_mode="text",
             prompt_mode="append",
         ),
         "pi": BackendCLIConfig(
             binary="pi",
-            args=[],
+            args=["--print"],
+            model_flag="--model",
+            provider_flag="--provider",
+            provider="zenmux",
+            provider_base_url="https://zenmux.ai/api/v1",
+            provider_api="openai-completions",
+            provider_api_key_env="ZENMUX_API_KEY",
             prompt_mode="append",
         ),
     }
@@ -159,7 +205,11 @@ class HealthFlowConfig(BaseModel):
 
     @property
     def active_executor(self) -> BackendCLIConfig:
-        return self.executor.backends[self.active_executor_name]
+        active_executor = self.executor.backends[self.active_executor_name]
+        resolved_model = active_executor.model
+        if resolved_model is None and active_executor.inherit_active_llm:
+            resolved_model = self.llm.model_name
+        return active_executor.model_copy(update={"model": resolved_model})
 
     def llm_config_for_role(self, role: str) -> LLMProviderConfig:
         configured_name = getattr(self.llm_roles, role, None) or self.active_llm_name

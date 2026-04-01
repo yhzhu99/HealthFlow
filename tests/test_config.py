@@ -50,8 +50,9 @@ model_name = "model"
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
-            self.assertEqual(config.active_executor.args, ["run", "--format", "json"])
+            self.assertEqual(config.active_executor.args, ["run"])
             self.assertEqual(config.active_executor.prompt_mode, "append")
+            self.assertEqual(config.active_executor.model, "model")
 
     def test_named_pi_backend_uses_specialized_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -118,6 +119,22 @@ timeout_seconds = 30
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
+
+    def test_executor_model_defaults_to_active_llm_model_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.default]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "openai/gpt-5.4"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "default")
+
+            self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
 
     def test_llm_roles_can_override_default_reasoning_model(self):
         with tempfile.TemporaryDirectory() as tmpdir:

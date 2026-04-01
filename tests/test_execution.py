@@ -1,5 +1,8 @@
+import json
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from healthflow.core.contracts import ExecutionPlan
 from healthflow.core.config import ToolsConfig
@@ -50,9 +53,120 @@ class ExecutionFactoryTests(unittest.TestCase):
     def test_opencode_backend_uses_specialized_executor(self):
         executor = create_executor_adapter(
             "opencode",
-            BackendCLIConfig(binary="opencode", args=["run", "--format", "json"]),
+            BackendCLIConfig(binary="opencode", args=["run"]),
         )
         self.assertIsInstance(executor, OpenCodeExecutor)
+
+    def test_opencode_command_uses_provider_prefixed_model_in_text_mode(self):
+        executor = OpenCodeExecutor(
+            "opencode",
+            BackendCLIConfig(
+                binary="opencode",
+                args=["run"],
+                provider="zenmux",
+                model="openai/gpt-5.4",
+                model_flag="-m",
+                model_template="$provider/$model",
+                output_mode="text",
+            ),
+        )
+
+        command = executor._build_command("say hi")
+
+        self.assertEqual(command, ["opencode", "run", "-m", "zenmux/openai/gpt-5.4", "say hi"])
+
+    def test_codex_command_renders_provider_override_templates(self):
+        executor = CodexExecutor(
+            "codex",
+            BackendCLIConfig(
+                binary="codex",
+                args=["exec", "--skip-git-repo-check"],
+                arg_templates=[
+                    "-c",
+                    'model_provider="$provider"',
+                    "-c",
+                    'model_providers.$provider={name="ZenMux", base_url="$provider_base_url", env_key="$provider_api_key_env", wire_api="responses"}',
+                ],
+                provider="zenmux",
+                provider_base_url="https://zenmux.ai/api/v1",
+                provider_api_key_env="ZENMUX_API_KEY",
+                model="openai/gpt-5.4",
+                model_flag="-m",
+                prompt_mode="stdin",
+            ),
+        )
+
+        command = executor._build_command("ignored")
+
+        self.assertEqual(
+            command,
+            [
+                "codex",
+                "exec",
+                "--skip-git-repo-check",
+                "-c",
+                'model_provider="zenmux"',
+                "-c",
+                'model_providers.zenmux={name="ZenMux", base_url="https://zenmux.ai/api/v1", env_key="ZENMUX_API_KEY", wire_api="responses"}',
+                "-m",
+                "openai/gpt-5.4",
+            ],
+        )
+
+    def test_executor_environment_expands_required_variables(self):
+        executor = ClaudeCodeExecutor(
+            "claude_code",
+            BackendCLIConfig(
+                binary="claude",
+                env={"ANTHROPIC_API_KEY": "${ZENMUX_API_KEY}"},
+            ),
+        )
+
+        with patch.dict("os.environ", {"ZENMUX_API_KEY": "env-key"}, clear=False):
+            environment = executor._build_environment(Path.cwd())
+
+        self.assertEqual(environment["ANTHROPIC_API_KEY"], "env-key")
+
+    def test_executor_environment_raises_when_required_variable_is_missing(self):
+        executor = ClaudeCodeExecutor(
+            "claude_code",
+            BackendCLIConfig(
+                binary="claude",
+                env={"ANTHROPIC_API_KEY": "${ZENMUX_API_KEY}"},
+            ),
+        )
+
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "ZENMUX_API_KEY"):
+                executor._build_environment(Path.cwd())
+
+    def test_pi_executor_writes_runtime_models_json(self):
+        executor = PiExecutor(
+            "pi",
+            BackendCLIConfig(
+                binary="pi",
+                args=["--print"],
+                provider="zenmux",
+                provider_flag="--provider",
+                provider_base_url="https://zenmux.ai/api/v1",
+                provider_api="openai-completions",
+                provider_api_key_env="ZENMUX_API_KEY",
+                model="openai/gpt-5.4",
+                model_flag="--model",
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            working_dir = Path(tmpdir)
+            environment = executor._build_environment(working_dir)
+            agent_dir = Path(environment["PI_CODING_AGENT_DIR"])
+            models_json = json.loads((agent_dir / "models.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(agent_dir, working_dir / ".healthflow_pi_agent")
+        self.assertEqual(models_json["providers"]["zenmux"]["baseUrl"], "https://zenmux.ai/api/v1")
+        self.assertEqual(models_json["providers"]["zenmux"]["api"], "openai-completions")
+        self.assertEqual(models_json["providers"]["zenmux"]["apiKey"], "ZENMUX_API_KEY")
+        self.assertEqual(models_json["providers"]["zenmux"]["models"][0]["id"], "openai/gpt-5.4")
 
     def test_shared_executor_prompt_contains_neutral_workspace_rules(self):
         context = ExecutionContext(
