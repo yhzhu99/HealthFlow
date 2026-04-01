@@ -13,7 +13,12 @@ SCRIPT_ROOT = Path(__file__).resolve().parent
 if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
-from ehr_common import extract_gzip_file, write_parquet_with_metadata
+from ehr_common import (
+    build_stratified_split_metadata,
+    extract_gzip_file,
+    write_json,
+    write_parquet_with_metadata,
+)
 
 
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
@@ -21,8 +26,10 @@ RAW_ROOT = BENCHMARK_ROOT / "raw" / "mimic_iv_demo"
 PROCESSED_ROOT = BENCHMARK_ROOT / "processed" / "mimic_iv_demo"
 EXTRACTED_ROOT = PROCESSED_ROOT / "_extracted"
 OUTPUT_PATH = PROCESSED_ROOT / "mimic_iv_demo_formatted_ehr.parquet"
+SPLIT_METADATA_PATH = PROCESSED_ROOT / "split_metadata.json"
 METADATA_BUNDLE_PATH = BENCHMARK_ROOT / "metadata" / "mimic_iv_demo_ehr_metadata.json"
 MAX_WINDOW = 7
+SEED = 42
 
 EXTRACT_TARGETS = {
     RAW_ROOT / "hosp" / "patients.csv.gz": EXTRACTED_ROOT / "hosp" / "patients.csv",
@@ -287,7 +294,8 @@ def aggregate_ehr(
     for feature in numeric_features:
         frame[feature] = pd.to_numeric(frame[feature], errors="coerce")
 
-    ordered_columns = ["PatientID", "AdmissionID", "RecordTime"] + config["label_features"] + config["demographic_features"] + numeric_features
+    frame["RecordID"] = frame["PatientID"].astype(str) + "_" + frame["AdmissionID"].astype(str)
+    ordered_columns = ["RecordID", "PatientID", "AdmissionID", "RecordTime"] + config["label_features"] + config["demographic_features"] + numeric_features
     one_hot_columns: list[str] = []
     for feature in categorical_features:
         values = config["possible_values"].get(feature, [])
@@ -317,14 +325,34 @@ def main() -> None:
     events = process_events(extracted_paths, config, metadata_bundle["item2var"])
     frame = aggregate_ehr(patients, events, config)
 
+    split_metadata = build_stratified_split_metadata(
+        frame,
+        dataset="mimic_iv_demo",
+        key_column="RecordID",
+        label_column="Outcome",
+        seed=SEED,
+    )
+    write_json(SPLIT_METADATA_PATH, split_metadata)
+
     metadata = {
         "healthflow.source_dataset": "mimic_iv_demo",
         "healthflow.source_dir": str(RAW_ROOT.relative_to(BENCHMARK_ROOT)),
+        "healthflow.key_column": "RecordID",
         "healthflow.metadata_bundle_path": str(METADATA_BUNDLE_PATH.relative_to(BENCHMARK_ROOT)),
+        "healthflow.split_metadata_path": str(SPLIT_METADATA_PATH.relative_to(BENCHMARK_ROOT)),
         "healthflow.metadata_bundle.json": metadata_bundle,
         "healthflow.processing.json": {
+            "seed": SEED,
             "max_window": MAX_WINDOW,
             "one_hot_encode_categorical": True,
+            "split_strategy": {
+                "method": "stratified",
+                "ratios": {
+                    "train": 0.7,
+                    "val": 0.2,
+                    "test": 0.1,
+                },
+            },
             "categorical_features": [
                 feature for feature, is_categorical in config["is_categorical_channel"].items() if is_categorical
             ],
@@ -345,6 +373,8 @@ def main() -> None:
         "admissions": int(frame["AdmissionID"].nunique()),
         "columns": len(frame.columns),
         "metadata_bundle": str(METADATA_BUNDLE_PATH),
+        "split_metadata_file": str(SPLIT_METADATA_PATH),
+        "split_key_counts": split_metadata["split_key_counts"],
         "output_file": str(OUTPUT_PATH),
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))

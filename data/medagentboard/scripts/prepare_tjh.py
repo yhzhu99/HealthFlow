@@ -12,13 +12,16 @@ SCRIPT_ROOT = Path(__file__).resolve().parent
 if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
-from ehr_common import write_parquet_with_metadata
+from ehr_common import build_stratified_split_metadata, write_json, write_parquet_with_metadata
 
 
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
 RAW_PATH = BENCHMARK_ROOT / "raw" / "tjh" / "time_series_375_prerpocess_en.xlsx"
+PROCESSED_ROOT = BENCHMARK_ROOT / "processed" / "tjh"
 OUTPUT_PATH = BENCHMARK_ROOT / "processed" / "tjh" / "tjh_formatted_ehr.parquet"
+SPLIT_METADATA_PATH = PROCESSED_ROOT / "split_metadata.json"
 SOURCE_DATASET = "tjh"
+SEED = 42
 DROP_COLUMNS = ["2019-nCoV nucleic acid detection"]
 
 BASIC_RECORDS = ["PatientID", "RecordTime", "AdmissionTime", "DischargeTime"]
@@ -145,17 +148,38 @@ def main() -> None:
     frame = frame.groupby(BASIC_RECORDS, dropna=True, as_index=False).mean(numeric_only=True)
     ordered_columns = BASIC_RECORDS + TARGET_FEATURES + DEMOGRAPHIC_FEATURES + LABTEST_FEATURES
     frame = frame[ordered_columns]
+    frame["PatientID"] = pd.to_numeric(frame["PatientID"], errors="raise").astype("int64")
+
+    split_metadata = build_stratified_split_metadata(
+        frame,
+        dataset=SOURCE_DATASET,
+        key_column="PatientID",
+        label_column="Outcome",
+        seed=SEED,
+    )
+    write_json(SPLIT_METADATA_PATH, split_metadata)
 
     metadata = {
         "healthflow.source_dataset": SOURCE_DATASET,
         "healthflow.source_file": str(RAW_PATH.relative_to(BENCHMARK_ROOT)),
+        "healthflow.key_column": "PatientID",
+        "healthflow.split_metadata_path": str(SPLIT_METADATA_PATH.relative_to(BENCHMARK_ROOT)),
         "healthflow.processing.json": {
+            "seed": SEED,
             "rename_map": RENAME_MAP,
             "dropped_columns": DROP_COLUMNS,
             "basic_records": BASIC_RECORDS,
             "target_features": TARGET_FEATURES,
             "demographic_features": DEMOGRAPHIC_FEATURES,
             "labtest_features": LABTEST_FEATURES,
+            "split_strategy": {
+                "method": "stratified",
+                "ratios": {
+                    "train": 0.7,
+                    "val": 0.2,
+                    "test": 0.1,
+                },
+            },
         },
     }
     write_parquet_with_metadata(frame, OUTPUT_PATH, metadata=metadata)
@@ -164,6 +188,8 @@ def main() -> None:
         "rows": len(frame),
         "patients": int(frame["PatientID"].nunique()),
         "columns": len(frame.columns),
+        "split_metadata_file": str(SPLIT_METADATA_PATH),
+        "split_key_counts": split_metadata["split_key_counts"],
         "output_file": str(OUTPUT_PATH),
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
