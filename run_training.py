@@ -96,6 +96,10 @@ class TrainingRunner:
                         "execution_time": result.get("execution_time", 0.0),
                         "memory_context_path": result.get("memory_context_path"),
                         "evaluation_path": result.get("evaluation_path"),
+                        "report_requested": result.get("report_requested", False),
+                        "report_generated": result.get("report_generated", False),
+                        "report_path": result.get("report_path"),
+                        "report_error": result.get("report_error"),
                     }
                     self.results.append(training_result)
 
@@ -107,7 +111,14 @@ class TrainingRunner:
                         "qid": example.qid,
                         "task": example.task,
                         "reference_answer": example.answer,
-                        "result": {"success": False, "error": str(e)},
+                        "result": {
+                            "success": False,
+                            "error": str(e),
+                            "report_requested": False,
+                            "report_generated": False,
+                            "report_path": None,
+                            "report_error": None,
+                        },
                         "success": False,
                         "score": 0.0,
                         "workspace_path": None,
@@ -119,6 +130,10 @@ class TrainingRunner:
                         "execution_time": 0.0,
                         "memory_context_path": None,
                         "evaluation_path": None,
+                        "report_requested": False,
+                        "report_generated": False,
+                        "report_path": None,
+                        "report_error": None,
                     }
                     self.results.append(error_result)
 

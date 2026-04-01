@@ -190,6 +190,28 @@ class ExecutionFactoryTests(unittest.TestCase):
         self.assertIn("## EHR Safeguards", prompt)
         self.assertIn("## Recommended Workflows", prompt)
 
+    def test_shared_executor_prompt_adds_report_guidance_without_requiring_executor_report_file(self):
+        context = ExecutionContext(
+            user_request="Build a cohort table.",
+            plan=ExecutionPlan(
+                objective="Build a cohort table.",
+                assumptions_to_check=["Confirm what files are available in the workspace."],
+                recommended_steps=["Inspect the workspace.", "Create the cohort artifact.", "Summarize the result."],
+                preferred_tools=["python", "shell"],
+                avoidances=["Do not write outside the workspace."],
+                success_signals=["A cohort artifact exists in the workspace."],
+                executor_brief="Prefer a small reproducible script if the logic is non-trivial.",
+            ),
+            available_tools=ToolCatalog.from_config("codex", ToolsConfig()),
+            report_requested=True,
+        )
+
+        prompt = context.render_prompt()
+
+        self.assertIn("system-generated report", prompt)
+        self.assertIn("key artifacts you produced", prompt)
+        self.assertNotIn("final_report.md", prompt)
+
     def test_repo_root_does_not_depend_on_claude_md(self):
         repo_root = Path(__file__).resolve().parents[1]
         self.assertFalse((repo_root / "CLAUDE.md").exists())

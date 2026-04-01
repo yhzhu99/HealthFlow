@@ -251,6 +251,10 @@ async def run_benchmark_async(
                     "evaluation_path": None,
                     "memory_context_path": None,
                     "run_result_path": None,
+                    "report_requested": False,
+                    "report_generated": False,
+                    "report_path": None,
+                    "report_error": None,
                     "error": str(exc),
                 }
 
@@ -284,6 +288,10 @@ async def run_benchmark_async(
                 "cost_analysis_path": result.get("cost_analysis_path"),
                 "run_result_path": result.get("run_result_path"),
                 "run_manifest_path": result.get("run_manifest_path"),
+                "report_requested": result.get("report_requested", False),
+                "report_generated": result.get("report_generated", False),
+                "report_path": result.get("report_path"),
+                "report_error": result.get("report_error"),
                 "final_summary": result.get("final_summary"),
                 "output_directory": str(output_dir),
             }

@@ -24,6 +24,8 @@ console = Console()
 def _display_task_result(result: dict):
     """Helper function to display the final result of a task in a Rich panel."""
     success = result.get("success", False)
+    report_requested = result.get("report_requested", False)
+    report_generated = result.get("report_generated", False)
     if success:
         panel_title = "[bold green]✅ Task Completed Successfully[/bold green]"
         panel_border_style = "green"
@@ -55,6 +57,10 @@ def _display_task_result(result: dict):
 [bold]Evaluation JSON:[/bold] {result.get('evaluation_path', 'N/A')}
 [bold]Memory Context:[/bold] {result.get('memory_context_path', 'N/A')}
 [bold]Run Result JSON:[/bold] {result.get('run_result_path', 'N/A')}
+[bold]Report Requested:[/bold] {report_requested}
+[bold]Report Generated:[/bold] {report_generated}
+[bold]Report Path:[/bold] {result.get('report_path') or 'N/A'}
+[bold]Report Error:[/bold] {result.get('report_error') or 'N/A'}
 
 ---
 [bold]Workspace:[/bold] {result.get('workspace_path', 'N/A')}
@@ -62,17 +68,19 @@ def _display_task_result(result: dict):
 """
     console.print(Panel(final_report, title=panel_title, border_style=panel_border_style))
 
-async def run_single_task_flow(system: HealthFlowSystem, task: str):
+async def run_single_task_flow(system: HealthFlowSystem, task: str, report_requested: bool = False):
     """Runs a single task and displays the result with a live spinner."""
     console.print(Panel(f"[bold cyan]Starting HealthFlow Task[/bold cyan]\n\n[dim]Task:[/dim] {task}", border_style="cyan"))
 
     spinner = Spinner("dots", text="HealthFlow is orchestrating...")
     with Live(spinner, console=console, transient=True, refresh_per_second=20) as live:
-        result = await system.run_task(task, live, spinner)
+        result = await system.run_task(task, live, spinner, report_requested=report_requested)
 
     _display_task_result(result)
     # Exit with a non-zero code if the task failed, useful for scripting/CI
     if not result.get("success", False):
+        raise typer.Exit(code=1)
+    if report_requested and not result.get("report_generated", False):
         raise typer.Exit(code=1)
 
 async def main_interactive_loop(system: HealthFlowSystem):
@@ -119,12 +127,13 @@ def run(
         help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.2).",
     ),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)."),
+    report: bool = typer.Option(False, "--report", help="Generate a standard markdown report.md in the task workspace."),
 ):
     """
     Run a single task through the HealthFlow system.
     """
     system = _initialize_system(config_path, experience_path, active_llm, active_executor)
-    asyncio.run(run_single_task_flow(system, task))
+    asyncio.run(run_single_task_flow(system, task, report_requested=report))
 
 @app.command()
 def interactive(
