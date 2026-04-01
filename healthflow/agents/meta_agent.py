@@ -3,7 +3,7 @@ from typing import List, Optional
 from loguru import logger
 
 from ..core.contracts import ExecutionPlan
-from ..core.llm_provider import LLMProvider, LLMMessage
+from ..core.llm_provider import LLMProvider, LLMMessage, StructuredResponseError, parse_json_content
 from ..prompts.templates import get_prompt, render_prompt
 from ..experience.experience_models import Experience
 
@@ -76,20 +76,26 @@ class MetaAgent:
         ]
 
         logger.info("Generating plan with MetaAgent...")
-        response = await self.llm_provider.generate(messages, temperature=0.0, json_mode=True)
-        self.last_usage = response.usage
-        self.last_model_name = response.model_name
-        self.last_estimated_cost_usd = response.estimated_cost_usd
-
         try:
-            result = json.loads(response.content)
-            plan = ExecutionPlan(**result)
-
+            plan, response = await self.llm_provider.generate_structured(
+                messages,
+                lambda content: ExecutionPlan(**parse_json_content(content)),
+                temperature=0.0,
+            )
+            self.last_usage = response.usage
+            self.last_model_name = response.model_name
+            self.last_estimated_cost_usd = response.estimated_cost_usd
             logger.info("Plan generated successfully.")
             return plan
-        except (json.JSONDecodeError, ValueError) as e:
+        except (StructuredResponseError, ValueError) as e:
+            response = e.response if isinstance(e, StructuredResponseError) else None
+            if response is not None:
+                self.last_usage = response.usage
+                self.last_model_name = response.model_name
+                self.last_estimated_cost_usd = response.estimated_cost_usd
             logger.error(f"Failed to parse valid plan from LLM: {e}. Defaulting to a fallback plan.")
-            logger.debug(f"Invalid JSON response from LLM: {response.content}")
+            if response is not None:
+                logger.debug(f"Invalid JSON response from LLM: {response.content}")
             return ExecutionPlan(
                 objective=user_request,
                 assumptions_to_check=["Inspect the workspace inputs before implementing a solution."],

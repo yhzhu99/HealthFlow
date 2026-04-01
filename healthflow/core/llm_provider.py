@@ -1,11 +1,15 @@
+import json
+from typing import Any, Callable, List, TypeVar
+
 import httpx
+from loguru import logger
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
-from typing import Any, List, Optional
-from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
-from loguru import logger
+from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
 from .config import LLMProviderConfig
+
+T = TypeVar("T")
 
 class LLMMessage(BaseModel):
     """Represents a single message in a chat conversation."""
@@ -18,6 +22,60 @@ class LLMResponse(BaseModel):
     model_name: str
     usage: dict[str, Any] = Field(default_factory=dict)
     estimated_cost_usd: float | None = None
+
+
+class StructuredResponseError(ValueError):
+    """Raised when a structured response cannot be parsed after retries."""
+
+    def __init__(self, message: str, response: LLMResponse | None = None):
+        super().__init__(message)
+        self.response = response
+
+
+def parse_json_content(content: str) -> Any:
+    """Best-effort JSON extraction for providers that wrap JSON in prose or fences."""
+    stripped = content.strip()
+    if not stripped:
+        raise ValueError("Response content was empty.")
+
+    decoder = json.JSONDecoder()
+    candidates = [stripped]
+
+    fenced_chunks = []
+    fence = "```"
+    start = 0
+    while True:
+        open_index = stripped.find(fence, start)
+        if open_index == -1:
+            break
+        content_start = stripped.find("\n", open_index)
+        if content_start == -1:
+            break
+        close_index = stripped.find(fence, content_start + 1)
+        if close_index == -1:
+            break
+        fenced = stripped[content_start + 1 : close_index].strip()
+        if fenced:
+            fenced_chunks.append(fenced)
+        start = close_index + len(fence)
+    candidates.extend(fenced_chunks)
+
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+        for index, char in enumerate(candidate):
+            if char not in "{[":
+                continue
+            try:
+                parsed, _ = decoder.raw_decode(candidate[index:])
+                return parsed
+            except json.JSONDecodeError:
+                continue
+
+    raise ValueError("Response did not contain a valid JSON object or array.")
 
 class LLMProvider:
     """
@@ -84,6 +142,61 @@ class LLMProvider:
             logger.error(f"An unexpected error occurred during LLM API call: {e}")
             # This will trigger a retry if tenacity is configured for it
             raise
+
+    async def generate_structured(
+        self,
+        messages: List[LLMMessage],
+        parser: Callable[[str], T],
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        max_attempts: int = 3,
+    ) -> tuple[T, LLMResponse]:
+        """Generate a structured response and retry locally when parsing fails."""
+        repair_messages = list(messages)
+        last_error: Exception | None = None
+        last_response: LLMResponse | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            response = await self.generate(
+                repair_messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                json_mode=True,
+            )
+            last_response = response
+            try:
+                return parser(response.content), response
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Structured response parse failed for model '{}' on local attempt {}/{}: {}",
+                    self.model_name,
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                if attempt >= max_attempts:
+                    break
+                repair_messages = list(messages)
+                if response.content.strip():
+                    repair_messages.extend(
+                        [
+                            LLMMessage(role="assistant", content=response.content),
+                            LLMMessage(
+                                role="user",
+                                content=(
+                                    "Your previous reply was not valid for the requested schema. "
+                                    "Return only a single valid JSON object matching the required output. "
+                                    "Do not add markdown fences, commentary, or trailing text."
+                                ),
+                            ),
+                        ]
+                    )
+
+        raise StructuredResponseError(
+            f"Failed to parse a structured response after {max_attempts} attempts: {last_error}",
+            response=last_response,
+        ) from last_error
 
     def _normalize_usage(self, usage: Any) -> dict[str, Any]:
         if usage is None:

@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 from loguru import logger
 
 from ..core.contracts import EvaluationVerdict
-from ..core.llm_provider import LLMProvider, LLMMessage
+from ..core.llm_provider import LLMProvider, LLMMessage, StructuredResponseError, parse_json_content
 from ..prompts.templates import get_prompt, render_prompt
 from ..experience.experience_models import (
     Experience,
@@ -54,14 +54,17 @@ class ReflectorAgent:
         ]
 
         logger.info("Requesting experience synthesis from LLM...")
-        response = await self.llm_provider.generate(messages, json_mode=True)
-        self.last_usage = response.usage
-        self.last_model_name = response.model_name
-        self.last_estimated_cost_usd = response.estimated_cost_usd
 
         experiences: List[Experience] = []
         try:
-            data = json.loads(response.content)
+            data, response = await self.llm_provider.generate_structured(
+                messages,
+                parse_json_content,
+                temperature=0.0,
+            )
+            self.last_usage = response.usage
+            self.last_model_name = response.model_name
+            self.last_estimated_cost_usd = response.estimated_cost_usd
             raw_experiences = data.get("experiences", [])
             for item in raw_experiences:
                 try:
@@ -102,9 +105,15 @@ class ReflectorAgent:
 
             logger.info(f"Successfully synthesized {len(experiences)} new experiences.")
             return experiences
-        except (json.JSONDecodeError, KeyError) as e:
+        except (StructuredResponseError, KeyError, ValueError) as e:
+            response = e.response if isinstance(e, StructuredResponseError) else None
+            if response is not None:
+                self.last_usage = response.usage
+                self.last_model_name = response.model_name
+                self.last_estimated_cost_usd = response.estimated_cost_usd
             logger.error(f"Failed to parse valid experiences from LLM response. Error: {e}")
-            logger.debug(f"Invalid JSON response from LLM: {response.content}")
+            if response is not None:
+                logger.debug(f"Invalid JSON response from LLM: {response.content}")
             return []
 
     def _is_safety_critical(self, item: dict, proposed_type: ExperienceType, proposed_layer: MemoryLayer) -> bool:
