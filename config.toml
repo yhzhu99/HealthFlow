@@ -49,25 +49,42 @@ active_backend = "opencode"
 
 [executor.backends.claude_code]
 binary = "claude"
-args = ["--dangerously-skip-permissions", "--print"]
+args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text"]
+env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KEY = "${ZENMUX_API_KEY}", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
+model_flag = "--model"
 prompt_mode = "append"
 timeout_seconds = 1800
 
 [executor.backends.codex]
 binary = "codex"
 args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
+arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}"]
+model_flag = "-m"
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/v1"
+provider_api_key_env = "ZENMUX_API_KEY"
 prompt_mode = "stdin"
 timeout_seconds = 1800
 
 [executor.backends.opencode]
 binary = "opencode"
-args = []
+args = ["run"]
+model_flag = "-m"
+model_template = "$provider/$model"
+provider = "zenmux"
+output_mode = "text"
 prompt_mode = "append"
 timeout_seconds = 1800
 
 [executor.backends.pi]
 binary = "pi"
-args = []
+args = ["--print"]
+model_flag = "--model"
+provider_flag = "--provider"
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/v1"
+provider_api = "openai-completions"
+provider_api_key_env = "ZENMUX_API_KEY"
 prompt_mode = "append"
 timeout_seconds = 1800
 

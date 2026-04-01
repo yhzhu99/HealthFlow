@@ -109,6 +109,8 @@ HealthFlow does not hardcode compatibility for any specific domain package or ex
 
 The executor can advertise tool surfaces through a unified catalog. The planner may recommend preferred tools, while the executor is still allowed to adapt at runtime.
 
+Executor defaults are configured for normal text output. HealthFlow does not require external backends to finish in JSON. Structured event streams remain optional backend-specific telemetry modes.
+
 ## Quick Start
 
 ### Prerequisites
@@ -148,6 +150,44 @@ output_cost_per_million_tokens = 3.00
 `api_key` still works for inline secrets, but `api_key_env` is the recommended path. Use quoted TOML table names for model keys that contain `/`.
 
 If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for the active reasoning model in `config.toml`. If those fields are omitted, HealthFlow skips cost estimation for that model. `opencode` executor runs also record per-step executor token usage and estimated executor cost when the CLI returns structured telemetry.
+
+By default, the active executor inherits the same `model_name` as the selected `--active-llm`. Override the executor-side model only if you explicitly want the planner/evaluator model and the backend model to diverge for an experiment.
+
+Example executor configuration with ZenMux-backed defaults:
+
+```toml
+[executor.backends.opencode]
+binary = "opencode"
+args = ["run"]
+model_flag = "-m"
+model_template = "$provider/$model"
+provider = "zenmux"
+
+[executor.backends.codex]
+binary = "codex"
+args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
+arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}"]
+model_flag = "-m"
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/v1"
+provider_api_key_env = "ZENMUX_API_KEY"
+
+[executor.backends.pi]
+binary = "pi"
+args = ["--print"]
+provider_flag = "--provider"
+model_flag = "--model"
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/v1"
+provider_api = "openai-completions"
+provider_api_key_env = "ZENMUX_API_KEY"
+
+[executor.backends.claude_code]
+binary = "claude"
+args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text"]
+env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KEY = "${ZENMUX_API_KEY}", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
+model_flag = "--model"
+```
 
 To decouple the internal roles, set:
 
@@ -215,6 +255,8 @@ python run_benchmark.py path/to/tasks.jsonl experiment_name \
 ```
 
 Results are written under `benchmark_results/<dataset>/<executor>/<reasoning_model>/` with per-task copies of the workspace artifacts and dataset-level summary JSON.
+
+For a minimal executor smoke test, use [executor_smoke.jsonl](/home/yhzhu/projects/HealthFlow/data/examples/processed/executor_smoke.jsonl) with any built-in backend.
 
 ## Benchmark Framing
 
