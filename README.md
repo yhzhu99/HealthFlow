@@ -3,7 +3,7 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2508.02621-b31b1b.svg)](https://arxiv.org/abs/2508.02621)
 [![Project Website](https://img.shields.io/badge/Project%20Website-HealthFlow-0066cc.svg)](https://healthflow-agent.netlify.app)
 
-HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task reporting, and long-term reflective memory. Dataset preparation and benchmark evaluation workflows can still live in the repository under `data/`, but they are intentionally decoupled from the `healthflow/` runtime package.
+HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task runtime artifacts, and long-term reflective memory. Dataset preparation and benchmark evaluation workflows can still live in the repository under `data/`, but they are intentionally decoupled from the `healthflow/` runtime package.
 
 - structured `Meta` planning with EHR-adaptive memory retrieval
 - `Executor` as a CodeAct runtime over pluggable tool surfaces
@@ -75,7 +75,7 @@ HealthFlow uses four memory classes:
 - `dataset`
 - `execution`
 
-Retrieval is auditable:
+Retrieval is inspectable:
 
 - retrieval is conditioned on task family, dataset signature, schema tags, and EHR risk tags
 - safeguard memories are prioritized for elevated-risk EHR tasks
@@ -110,6 +110,8 @@ HealthFlow does not hardcode compatibility for any specific domain package or ex
 The executor can advertise tool surfaces through a unified catalog. The planner may recommend preferred tools, while the executor is still allowed to adapt at runtime.
 
 Executor defaults are configured for normal text output. HealthFlow does not require external backends to finish in JSON. Structured event streams remain optional backend-specific telemetry modes.
+
+`run_benchmark.py` always forces `memory.write_policy = "freeze"` so benchmark evaluation remains decoupled from the framework's self-evolving writeback behavior.
 
 ## Quick Start
 

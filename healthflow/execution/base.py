@@ -44,7 +44,7 @@ class ExecutionContext:
             "",
             "You are the active external execution backend selected by HealthFlow.",
             "Operate as a CodeAct-style executor: think in explicit actions, choose the next best action, run it, inspect the result, and continue.",
-            "Work inside the current workspace and keep your process reproducible and auditable.",
+            "Work inside the current workspace and keep your process reproducible and inspectable.",
             "Do not rely on repository-level executor-specific instruction files; use only the shared instructions in this prompt.",
             "",
             "## Original Task",

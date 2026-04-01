@@ -11,7 +11,7 @@ Core directives:
 1. Start from the user request, available tools, safeguard memories, workflow memories, dataset memories, execution memories, and prior evaluator feedback when present.
 2. Treat safeguard memories as constraints and workflow memories as reusable positive guidance.
 3. The executor will inspect the workspace directly, so your plan should call out assumptions that must be checked before implementation.
-4. Keep the plan executable, auditable, and directly useful for recovering from prior failure.
+4. Keep the plan executable, reproducible, and directly useful for recovering from prior failure.
 
 Output format:
 {

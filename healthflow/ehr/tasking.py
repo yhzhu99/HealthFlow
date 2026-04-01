@@ -120,7 +120,7 @@ def default_tool_bundle(task_family: str, domain_focus: str = "general") -> list
 def deliverable_guidance(task_family: str, domain_focus: str = "general") -> list[str]:
     guidance = {
         "cohort_extraction": [
-            "Persist the selection logic in a script, notebook, or auditable artifact when reproducibility matters.",
+            "Persist the selection logic in a script, notebook, or reproducible artifact when reproducibility matters.",
             "If the final output is a cohort/table, save the resulting subset and briefly explain the criteria you applied.",
         ],
         "predictive_modeling": [
@@ -130,7 +130,7 @@ def deliverable_guidance(task_family: str, domain_focus: str = "general") -> lis
         ],
         "survival_analysis": [
             "Save metrics and document the time origin, censoring, or event-horizon assumptions.",
-            "Keep the analysis auditable with scripts or concise notes describing temporal validation.",
+            "Keep the analysis reproducible with scripts or concise notes describing temporal validation.",
         ],
         "time_series_modeling": [
             "Save metrics and document how chronology or forecasting constraints were handled.",
@@ -148,7 +148,7 @@ def deliverable_guidance(task_family: str, domain_focus: str = "general") -> lis
         guidance.get(
             task_family,
             [
-                "Prefer auditable artifacts when they materially support the answer.",
+                "Prefer reproducible artifacts when they materially support the answer.",
                 "A concise final answer is acceptable when the task does not require saved files.",
             ],
         )
@@ -157,7 +157,7 @@ def deliverable_guidance(task_family: str, domain_focus: str = "general") -> lis
         if task_family in {"predictive_modeling", "survival_analysis", "time_series_modeling"}:
             suggestions.extend(
                 [
-                    "When relevant, save cohort, split, and leakage evidence so the EHR workflow can be audited.",
+                    "When relevant, save cohort, split, and leakage evidence so the EHR workflow can be inspected and reproduced.",
                     "Prefer patient-aware or time-aware validation artifacts over implicit assumptions.",
                 ]
             )

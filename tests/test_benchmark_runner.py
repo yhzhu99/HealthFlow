@@ -1,9 +1,58 @@
 import unittest
 
-from run_benchmark import aggregate_cost_totals
+from healthflow.core.config import (
+    EvaluationConfig,
+    ExecutorConfig,
+    HealthFlowConfig,
+    LLMProviderConfig,
+    LLMRoleConfig,
+    LoggingConfig,
+    MemoryConfig,
+    SystemConfig,
+    ToolsConfig,
+    default_executor_backends,
+)
+from run_benchmark import (
+    BENCHMARK_MEMORY_POLICY_SOURCE,
+    BENCHMARK_MEMORY_WRITE_POLICY,
+    _force_benchmark_memory_policy,
+    aggregate_cost_totals,
+)
 
 
 class BenchmarkRunnerTests(unittest.TestCase):
+    def test_force_benchmark_memory_policy_overrides_config_without_mutating_original(self):
+        config = HealthFlowConfig(
+            active_llm_name="test-llm",
+            active_executor_name="opencode",
+            llm_registry={
+                "test-llm": LLMProviderConfig(
+                    api_key="key",
+                    base_url="https://example.com/v1",
+                    model_name="test-model",
+                )
+            },
+            llm=LLMProviderConfig(
+                api_key="key",
+                base_url="https://example.com/v1",
+                model_name="test-model",
+            ),
+            llm_roles=LLMRoleConfig(),
+            system=SystemConfig(),
+            executor=ExecutorConfig(active_backend="opencode", backends=default_executor_backends()),
+            tools=ToolsConfig(),
+            memory=MemoryConfig(write_policy="append"),
+            evaluation=EvaluationConfig(),
+            logging=LoggingConfig(),
+        )
+
+        frozen_config = _force_benchmark_memory_policy(config)
+
+        self.assertEqual(config.memory.write_policy, "append")
+        self.assertEqual(frozen_config.memory.write_policy, BENCHMARK_MEMORY_WRITE_POLICY)
+        self.assertEqual(frozen_config.active_executor_name, config.active_executor_name)
+        self.assertEqual(frozen_config.active_llm_name, config.active_llm_name)
+
     def test_aggregate_cost_totals_combines_stage_and_executor_costs(self):
         results = [
             {
@@ -12,6 +61,9 @@ class BenchmarkRunnerTests(unittest.TestCase):
                     "executor_estimated_cost_usd": 0.2,
                     "total_estimated_cost_usd": 0.21,
                 },
+                "memory_write_policy": BENCHMARK_MEMORY_WRITE_POLICY,
+                "memory_write_policy_forced": True,
+                "memory_write_policy_source": BENCHMARK_MEMORY_POLICY_SOURCE,
                 "cost_analysis": {
                     "run_total": {
                         "planning": {"estimated_cost_usd": 0.004},
@@ -28,6 +80,9 @@ class BenchmarkRunnerTests(unittest.TestCase):
                     "executor_estimated_cost_usd": 0.05,
                     "total_estimated_cost_usd": 0.065,
                 },
+                "memory_write_policy": BENCHMARK_MEMORY_WRITE_POLICY,
+                "memory_write_policy_forced": True,
+                "memory_write_policy_source": BENCHMARK_MEMORY_POLICY_SOURCE,
                 "cost_analysis": {
                     "run_total": {
                         "planning": {"estimated_cost_usd": 0.005},
@@ -55,6 +110,17 @@ class BenchmarkRunnerTests(unittest.TestCase):
                 "total": 0.275,
             },
         )
+
+    def test_benchmark_results_can_record_forced_freeze_metadata(self):
+        result = {
+            "memory_write_policy": BENCHMARK_MEMORY_WRITE_POLICY,
+            "memory_write_policy_forced": True,
+            "memory_write_policy_source": BENCHMARK_MEMORY_POLICY_SOURCE,
+        }
+
+        self.assertEqual(result["memory_write_policy"], "freeze")
+        self.assertTrue(result["memory_write_policy_forced"])
+        self.assertEqual(result["memory_write_policy_source"], "benchmark_forced_freeze")
 
 
 if __name__ == "__main__":
