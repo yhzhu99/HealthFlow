@@ -5,7 +5,7 @@ from typing import Dict, List, Literal
 
 import toml
 from loguru import logger
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LLMProviderConfig(BaseModel):
@@ -18,6 +18,10 @@ class LLMProviderConfig(BaseModel):
     )
     base_url: str = Field(..., description="Base URL for the LLM API.")
     model_name: str = Field(..., description="Model name to use.")
+    executor_model_name: str | None = Field(
+        default=None,
+        description="Optional model name to inherit into executor backends when it differs from the internal LLM model ID.",
+    )
     timeout: int = Field(180, description="Request timeout in seconds.")
     input_cost_per_million_tokens: float | None = Field(
         default=None,
@@ -34,6 +38,18 @@ class BackendCLIConfig(BaseModel):
 
     binary: str
     args: List[str] = Field(default_factory=list)
+    arg_templates: List[str] = Field(default_factory=list)
+    env: Dict[str, str] = Field(default_factory=dict)
+    model: str | None = None
+    model_flag: str | None = None
+    model_template: str = "$model"
+    provider: str | None = None
+    provider_flag: str | None = None
+    provider_base_url: str | None = None
+    provider_api: str | None = None
+    provider_api_key_env: str | None = None
+    output_mode: Literal["text", "json_events"] = "text"
+    inherit_active_llm: bool = True
     prompt_mode: Literal["append", "stdin"] = "append"
     timeout_seconds: int = 900
     version_args: List[str] = Field(default_factory=lambda: ["--version"])
@@ -53,7 +69,23 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
     return {
         "claude_code": BackendCLIConfig(
             binary="claude",
-            args=["--dangerously-skip-permissions", "--print"],
+            args=[
+                "--bare",
+                "--setting-sources",
+                "local",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--output-format",
+                "text",
+                "--effort",
+                "high",
+            ],
+            env={
+                "ANTHROPIC_BASE_URL": "https://zenmux.ai/api/anthropic",
+                "ANTHROPIC_API_KEY": "${ZENMUX_API_KEY}",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+            },
+            model_flag="--model",
             prompt_mode="append",
         ),
         "codex": BackendCLIConfig(
@@ -65,16 +97,42 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
                 "never",
                 "--dangerously-bypass-approvals-and-sandbox",
             ],
+            arg_templates=[
+                "-c",
+                'model_provider="$provider"',
+                "-c",
+                'model_providers.$provider={name="ZenMux", base_url="$provider_base_url", env_key="$provider_api_key_env", wire_api="responses"}',
+                "-c",
+                'model_reasoning_effort="high"',
+                "-c",
+                'model_reasoning_summary="detailed"',
+            ],
+            model="openai/gpt-5.4",
+            model_flag="-m",
+            inherit_active_llm=False,
+            provider="zenmux",
+            provider_base_url="https://zenmux.ai/api/v1",
+            provider_api_key_env="ZENMUX_API_KEY",
             prompt_mode="stdin",
         ),
         "opencode": BackendCLIConfig(
             binary="opencode",
-            args=["run", "--format", "json"],
+            args=["run", "--variant", "high", "--thinking"],
+            model_flag="-m",
+            model_template="$provider/$model",
+            provider="zenmux",
+            output_mode="text",
             prompt_mode="append",
         ),
         "pi": BackendCLIConfig(
             binary="pi",
-            args=[],
+            args=["--print", "--thinking", "high"],
+            model_flag="--model",
+            provider_flag="--provider",
+            provider="zenmux",
+            provider_base_url="https://zenmux.ai/api/v1",
+            provider_api="openai-completions",
+            provider_api_key_env="ZENMUX_API_KEY",
             prompt_mode="append",
         ),
     }
@@ -120,16 +178,8 @@ class LLMRoleConfig(BaseModel):
     reflector: str | None = Field(default=None, description="Optional model key for the reflector agent.")
 
 
-LEGACY_MEMORY_MODE_MAP = {
-    "accumulate_eval": "append",
-    "frozen_train": "freeze",
-    "reset": "reset_before_run",
-}
-REMOVED_CONFIG_SECTIONS = {"ehr", "verification"}
-REMOVED_MEMORY_KEYS = {"retrieve_k", "strategy_k", "failure_k", "dataset_k", "writeback_on_failure"}
-
-
 class MemoryConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     write_policy: Literal["append", "freeze", "reset_before_run"] = "append"
 
 
@@ -159,7 +209,11 @@ class HealthFlowConfig(BaseModel):
 
     @property
     def active_executor(self) -> BackendCLIConfig:
-        return self.executor.backends[self.active_executor_name]
+        active_executor = self.executor.backends[self.active_executor_name]
+        resolved_model = active_executor.model
+        if resolved_model is None and active_executor.inherit_active_llm:
+            resolved_model = self.llm.executor_model_name or self.llm.model_name
+        return active_executor.model_copy(update={"model": resolved_model})
 
     def llm_config_for_role(self, role: str) -> LLMProviderConfig:
         configured_name = getattr(self.llm_roles, role, None) or self.active_llm_name
@@ -185,46 +239,12 @@ def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> L
 
     return LLMProviderConfig(**resolved_config)
 
-
-def _normalize_memory_config(memory_config: dict) -> dict:
-    normalized = dict(memory_config)
-    removed_keys = sorted(key for key in normalized if key in REMOVED_MEMORY_KEYS)
-    if removed_keys:
+def _validate_top_level_sections(config_data: dict) -> None:
+    allowed_sections = {"llm", "llm_roles", "system", "executor", "tools", "memory", "evaluation", "logging"}
+    unexpected_sections = sorted(section for section in config_data if section not in allowed_sections)
+    if unexpected_sections:
         raise ValueError(
-            "The following [memory] keys were removed because retrieval policy is now internal: "
-            f"{', '.join(removed_keys)}. Keep only [memory].write_policy."
-        )
-
-    if "mode" in normalized and "write_policy" in normalized:
-        raise ValueError(
-            "Use either deprecated [memory].mode or [memory].write_policy, not both. "
-            "Prefer [memory].write_policy."
-        )
-
-    if "mode" in normalized:
-        legacy_mode = normalized.pop("mode")
-        if legacy_mode not in LEGACY_MEMORY_MODE_MAP:
-            raise ValueError(
-                f"Unsupported legacy [memory].mode '{legacy_mode}'. "
-                "Supported legacy values are: accumulate_eval, frozen_train, reset."
-            )
-        mapped_value = LEGACY_MEMORY_MODE_MAP[legacy_mode]
-        logger.warning(
-            "Deprecated [memory].mode='{}' detected. Map it to [memory].write_policy='{}' instead.",
-            legacy_mode,
-            mapped_value,
-        )
-        normalized["write_policy"] = mapped_value
-
-    return normalized
-
-
-def _validate_removed_sections(config_data: dict) -> None:
-    removed_sections = sorted(section for section in REMOVED_CONFIG_SECTIONS if section in config_data)
-    if removed_sections:
-        raise ValueError(
-            "The following config sections were removed because task policy is now internal to HealthFlow: "
-            f"{', '.join(f'[{section}]' for section in removed_sections)}."
+            "Unsupported config sections: " + ", ".join(f"[{section}]" for section in unexpected_sections)
         )
 
 
@@ -242,7 +262,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
 
     try:
         config_data = toml.load(config_path)
-        _validate_removed_sections(config_data)
+        _validate_top_level_sections(config_data)
 
         if not active_llm:
             raise ValueError("'active_llm' parameter is required")
@@ -277,7 +297,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
             system=SystemConfig(**config_data.get("system", {})),
             executor=executor_config,
             tools=ToolsConfig(**config_data.get("tools", {})),
-            memory=MemoryConfig(**_normalize_memory_config(config_data.get("memory", {}))),
+            memory=MemoryConfig(**config_data.get("memory", {})),
             evaluation=EvaluationConfig(**config_data.get("evaluation", {})),
             logging=LoggingConfig(**config_data.get("logging", {})),
         )

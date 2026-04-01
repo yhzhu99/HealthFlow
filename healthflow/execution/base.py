@@ -14,18 +14,28 @@ class ExecutionContext:
     user_request: str
     plan: ExecutionPlan
     available_tools: ToolCatalog
-    recommended_memory: List[str] = field(default_factory=list)
-    avoidance_memory: List[str] = field(default_factory=list)
+    safeguard_memory: List[str] = field(default_factory=list)
+    workflow_memory: List[str] = field(default_factory=list)
+    dataset_memory: List[str] = field(default_factory=list)
+    execution_memory: List[str] = field(default_factory=list)
     prior_feedback: Optional[str] = None
 
     def render_prompt(self) -> str:
-        recommended_block = (
-            "\n".join(f"- {item}" for item in self.recommended_memory)
-            or "- No recommended prior experience was retrieved for this task."
+        safeguard_block = (
+            "\n".join(f"- {item}" for item in self.safeguard_memory)
+            or "- No safeguard memory was retrieved for this task."
         )
-        avoidance_block = (
-            "\n".join(f"- {item}" for item in self.avoidance_memory)
-            or "- No avoidance memory was retrieved for this task."
+        workflow_block = (
+            "\n".join(f"- {item}" for item in self.workflow_memory)
+            or "- No workflow memory was retrieved for this task."
+        )
+        dataset_block = (
+            "\n".join(f"- {item}" for item in self.dataset_memory)
+            or "- No dataset memory was retrieved for this task."
+        )
+        execution_block = (
+            "\n".join(f"- {item}" for item in self.execution_memory)
+            or "- No execution memory was retrieved for this task."
         )
         tool_block = "\n".join(self.available_tools.prompt_lines()) or "- No tools were advertised for this run."
 
@@ -43,11 +53,17 @@ class ExecutionContext:
             "## Available Tools",
             tool_block,
             "",
-            "## Recommended Prior Experience",
-            recommended_block,
+            "## EHR Safeguards",
+            safeguard_block,
             "",
-            "## Avoidance Memory",
-            avoidance_block,
+            "## Recommended Workflows",
+            workflow_block,
+            "",
+            "## Dataset Anchors",
+            dataset_block,
+            "",
+            "## Execution Hints",
+            execution_block,
             "",
             "## Execution Plan",
             self.plan.to_markdown(),
@@ -62,7 +78,7 @@ class ExecutionContext:
                 "- Save every artifact inside the current workspace. Do not write files outside it.",
                 "- Prefer Python, reproducible CLI workflows, and explicit tool calls when possible.",
                 "- Use the planner's preferred tools when they fit, but adapt if execution reality requires a better path.",
-                "- Treat avoidance memories as hard caution signals and do not repeat the same mistake without new evidence.",
+                "- Treat safeguard memories as high-priority guardrails when choosing and validating your approach.",
                 "- Record meaningful intermediate artifacts when they make the final result easier to inspect or reuse.",
                 "- End with a concise final answer that references any produced artifacts.",
             ]

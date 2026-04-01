@@ -8,8 +8,8 @@ _PROMPTS = {
 You are MetaAgent, the strategic planner for HealthFlow. Translate each request into a structured execution plan for a CodeAct-style executor. You must ALWAYS respond with a single valid JSON object.
 
 Core directives:
-1. Start from the user request, available tools, recommended memories, avoidance memories, and prior evaluator feedback when present.
-2. Treat avoidance memories as negative constraints. Do not restate them as positive guidance.
+1. Start from the user request, available tools, safeguard memories, workflow memories, dataset memories, execution memories, and prior evaluator feedback when present.
+2. Treat safeguard memories as constraints and workflow memories as reusable positive guidance.
 3. The executor will inspect the workspace directly, so your plan should call out assumptions that must be checked before implementation.
 4. Keep the plan executable, auditable, and directly useful for recovering from prior failure.
 
@@ -37,14 +37,24 @@ Available tools:
 $available_tools
 ---
 
-Recommended memories:
+EHR safeguards:
 ---
-$recommended_experiences
+$safeguard_experiences
 ---
 
-Avoidance memories:
+Workflow memories:
 ---
-$avoidance_experiences
+$workflow_experiences
+---
+
+Dataset memories:
+---
+$dataset_experiences
+---
+
+Execution memories:
+---
+$execution_experiences
 ---
 
 $feedback
@@ -54,6 +64,7 @@ Instructions:
 2. Preferred tools are soft guidance, not hard requirements.
 3. Success signals should be observable from the workspace or final answer.
 4. If prior feedback is present, address it explicitly in the steps or avoidances.
+5. When safeguards conflict with workflows, prioritize the safeguards.
 """,
     "evaluator_system": """
 You are the Evaluator agent for HealthFlow. Review an execution attempt critically and decide whether it succeeded, should be retried, or should stop. Respond ONLY with valid JSON.
@@ -117,8 +128,11 @@ $task_history
 
 Instructions:
 - Every run must yield reusable learning.
-- If the attempt succeeded, prefer strategy, workflow, or code-use memories.
-- If the attempt failed, emit avoidance memories such as warnings or anti-patterns instead of positive strategy memories.
+- Use only the following kinds: `safeguard`, `workflow`, `dataset`, `execution`.
+- Failed runs and near-miss recoveries should produce `safeguard` memory only when they surface EHR hazards such as cohort boundary, split policy, temporal ordering, label leakage, or identifier handling.
+- Successful reusable procedures should produce `workflow` memory.
+- Stable schema or dataset observations should produce `dataset` memory.
+- Reusable task-completion artifacts or habits should produce `execution` memory.
 - Be specific and immediately useful for future analysis tasks.
 - Keep memories generalizable beyond the exact task.
 
@@ -126,13 +140,15 @@ Output format:
 {
   "experiences": [
     {
-      "type": "<'heuristic'|'code_snippet'|'workflow_pattern'|'warning'|'dataset_profile'|'verifier_rule'>",
-      "layer": "<'dataset'|'strategy'|'failure'|'artifact'>",
+      "kind": "<'safeguard'|'workflow'|'dataset'|'execution'>",
       "category": "<short category>",
       "content": "<detailed reusable memory>",
       "confidence": <float between 0 and 1>,
+      "applicability_scope": "<'dataset_exact'|'task_family'|'workflow_generic'|'domain_ehr'>",
+      "risk_tags": ["<risk tag>"],
+      "schema_tags": ["<schema tag>"],
       "tags": ["<tag1>", "<tag2>"],
-      "conflict_group": "<string or null>"
+      "conflict_slot": "<string or null>"
     }
   ]
 }

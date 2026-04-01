@@ -50,8 +50,9 @@ model_name = "model"
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
-            self.assertEqual(config.active_executor.args, ["run", "--format", "json"])
+            self.assertEqual(config.active_executor.args, ["run", "--variant", "high", "--thinking"])
             self.assertEqual(config.active_executor.prompt_mode, "append")
+            self.assertEqual(config.active_executor.model, "model")
 
     def test_named_pi_backend_uses_specialized_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -92,6 +93,9 @@ active_backend = "codex"
             self.assertIsInstance(executor, CodexExecutor)
             self.assertEqual(config.active_executor.binary, "codex")
             self.assertEqual(config.active_executor.prompt_mode, "stdin")
+            self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
+            self.assertIn('model_reasoning_effort="high"', config.active_executor.arg_templates)
+            self.assertIn('model_reasoning_summary="detailed"', config.active_executor.arg_templates)
 
     def test_custom_configured_backend_uses_generic_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -119,6 +123,42 @@ timeout_seconds = 30
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
 
+    def test_executor_model_defaults_to_active_llm_model_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.default]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "openai/gpt-5.4"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "default")
+
+            self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
+
+    def test_codex_default_model_is_pinned_to_gpt_5_4(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.default]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "deepseek/deepseek-v3.2"
+
+[executor]
+active_backend = "codex"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "default")
+
+            self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
+            self.assertFalse(config.active_executor.inherit_active_llm)
+
     def test_llm_roles_can_override_default_reasoning_model(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
@@ -142,6 +182,23 @@ evaluator = "judge"
             config = get_config(config_path, "default")
             self.assertEqual(config.llm_config_for_role("planner").model_name, "planner-model")
             self.assertEqual(config.llm_config_for_role("evaluator").model_name, "judge-model")
+
+    def test_executor_inherits_executor_model_name_when_present(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.deepseek]
+api_key = "key"
+base_url = "https://api.deepseek.com"
+model_name = "deepseek-chat"
+executor_model_name = "deepseek/deepseek-chat"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "deepseek")
+
+            self.assertEqual(config.active_executor.model, "deepseek/deepseek-chat")
 
     def test_tool_entries_can_be_loaded_for_cli_and_mcp_surfaces(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -226,25 +283,7 @@ model_name = "model"
                 ):
                     get_config(config_path, "test")
 
-    def test_legacy_memory_mode_maps_to_write_policy(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config_path = Path(tmpdir) / "config.toml"
-            config_path.write_text(
-                """
-[llm.test]
-api_key = "key"
-base_url = "https://example.com/v1"
-model_name = "model"
-
-[memory]
-mode = "frozen_train"
-""".strip(),
-                encoding="utf-8",
-            )
-            config = get_config(config_path, "test")
-            self.assertEqual(config.memory.write_policy, "freeze")
-
-    def test_removed_memory_policy_keys_raise_clear_error(self):
+    def test_unknown_memory_keys_raise_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
@@ -263,7 +302,7 @@ strategy_k = 3
             with self.assertRaisesRegex(ValueError, "strategy_k"):
                 get_config(config_path, "test")
 
-    def test_removed_policy_sections_raise_clear_error(self):
+    def test_unknown_policy_sections_raise_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(

@@ -3,126 +3,119 @@ import unittest
 from pathlib import Path
 
 from healthflow.experience.experience_manager import ExperienceManager
-from healthflow.experience.experience_models import Experience, ExperienceType, MemoryLayer, RetrievalContext, ValidationStatus
+from healthflow.experience.experience_models import Experience, MemoryKind, RetrievalContext, SourceOutcome
 
 
 class MemoryManagerTests(unittest.IsolatedAsyncioTestCase):
-    async def test_adaptive_retrieval_prioritizes_guardrails_dataset_anchor_and_verified_memory(self):
+    async def test_adaptive_retrieval_prioritizes_safeguards_dataset_anchor_and_workflow(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             memory_path = Path(tmpdir) / "experience.jsonl"
             manager = ExperienceManager(memory_path)
             experiences = [
                 Experience(
-                    type=ExperienceType.WARNING,
-                    layer=MemoryLayer.FAILURE,
-                    category="predictive_modeling",
-                    content="Patient-level split is mandatory; visit-level splits cause leakage.",
+                    kind=MemoryKind.SAFEGUARD,
+                    category="split_policy",
+                    content="Use patient-level splitting to prevent duplicate-patient leakage across folds.",
                     source_task_id="1",
                     task_family="predictive_modeling",
                     dataset_signature="abc123",
-                    validation_status=ValidationStatus.FAILED,
+                    source_outcome=SourceOutcome.FAILED,
                     confidence=0.95,
-                    conflict_group="split_policy",
-                    applicability_scope="safety_global",
-                    safety_critical=True,
-                    verifier_supported=True,
+                    conflict_slot="split_policy",
+                    applicability_scope="domain_ehr",
+                    risk_tags=["validation_strategy", "patient_linkage"],
+                    schema_tags=["domain:ehr", "patient_id", "target_column"],
                 ),
                 Experience(
-                    type=ExperienceType.DATASET_PROFILE,
-                    layer=MemoryLayer.DATASET,
-                    category="dataset_profile",
-                    content="Dataset abc123 contains patient_id, encounter_id, and readmission label.",
+                    kind=MemoryKind.DATASET,
+                    category="dataset_anchor",
+                    content="Dataset abc123 includes subject_id, readmission labels, and event_time columns.",
                     source_task_id="2",
                     task_family="predictive_modeling",
                     dataset_signature="abc123",
-                    validation_status=ValidationStatus.VERIFIED,
+                    source_outcome=SourceOutcome.SUCCESS,
                     confidence=0.8,
                     applicability_scope="dataset_exact",
+                    schema_tags=["domain:ehr", "patient_id", "time_column", "target_column"],
                 ),
                 Experience(
-                    type=ExperienceType.HEURISTIC,
-                    layer=MemoryLayer.STRATEGY,
-                    category="predictive_modeling",
-                    content="Use grouped validation and save metrics plus split evidence artifacts.",
+                    kind=MemoryKind.WORKFLOW,
+                    category="modeling_workflow",
+                    content="Inspect the schema, audit splits, train the model, and save metrics plus split notes.",
                     source_task_id="3",
                     task_family="predictive_modeling",
                     dataset_signature="abc123",
-                    validation_status=ValidationStatus.VERIFIED,
+                    source_outcome=SourceOutcome.SUCCESS,
                     confidence=0.9,
+                    schema_tags=["domain:ehr", "patient_id", "target_column"],
                 ),
                 Experience(
-                    type=ExperienceType.WORKFLOW_PATTERN,
-                    layer=MemoryLayer.ARTIFACT,
-                    category="artifact",
-                    content="Persist metrics.json and split_evidence.json for deterministic review.",
+                    kind=MemoryKind.EXECUTION,
+                    category="artifact_pattern",
+                    content="Write cohort_notes.md and metrics.json before drafting the final answer.",
                     source_task_id="4",
                     task_family="predictive_modeling",
                     dataset_signature="abc123",
-                    validation_status=ValidationStatus.UNVERIFIED,
+                    source_outcome=SourceOutcome.SUCCESS,
                     confidence=0.7,
+                    schema_tags=["domain:ehr", "target_column"],
                 ),
             ]
             await manager.save_experiences(experiences)
             retrieval = await manager.retrieve_experiences(
-                "build a readmission prediction model",
+                "build a readmission prediction model from the uploaded cohort",
                 retrieval_context=RetrievalContext(
                     task_family="predictive_modeling",
                     domain_focus="ehr",
                     dataset_signature="abc123",
-                    risk_findings=["[HIGH] target_leakage", "[MEDIUM] validation_strategy"],
-                    verification_targets=["split_evidence", "audit_evidence", "metrics_artifact"],
+                    schema_tags=["domain:ehr", "patient_id", "time_column", "target_column"],
+                    risk_tags=["target_leakage", "validation_strategy", "patient_linkage"],
+                    prior_failure_modes=[],
                 ),
             )
 
             retrieved = retrieval.selected_experiences
-            self.assertEqual(retrieved[0].layer, MemoryLayer.FAILURE)
-            self.assertTrue(any(item.layer == MemoryLayer.DATASET for item in retrieved))
-            self.assertTrue(any(item.layer == MemoryLayer.STRATEGY for item in retrieved))
-            self.assertEqual(len(retrieval.avoidance_experiences), 1)
-            self.assertTrue(all(item.layer != MemoryLayer.FAILURE for item in retrieval.recommended_experiences))
-            self.assertTrue(retrieval.audit.capacity >= 5)
+            self.assertEqual(retrieved[0].kind, MemoryKind.SAFEGUARD)
+            self.assertTrue(any(item.kind == MemoryKind.DATASET for item in retrieved))
+            self.assertTrue(any(item.kind == MemoryKind.WORKFLOW for item in retrieved))
+            self.assertEqual(len(retrieval.safeguard_experiences), 1)
+            self.assertEqual(len(retrieval.dataset_experiences), 1)
+            self.assertGreaterEqual(retrieval.audit.capacity, 5)
             self.assertTrue(retrieval.audit.selection_policy)
-            verified_positions = [
-                index for index, entry in enumerate(retrieval.audit.selected) if entry.validation_status == ValidationStatus.VERIFIED
-            ]
-            unverified_positions = [
-                index for index, entry in enumerate(retrieval.audit.selected) if entry.validation_status == ValidationStatus.UNVERIFIED
-            ]
-            self.assertTrue(verified_positions)
-            self.assertTrue(unverified_positions)
-            self.assertLess(min(verified_positions), min(unverified_positions))
+            safeguard_index = next(index for index, item in enumerate(retrieved) if item.kind == MemoryKind.SAFEGUARD)
+            workflow_index = next(index for index, item in enumerate(retrieved) if item.kind == MemoryKind.WORKFLOW)
+            self.assertLess(safeguard_index, workflow_index)
 
-    async def test_safety_critical_failure_suppresses_conflicting_positive_memory(self):
+    async def test_safeguard_memory_suppresses_conflicting_workflow(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             memory_path = Path(tmpdir) / "experience.jsonl"
             manager = ExperienceManager(memory_path)
             experiences = [
                 Experience(
-                    type=ExperienceType.HEURISTIC,
-                    layer=MemoryLayer.STRATEGY,
-                    category="predictive_modeling",
+                    kind=MemoryKind.WORKFLOW,
+                    category="split_policy",
                     content="Use visit-level random splits for faster validation.",
                     source_task_id="1",
                     task_family="predictive_modeling",
                     dataset_signature="abc123",
-                    validation_status=ValidationStatus.VERIFIED,
+                    source_outcome=SourceOutcome.SUCCESS,
                     confidence=0.8,
-                    conflict_group="split_policy",
+                    conflict_slot="split_policy",
+                    risk_tags=["validation_strategy"],
                 ),
                 Experience(
-                    type=ExperienceType.VERIFIER_RULE,
-                    layer=MemoryLayer.FAILURE,
-                    category="predictive_modeling",
+                    kind=MemoryKind.SAFEGUARD,
+                    category="split_policy",
                     content="Visit-level random splits are unsafe; patient-level splitting is required.",
                     source_task_id="2",
                     task_family="predictive_modeling",
                     dataset_signature="abc123",
-                    validation_status=ValidationStatus.FAILED,
+                    source_outcome=SourceOutcome.FAILED,
                     confidence=0.9,
-                    conflict_group="split_policy",
-                    applicability_scope="safety_global",
-                    safety_critical=True,
-                    verifier_supported=True,
+                    conflict_slot="split_policy",
+                    applicability_scope="domain_ehr",
+                    risk_tags=["validation_strategy", "patient_linkage"],
+                    schema_tags=["domain:ehr", "patient_id"],
                 ),
             ]
             await manager.save_experiences(experiences)
@@ -132,18 +125,22 @@ class MemoryManagerTests(unittest.IsolatedAsyncioTestCase):
                     task_family="predictive_modeling",
                     domain_focus="ehr",
                     dataset_signature="abc123",
-                    risk_findings=["[MEDIUM] validation_strategy"],
-                    verification_targets=["split_evidence"],
+                    schema_tags=["domain:ehr", "patient_id", "target_column"],
+                    risk_tags=["validation_strategy", "patient_linkage"],
+                    prior_failure_modes=["unsafe_split"],
                 ),
             )
 
             retrieved = retrieval.selected_experiences
-            self.assertEqual(len([item for item in retrieved if item.layer == MemoryLayer.FAILURE]), 1)
-            self.assertEqual(len([item for item in retrieved if item.layer == MemoryLayer.STRATEGY]), 0)
-            self.assertEqual(len(retrieval.avoidance_experiences), 1)
-            self.assertEqual(len(retrieval.recommended_experiences), 0)
-            self.assertEqual(len(retrieval.audit.safety_overrides), 1)
-            self.assertEqual(retrieval.audit.safety_overrides[0].disposition, "suppressed_safety_override")
+            self.assertEqual(len([item for item in retrieved if item.kind == MemoryKind.SAFEGUARD]), 1)
+            self.assertEqual(len([item for item in retrieved if item.kind == MemoryKind.WORKFLOW]), 0)
+            self.assertEqual(len(retrieval.safeguard_experiences), 1)
+            self.assertEqual(len(retrieval.workflow_experiences), 0)
+            self.assertEqual(len(retrieval.audit.safeguard_overrides), 1)
+            self.assertEqual(
+                retrieval.audit.safeguard_overrides[0].disposition,
+                "suppressed_safeguard_override",
+            )
 
 
 if __name__ == "__main__":

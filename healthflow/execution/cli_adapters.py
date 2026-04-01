@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import re
 import time
 from pathlib import Path
+from string import Template
 from typing import Any, List
 
 from loguru import logger
@@ -10,6 +14,8 @@ from loguru import logger
 from ..core.config import BackendCLIConfig
 from .base import ExecutionContext, ExecutionResult, ExecutorAdapter
 from .opencode_parser import parse_opencode_json_events
+
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 class CLISubprocessExecutor(ExecutorAdapter):
@@ -19,9 +25,9 @@ class CLISubprocessExecutor(ExecutorAdapter):
 
     async def execute(self, context: ExecutionContext, working_dir: Path) -> ExecutionResult:
         prompt_text = context.render_prompt()
-
+        environment = self._build_environment(working_dir)
         command_args = self._build_command(prompt_text)
-        backend_version = await self._capture_backend_version()
+        backend_version = await self._capture_backend_version(environment)
         log_file_path = working_dir / f"{self.backend_name}_execution.log"
         logger.info(
             "Executing backend '{}' in '{}': {}",
@@ -37,6 +43,7 @@ class CLISubprocessExecutor(ExecutorAdapter):
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.PIPE if self.backend_config.prompt_mode == "stdin" else None,
             cwd=working_dir,
+            env=environment,
         )
 
         log_content = ""
@@ -111,9 +118,29 @@ class CLISubprocessExecutor(ExecutorAdapter):
 
     def _build_command(self, prompt_text: str) -> List[str]:
         command = [self.backend_config.binary, *self.backend_config.args]
+        template_context = self._template_context()
+        command.extend(self._render_arg_templates(template_context))
+
+        provider = self._resolved_provider()
+        if self.backend_config.provider_flag and provider:
+            command.extend([self.backend_config.provider_flag, provider])
+
+        model_argument = self._resolved_model_argument()
+        if self.backend_config.model_flag and model_argument:
+            command.extend([self.backend_config.model_flag, model_argument])
+
         if self.backend_config.prompt_mode == "append":
             command.append(prompt_text)
         return command
+
+    def _build_environment(self, working_dir: Path) -> dict[str, str]:
+        environment = os.environ.copy()
+        for key, value in self.backend_config.env.items():
+            environment[key] = self._expand_environment_value(key, value, environment)
+        return self._prepare_environment(environment, working_dir)
+
+    def _prepare_environment(self, environment: dict[str, str], working_dir: Path) -> dict[str, str]:
+        return environment
 
     def _default_usage(
         self,
@@ -131,7 +158,7 @@ class CLISubprocessExecutor(ExecutorAdapter):
             "stderr_bytes": len(stderr_bytes),
         }
 
-    async def _capture_backend_version(self) -> str | None:
+    async def _capture_backend_version(self, environment: dict[str, str]) -> str | None:
         if not self.backend_config.version_args:
             return None
         try:
@@ -140,6 +167,7 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 *self.backend_config.version_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=environment,
             )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=5)
             version_text = stdout_bytes.decode("utf-8", errors="replace").strip()
@@ -153,6 +181,15 @@ class CLISubprocessExecutor(ExecutorAdapter):
         return {
             "binary": self.backend_config.binary,
             "args": list(self.backend_config.args),
+            "arg_templates": list(self.backend_config.arg_templates),
+            "output_mode": self.backend_config.output_mode,
+            "provider": self._resolved_provider(),
+            "provider_flag": self.backend_config.provider_flag,
+            "model": self._resolved_model_name(),
+            "model_argument": self._resolved_model_argument(),
+            "model_flag": self.backend_config.model_flag,
+            "model_template": self.backend_config.model_template,
+            "env_keys": sorted(self.backend_config.env.keys()),
             "prompt_mode": self.backend_config.prompt_mode,
             "timeout_seconds": self.backend_config.timeout_seconds,
             "version_args": list(self.backend_config.version_args),
@@ -176,6 +213,68 @@ class CLISubprocessExecutor(ExecutorAdapter):
             chunks[-1] = chunks[-1] + "\n"
         return [f"{prefix}{chunk}" for chunk in chunks]
 
+    def _resolved_provider(self) -> str | None:
+        return self.backend_config.provider
+
+    def _resolved_model_name(self) -> str | None:
+        return self.backend_config.model
+
+    def _resolved_model_argument(self) -> str | None:
+        model_name = self._resolved_model_name()
+        if not model_name:
+            return None
+        return self._render_template_value(
+            self.backend_config.model_template,
+            self._template_base_context(),
+            "model_template",
+        )
+
+    def _template_base_context(self) -> dict[str, str]:
+        return {
+            "binary": self.backend_config.binary,
+            "provider": self._resolved_provider() or "",
+            "model": self._resolved_model_name() or "",
+            "provider_base_url": self.backend_config.provider_base_url or "",
+            "provider_api": self.backend_config.provider_api or "",
+            "provider_api_key_env": self.backend_config.provider_api_key_env or "",
+        }
+
+    def _template_context(self) -> dict[str, str]:
+        context = self._template_base_context()
+        context["model_argument"] = self._resolved_model_argument() or ""
+        return context
+
+    def _render_arg_templates(self, template_context: dict[str, str]) -> list[str]:
+        return [
+            self._render_template_value(template, template_context, "arg_templates")
+            for template in self.backend_config.arg_templates
+        ]
+
+    def _render_template_value(self, template: str, context: dict[str, str], field_name: str) -> str:
+        try:
+            return Template(template).substitute(context)
+        except KeyError as exc:
+            missing_key = exc.args[0]
+            raise ValueError(
+                f"Backend '{self.backend_name}' field '{field_name}' referenced unknown template key '{missing_key}'."
+            ) from exc
+
+    def _expand_environment_value(
+        self,
+        key: str,
+        value: str,
+        environment: dict[str, str],
+    ) -> str:
+        def replace(match: re.Match[str]) -> str:
+            env_key = match.group(1)
+            if env_key not in environment:
+                raise ValueError(
+                    f"Backend '{self.backend_name}' environment variable '{key}' requires '{env_key}', but it is not set."
+                )
+            return environment[env_key]
+
+        return _ENV_VAR_PATTERN.sub(replace, value)
+
 
 class ClaudeCodeExecutor(CLISubprocessExecutor):
     pass
@@ -187,9 +286,13 @@ class CodexExecutor(CLISubprocessExecutor):
 
 class OpenCodeExecutor(CLISubprocessExecutor):
     async def execute(self, context: ExecutionContext, working_dir: Path) -> ExecutionResult:
+        if self.backend_config.output_mode != "json_events":
+            return await super().execute(context, working_dir)
+
         prompt_text = context.render_prompt()
+        environment = self._build_environment(working_dir)
         command_args = self._build_command(prompt_text)
-        backend_version = await self._capture_backend_version()
+        backend_version = await self._capture_backend_version(environment)
         log_file_path = working_dir / f"{self.backend_name}_execution.log"
         logger.info(
             "Executing backend '{}' in '{}': {}",
@@ -205,6 +308,7 @@ class OpenCodeExecutor(CLISubprocessExecutor):
             stderr=asyncio.subprocess.PIPE,
             stdin=None,
             cwd=working_dir,
+            env=environment,
         )
 
         log_content = ""
@@ -315,4 +419,46 @@ class OpenCodeExecutor(CLISubprocessExecutor):
 
 
 class PiExecutor(CLISubprocessExecutor):
-    pass
+    def _prepare_environment(self, environment: dict[str, str], working_dir: Path) -> dict[str, str]:
+        provider_name = self._resolved_provider() or "zenmux"
+        model_name = self._resolved_model_name()
+        if not model_name:
+            raise ValueError(f"Backend '{self.backend_name}' requires a resolved model name.")
+
+        agent_dir = working_dir / ".healthflow_pi_agent"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        models_path = agent_dir / "models.json"
+        models_config = {
+            "providers": {
+                provider_name: {
+                    "baseUrl": self.backend_config.provider_base_url or "https://zenmux.ai/api/v1",
+                    "api": self.backend_config.provider_api or "openai-completions",
+                    "apiKey": self.backend_config.provider_api_key_env or "ZENMUX_API_KEY",
+                    "compat": {
+                        "supportsDeveloperRole": False,
+                        "supportsReasoningEffort": False,
+                    },
+                    "models": [
+                        {
+                            "id": model_name,
+                            "name": model_name,
+                            "reasoning": True,
+                            "input": ["text"],
+                            "contextWindow": 128000,
+                            "maxTokens": 8192,
+                            "cost": {
+                                "input": 0,
+                                "output": 0,
+                                "cacheRead": 0,
+                                "cacheWrite": 0,
+                            },
+                        }
+                    ],
+                }
+            }
+        }
+        models_path.write_text(json.dumps(models_config, indent=2), encoding="utf-8")
+
+        environment = dict(environment)
+        environment["PI_CODING_AGENT_DIR"] = str(agent_dir)
+        return environment

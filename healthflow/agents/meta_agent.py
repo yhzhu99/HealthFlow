@@ -1,9 +1,8 @@
-import json
 from typing import List, Optional
 from loguru import logger
 
 from ..core.contracts import ExecutionPlan
-from ..core.llm_provider import LLMProvider, LLMMessage
+from ..core.llm_provider import LLMProvider, LLMMessage, StructuredResponseError, parse_json_content
 from ..prompts.templates import get_prompt, render_prompt
 from ..experience.experience_models import Experience
 
@@ -23,8 +22,10 @@ class MetaAgent:
     async def generate_plan(
         self,
         user_request: str,
-        recommended_experiences: List[Experience],
-        avoidance_experiences: List[Experience],
+        safeguard_experiences: List[Experience],
+        workflow_experiences: List[Experience],
+        dataset_experiences: List[Experience],
+        execution_experiences: List[Experience],
         available_tools: List[str],
         previous_feedback: Optional[str] = None,
     ) -> ExecutionPlan:
@@ -32,30 +33,26 @@ class MetaAgent:
         Analyze the user request and generate a structured execution plan.
         """
         system_prompt = get_prompt("meta_agent_system")
-
-        recommended_str = "No recommended prior experience was retrieved."
-        if recommended_experiences:
-            recommended_str = "\n".join(
-                (
-                    f"- **Use** "
-                    f"[{exp.layer.value}/{exp.validation_status.value}] "
-                    f"{exp.type.value} | {exp.category}\n"
-                    f"  - {exp.content}"
-                )
-                for exp in recommended_experiences
-            )
-
-        avoidance_str = "No avoidance memory was retrieved."
-        if avoidance_experiences:
-            avoidance_str = "\n".join(
-                (
-                    f"- **Avoid** "
-                    f"[{exp.layer.value}/{exp.validation_status.value}] "
-                    f"{exp.type.value} | {exp.category}\n"
-                    f"  - {exp.content}"
-                )
-                for exp in avoidance_experiences
-            )
+        safeguard_str = self._render_memory_block(
+            safeguard_experiences,
+            prefix="Guardrail",
+            fallback="No EHR safeguard memory was retrieved.",
+        )
+        workflow_str = self._render_memory_block(
+            workflow_experiences,
+            prefix="Workflow",
+            fallback="No workflow memory was retrieved.",
+        )
+        dataset_str = self._render_memory_block(
+            dataset_experiences,
+            prefix="Dataset",
+            fallback="No dataset anchor memory was retrieved.",
+        )
+        execution_str = self._render_memory_block(
+            execution_experiences,
+            prefix="Execution",
+            fallback="No execution memory was retrieved.",
+        )
 
         feedback_str = ""
         if previous_feedback:
@@ -64,8 +61,10 @@ class MetaAgent:
         user_prompt = render_prompt(
             "meta_agent_user",
             user_request=user_request,
-            recommended_experiences=recommended_str,
-            avoidance_experiences=avoidance_str,
+            safeguard_experiences=safeguard_str,
+            workflow_experiences=workflow_str,
+            dataset_experiences=dataset_str,
+            execution_experiences=execution_str,
             available_tools="\n".join(f"- {item}" for item in available_tools) or "- Minimum required tooling only",
             feedback=feedback_str,
         )
@@ -76,20 +75,26 @@ class MetaAgent:
         ]
 
         logger.info("Generating plan with MetaAgent...")
-        response = await self.llm_provider.generate(messages, temperature=0.0, json_mode=True)
-        self.last_usage = response.usage
-        self.last_model_name = response.model_name
-        self.last_estimated_cost_usd = response.estimated_cost_usd
-
         try:
-            result = json.loads(response.content)
-            plan = ExecutionPlan(**result)
-
+            plan, response = await self.llm_provider.generate_structured(
+                messages,
+                lambda content: ExecutionPlan(**parse_json_content(content)),
+                temperature=0.0,
+            )
+            self.last_usage = response.usage
+            self.last_model_name = response.model_name
+            self.last_estimated_cost_usd = response.estimated_cost_usd
             logger.info("Plan generated successfully.")
             return plan
-        except (json.JSONDecodeError, ValueError) as e:
+        except (StructuredResponseError, ValueError) as e:
+            response = e.response if isinstance(e, StructuredResponseError) else None
+            if response is not None:
+                self.last_usage = response.usage
+                self.last_model_name = response.model_name
+                self.last_estimated_cost_usd = response.estimated_cost_usd
             logger.error(f"Failed to parse valid plan from LLM: {e}. Defaulting to a fallback plan.")
-            logger.debug(f"Invalid JSON response from LLM: {response.content}")
+            if response is not None:
+                logger.debug(f"Invalid JSON response from LLM: {response.content}")
             return ExecutionPlan(
                 objective=user_request,
                 assumptions_to_check=["Inspect the workspace inputs before implementing a solution."],
@@ -99,7 +104,18 @@ class MetaAgent:
                     "Produce the requested artifacts and a concise final answer.",
                 ],
                 preferred_tools=available_tools[:3],
-                avoidances=["Do not ignore relevant avoidance memory or previous feedback."],
+                avoidances=["Do not ignore relevant safeguards or previous feedback."],
                 success_signals=["The requested result is present in the workspace and summarized in the final answer."],
                 executor_brief="The planner fallback triggered. Execute conservatively and keep the attempt auditable.",
             )
+
+    def _render_memory_block(self, experiences: List[Experience], prefix: str, fallback: str) -> str:
+        if not experiences:
+            return fallback
+        return "\n".join(
+            (
+                f"- **{prefix}** [{exp.kind.value}/{exp.source_outcome.value}] {exp.category}\n"
+                f"  - {exp.content}"
+            )
+            for exp in experiences
+        )

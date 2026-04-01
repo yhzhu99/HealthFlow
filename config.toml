@@ -1,5 +1,5 @@
 # HealthFlow Configuration
-# Export ZENMUX_API_KEY before running HealthFlow.
+# Export ZENMUX_API_KEY and DEEPSEEK_API_KEY before running HealthFlow.
 
 [llm."minimax/minimax-m2.7"]
 api_key_env = "ZENMUX_API_KEY"
@@ -9,11 +9,18 @@ input_cost_per_million_tokens = 0.31
 output_cost_per_million_tokens = 1.22
 
 [llm."deepseek/deepseek-v3.2"]
-api_key_env = "ZENMUX_API_KEY"
-base_url = "https://zenmux.ai/api/v1"
-model_name = "deepseek/deepseek-v3.2"
+api_key_env = "DEEPSEEK_API_KEY"
+base_url = "https://api.deepseek.com"
+model_name = "deepseek-chat"
+executor_model_name = "deepseek/deepseek-chat"
 input_cost_per_million_tokens = 0.28
 output_cost_per_million_tokens = 0.43
+
+[llm."deepseek/deepseek-reasoner"]
+api_key_env = "DEEPSEEK_API_KEY"
+base_url = "https://api.deepseek.com"
+model_name = "deepseek-reasoner"
+executor_model_name = "deepseek/deepseek-reasoner"
 
 [llm."z-ai/glm-5"]
 api_key_env = "ZENMUX_API_KEY"
@@ -49,25 +56,44 @@ active_backend = "opencode"
 
 [executor.backends.claude_code]
 binary = "claude"
-args = ["--dangerously-skip-permissions", "--print"]
+args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "high"]
+env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KEY = "${ZENMUX_API_KEY}", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
+model_flag = "--model"
 prompt_mode = "append"
 timeout_seconds = 1800
 
 [executor.backends.codex]
 binary = "codex"
 args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
+arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"high\"", "-c", "model_reasoning_summary=\"detailed\""]
+model = "openai/gpt-5.4"
+model_flag = "-m"
+inherit_active_llm = false
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/v1"
+provider_api_key_env = "ZENMUX_API_KEY"
 prompt_mode = "stdin"
 timeout_seconds = 1800
 
 [executor.backends.opencode]
 binary = "opencode"
-args = []
+args = ["run", "--variant", "high", "--thinking"]
+model_flag = "-m"
+model_template = "$provider/$model"
+provider = "zenmux"
+output_mode = "text"
 prompt_mode = "append"
 timeout_seconds = 1800
 
 [executor.backends.pi]
 binary = "pi"
-args = []
+args = ["--print", "--thinking", "high"]
+model_flag = "--model"
+provider_flag = "--provider"
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/v1"
+provider_api = "openai-completions"
+provider_api_key_env = "ZENMUX_API_KEY"
 prompt_mode = "append"
 timeout_seconds = 1800
 
