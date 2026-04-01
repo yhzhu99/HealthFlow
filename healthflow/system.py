@@ -17,6 +17,7 @@ from .agents.meta_agent import MetaAgent
 from .agents.reflector_agent import ReflectorAgent
 from .core.config import HealthFlowConfig
 from .core.contracts import EvaluationVerdict
+from .core.direct_responses import DirectResponse, maybe_build_direct_response
 from .core.llm_provider import create_llm_provider
 from .ehr import detect_risk_findings, profile_workspace_data
 from .execution import ExecutionContext, WorkflowRecommendationBroker, create_executor_adapter
@@ -84,13 +85,14 @@ class HealthFlowSystem:
                     handle.write(content)
 
         start_time = time.time()
-        result = await self._run_unified_flow(
+        result = await self._run_task_flow(
             task_id,
             task_workspace,
             user_request,
             live,
             spinner,
             report_requested,
+            uploaded_files=uploaded_files,
         )
         execution_time = round(time.time() - start_time, 2)
         result["execution_time"] = execution_time
@@ -109,6 +111,7 @@ class HealthFlowSystem:
         result["report_generated"] = False
         result["report_path"] = None
         result["report_error"] = None
+        result["response_mode"] = result.get("response_mode", "orchestrated")
         self._write_run_metadata_artifacts(task_workspace, task_id, user_request, execution_time, result)
 
         if report_requested:
@@ -123,6 +126,148 @@ class HealthFlowSystem:
                 result["report_error"] = str(exc)
             self._write_run_metadata_artifacts(task_workspace, task_id, user_request, execution_time, result)
         return result
+
+    async def _run_task_flow(
+        self,
+        task_id: str,
+        task_workspace: Path,
+        user_request: str,
+        live: Optional[Live],
+        spinner: Optional[Spinner],
+        report_requested: bool,
+        uploaded_files: Optional[Dict[str, bytes]] = None,
+    ) -> Dict[str, Any]:
+        direct_response = maybe_build_direct_response(
+            user_request,
+            has_uploaded_files=bool(uploaded_files),
+        )
+        if direct_response is not None:
+            return await self._run_direct_response_flow(
+                task_id=task_id,
+                task_workspace=task_workspace,
+                user_request=user_request,
+                direct_response=direct_response,
+            )
+
+        return await self._run_unified_flow(
+            task_id,
+            task_workspace,
+            user_request,
+            live,
+            spinner,
+            report_requested,
+        )
+
+    async def _run_direct_response_flow(
+        self,
+        task_id: str,
+        task_workspace: Path,
+        user_request: str,
+        direct_response: DirectResponse,
+    ) -> Dict[str, Any]:
+        data_profile = profile_workspace_data(task_workspace, user_request)
+        risk_findings = detect_risk_findings(user_request, data_profile)
+        task_state = {
+            "data_profile": asdict(data_profile),
+            "risk_findings": [asdict(item) for item in risk_findings],
+        }
+        self._write_json(task_workspace / "task_state.json", task_state)
+
+        memory_context = {
+            "query": user_request,
+            "task_family": data_profile.task_family,
+            "domain_focus": data_profile.domain_focus,
+            "dataset_signature": data_profile.dataset_signature,
+            "capacity": 0,
+            "selection_policy": ["Memory retrieval was skipped because the request used the direct-response path."],
+            "selected": [],
+            "safeguard_overrides": [],
+            "suppressed_duplicates": [],
+            "suppressed_conflicts": [],
+            "suppressed": [],
+            "skipped": True,
+            "skip_reason": direct_response.reason,
+        }
+        self._write_json(task_workspace / "memory_context.json", memory_context)
+
+        evaluation = {
+            "status": "success",
+            "score": 1.0,
+            "failure_type": "none",
+            "feedback": "Returned a built-in direct response for a lightweight conversational prompt.",
+            "repair_instructions": [],
+            "violated_constraints": [],
+            "repair_hypotheses": [],
+            "retry_recommended": False,
+            "memory_worthy_insights": [],
+            "reasoning": direct_response.reason,
+        }
+        self._write_json(task_workspace / "evaluation.json", evaluation)
+
+        full_history = {
+            "task_id": task_id,
+            "user_request": user_request,
+            "backend": self.config.active_executor_name,
+            "executor_model": self.config.active_executor.model,
+            "executor_provider": self.config.active_executor.provider,
+            "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+            "llm_role_models": self._role_model_names(),
+            "memory_write_policy": self.config.memory.write_policy,
+            "response_mode": direct_response.mode,
+            "direct_response_category": direct_response.category,
+            "direct_response_reason": direct_response.reason,
+            "workflow_recommendations": [],
+            "task_state_path": str(task_workspace / "task_state.json"),
+            "data_profile": task_state["data_profile"],
+            "risk_findings": task_state["risk_findings"],
+            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "memory_retrieval": memory_context,
+            "attempts": [],
+        }
+        self._write_json(task_workspace / "full_history.json", full_history)
+
+        empty_cost_analysis = {
+            "attempts": [],
+            "run_total": {
+                "attempts": 0,
+                "planning": {},
+                "execution": {},
+                "evaluation": {},
+                "reflection": {},
+                "llm_estimated_cost_usd": None,
+                "executor_estimated_cost_usd": None,
+                "total_estimated_cost_usd": None,
+            },
+        }
+        self._write_json(task_workspace / "cost_analysis.json", empty_cost_analysis)
+
+        return {
+            "success": True,
+            "final_summary": "Returned a built-in direct response for a lightweight conversational prompt.",
+            "answer": direct_response.answer,
+            "evaluation_status": "success",
+            "evaluation_score": 1.0,
+            "memory_write_policy": self.config.memory.write_policy,
+            "workflow_recommendations": [],
+            "backend_version": None,
+            "executor_metadata": {},
+            "usage_summary": {
+                "planning": {},
+                "execution": {},
+                "evaluation": {},
+            },
+            "cost_summary": {
+                "llm_estimated_cost_usd": None,
+                "executor_estimated_cost_usd": None,
+                "total_estimated_cost_usd": None,
+            },
+            "cost_analysis": empty_cost_analysis,
+            "log_path": None,
+            "prompt_path": None,
+            "evaluation_path": str(task_workspace / "evaluation.json"),
+            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "response_mode": direct_response.mode,
+        }
 
     async def _run_unified_flow(
         self,
@@ -375,6 +520,7 @@ class HealthFlowSystem:
             "prompt_path": full_history["attempts"][-1]["execution"]["prompt_path"] if full_history["attempts"] else None,
             "evaluation_path": str(task_workspace / "evaluation.json"),
             "memory_context_path": str(task_workspace / "memory_context.json"),
+            "response_mode": "orchestrated",
         }
 
     def _normalize_evaluation_verdict(self, verdict: EvaluationVerdict) -> EvaluationVerdict:
@@ -559,6 +705,7 @@ class HealthFlowSystem:
                 "report_generated": result.get("report_generated", False),
                 "report_path": result.get("report_path"),
                 "report_error": result.get("report_error"),
+                "response_mode": result.get("response_mode"),
             },
         )
 

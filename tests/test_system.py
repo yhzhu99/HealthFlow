@@ -136,6 +136,26 @@ class _FakeExecutor:
         )
 
 
+class _UnexpectedCallMetaAgent:
+    async def generate_plan(self, **kwargs) -> ExecutionPlan:
+        raise AssertionError("MetaAgent should not be called for direct-response prompts.")
+
+
+class _UnexpectedCallEvaluator:
+    async def evaluate(self, **kwargs) -> EvaluationVerdict:
+        raise AssertionError("Evaluator should not be called for direct-response prompts.")
+
+
+class _UnexpectedCallReflector:
+    async def synthesize_experience(self, full_history, final_verdict: EvaluationVerdict):
+        raise AssertionError("Reflector should not be called for direct-response prompts.")
+
+
+class _UnexpectedCallExecutor:
+    async def execute(self, context, working_dir: Path) -> ExecutionResult:
+        raise AssertionError("Executor should not be called for direct-response prompts.")
+
+
 class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
     async def test_run_task_writes_structured_runtime_artifacts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -315,6 +335,53 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             report_text = Path(result["report_path"]).read_text(encoding="utf-8")
             self.assertIn("`failed`", report_text)
             self.assertIn("The task did not satisfy the requested deliverable.", report_text)
+
+    async def test_run_task_uses_direct_response_path_for_lightweight_conversation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = HealthFlowConfig(
+                active_llm_name="test-llm",
+                active_executor_name="claude_code",
+                llm_registry={
+                    "test-llm": LLMProviderConfig(
+                        api_key="key",
+                        base_url="https://example.com/v1",
+                        model_name="test-model",
+                    ),
+                },
+                llm=LLMProviderConfig(
+                    api_key="key",
+                    base_url="https://example.com/v1",
+                    model_name="test-model",
+                ),
+                llm_roles=LLMRoleConfig(),
+                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+                environment=EnvironmentConfig(),
+                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
+                memory=MemoryConfig(write_policy="append"),
+                evaluation=EvaluationConfig(success_threshold=8.0),
+                logging=LoggingConfig(),
+            )
+            experience_path = workspace_root / "memory" / "experience.jsonl"
+            system = HealthFlowSystem(config=config, experience_path=experience_path)
+            system.meta_agent = _UnexpectedCallMetaAgent()
+            system.evaluator = _UnexpectedCallEvaluator()
+            system.reflector = _UnexpectedCallReflector()
+            system.executor = _UnexpectedCallExecutor()
+
+            result = await system.run_task("hi, who are you?")
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["response_mode"], "direct_response")
+            self.assertEqual(result["evaluation_status"], "success")
+            self.assertEqual(result["evaluation_score"], 1.0)
+            self.assertIn("HealthFlow", result["answer"])
+            self.assertTrue(Path(result["evaluation_path"]).exists())
+            self.assertTrue(Path(result["memory_context_path"]).exists())
+            history = json.loads((Path(result["workspace_path"]) / "full_history.json").read_text(encoding="utf-8"))
+            self.assertEqual(history["attempts"], [])
+            self.assertEqual(history["response_mode"], "direct_response")
 
 
 if __name__ == "__main__":
