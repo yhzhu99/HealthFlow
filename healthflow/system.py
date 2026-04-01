@@ -179,6 +179,8 @@ class HealthFlowSystem:
         result["runtime_llm_keys"] = self.config.runtime_llm_keys
         result["memory_write_policy"] = self.config.memory.write_policy
         result["execution_environment"] = self.config.environment.model_dump(mode="json")
+        result["workflow_recommendations"] = result.get("workflow_recommendations", [])
+        result["available_project_cli_tools"] = result.get("available_project_cli_tools", [])
         result["run_result_path"] = str(task_workspace / "run_result.json")
         result["run_manifest_path"] = str(task_workspace / "run_manifest.json")
         result["cost_analysis_path"] = str(task_workspace / "cost_analysis.json")
@@ -299,6 +301,7 @@ class HealthFlowSystem:
             "direct_response_model": direct_response.model_name,
             "direct_response_usage": planning_usage,
             "direct_response_estimated_cost_usd": direct_response.estimated_cost_usd,
+            "available_project_cli_tools": [],
             "workflow_recommendations": [],
             "task_state_path": str(task_workspace / "task_state.json"),
             "data_profile": task_state["data_profile"],
@@ -331,6 +334,7 @@ class HealthFlowSystem:
             "evaluation_status": "success",
             "evaluation_score": 1.0,
             "memory_write_policy": self.config.memory.write_policy,
+            "available_project_cli_tools": [],
             "workflow_recommendations": [],
             "backend_version": None,
             "executor_metadata": {},
@@ -602,6 +606,7 @@ class HealthFlowSystem:
             "evaluation_status": final_verdict.status,
             "evaluation_score": final_verdict.score,
             "memory_write_policy": self.config.memory.write_policy,
+            "available_project_cli_tools": available_project_cli_tools,
             "workflow_recommendations": workflow_recommendations,
             "backend_version": last_execution.get("backend_version"),
             "executor_metadata": last_execution.get("executor_metadata"),
@@ -631,6 +636,9 @@ class HealthFlowSystem:
             if execution_result is not None
             else "Task cancelled before completion."
         )
+        data_profile = profile_workspace_data(task_workspace, user_request)
+        workflow_recommendations = self._workflow_recommendations(user_request, data_profile)
+        available_project_cli_tools = self._available_project_cli_tools(user_request, data_profile)
         evaluation = self._cancelled_evaluation_payload(cancel_reason)
         self._write_json(task_workspace / "evaluation.json", evaluation)
 
@@ -650,7 +658,8 @@ class HealthFlowSystem:
                 "llm_role_models": self._role_model_names(),
                 "runtime_llm_keys": self.config.runtime_llm_keys,
                 "memory_write_policy": self.config.memory.write_policy,
-                "workflow_recommendations": [],
+                "available_project_cli_tools": available_project_cli_tools,
+                "workflow_recommendations": workflow_recommendations,
                 "memory_context_path": str(memory_context_path),
                 "memory_retrieval": self._minimal_memory_context(user_request, cancel_reason),
                 "attempts": [],
@@ -700,7 +709,8 @@ class HealthFlowSystem:
             "evaluation_status": "cancelled",
             "evaluation_score": 0.0,
             "memory_write_policy": self.config.memory.write_policy,
-            "workflow_recommendations": [],
+            "available_project_cli_tools": available_project_cli_tools,
+            "workflow_recommendations": workflow_recommendations,
             "backend_version": execution_result.backend_version if execution_result is not None else None,
             "executor_metadata": execution_result.executor_metadata if execution_result is not None else {},
             "usage_summary": usage_summary,
@@ -1173,6 +1183,7 @@ class HealthFlowSystem:
                 "runtime_llm_keys": result.get("runtime_llm_keys"),
                 "memory_write_policy": self.config.memory.write_policy,
                 "execution_environment": result.get("execution_environment"),
+                "available_project_cli_tools": result.get("available_project_cli_tools"),
                 "workflow_recommendations": result.get("workflow_recommendations"),
                 "backend_version": result.get("backend_version"),
                 "executor_metadata": result.get("executor_metadata"),

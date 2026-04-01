@@ -318,6 +318,8 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["usage_summary"]["execution"]["tool_names"], ["read"])
             self.assertEqual(result["execution_environment"]["package_manager"], "uv")
             self.assertTrue(result["workflow_recommendations"])
+            self.assertTrue(result["available_project_cli_tools"])
+            self.assertIn("oneehr", " ".join(result["available_project_cli_tools"]).lower())
 
             memory_context = json.loads(Path(result["memory_context_path"]).read_text(encoding="utf-8"))
             self.assertEqual(memory_context["task_family"], "predictive_modeling")
@@ -333,6 +335,8 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(run_result["report_requested"])
             self.assertTrue(run_result["report_generated"])
             self.assertEqual(Path(run_result["report_path"]).name, "report.md")
+            self.assertTrue(run_result["available_project_cli_tools"])
+            self.assertIn("oneehr", " ".join(run_result["available_project_cli_tools"]).lower())
 
             run_manifest = json.loads(Path(result["run_manifest_path"]).read_text(encoding="utf-8"))
             self.assertTrue(run_manifest["report_requested"])
@@ -340,6 +344,8 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(Path(run_manifest["report_path"]).name, "report.md")
             self.assertEqual(run_manifest["execution_environment"]["python_version"], "3.12")
             self.assertTrue(run_manifest["workflow_recommendations"])
+            self.assertTrue(run_manifest["available_project_cli_tools"])
+            self.assertIn("oneehr", " ".join(run_manifest["available_project_cli_tools"]).lower())
 
             cost_analysis = json.loads(Path(result["cost_analysis_path"]).read_text(encoding="utf-8"))
             self.assertEqual(cost_analysis["attempts"][0]["execution"]["estimated_cost_usd"], 0.1234)
@@ -460,11 +466,17 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["evaluation_status"], "success")
             self.assertEqual(result["evaluation_score"], 1.0)
             self.assertIn("HealthFlow", result["answer"])
+            self.assertEqual(result["available_project_cli_tools"], [])
             self.assertTrue(Path(result["evaluation_path"]).exists())
             self.assertTrue(Path(result["memory_context_path"]).exists())
             history = json.loads((Path(result["workspace_path"]) / "full_history.json").read_text(encoding="utf-8"))
             self.assertEqual(history["attempts"], [])
             self.assertEqual(history["response_mode"], "direct_response")
+            self.assertEqual(history["available_project_cli_tools"], [])
+            run_result = json.loads(Path(result["run_result_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(run_result["available_project_cli_tools"], [])
+            run_manifest = json.loads(Path(result["run_manifest_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(run_manifest["available_project_cli_tools"], [])
 
     async def test_run_task_uses_direct_response_path_for_name_question(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -494,9 +506,11 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["response_mode"], "direct_response")
             self.assertIn("HealthFlow", result["answer"])
             self.assertNotIn("MetaAgent", result["answer"])
+            self.assertEqual(result["available_project_cli_tools"], [])
             history = json.loads((Path(result["workspace_path"]) / "full_history.json").read_text(encoding="utf-8"))
             self.assertEqual(history["direct_response_category"], "identity")
             self.assertEqual(history["response_mode"], "direct_response")
+            self.assertEqual(history["available_project_cli_tools"], [])
 
 
 class SystemAnswerExtractionTests(unittest.TestCase):
