@@ -56,7 +56,12 @@ Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 - `run_manifest.json`
 - `run_result.json`
 
+When `healthflow run ... --report` is enabled, the same workspace also writes:
+
+- `report.md`
+
 These files are the main source of truth for rebuttal-oriented inspection.
+`report.md` is a standard HealthFlow-generated markdown report that summarizes the run, links produced artifacts with relative paths, embeds a small number of images inline, and keeps runtime JSON/log files in a separate audit section.
 
 ## Runtime Boundary
 
@@ -239,10 +244,12 @@ invocation_hint = "connector-defined"
 python run_healthflow.py run \
   "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
   --active-llm 'deepseek/deepseek-v3.2' \
-  --active-executor opencode
+  --active-executor opencode \
+  --report
 ```
 
 The same CLI can also run EHR-focused prompts used in the paper and arbitrary external-CLI-driven workflows.
+When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single markdown artifact before exporting it to PDF or other formats.
 
 ### Interactive Mode
 
