@@ -131,7 +131,7 @@ class ExecutionResult:
     cancel_reason: str | None = None
 
 
-class ExecutionCancelledError(asyncio.CancelledError):
+class ExecutionCancelledError(Exception):
     def __init__(self, result: ExecutionResult, cancel_reason: str = "Execution cancelled by user."):
         super().__init__(cancel_reason)
         self.result = result

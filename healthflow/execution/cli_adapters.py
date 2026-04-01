@@ -66,14 +66,16 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 stdout_bytes, stderr_bytes = await process.communicate()
             except asyncio.CancelledError:
                 duration_seconds = round(time.time() - start_time, 2)
-                cancelled_result = await self._build_cancelled_result(
-                    process=process,
-                    prompt_text=prompt_text,
-                    prompt_file_path=prompt_file_path,
-                    log_file_path=log_file_path,
-                    redacted_command_args=redacted_command_args,
-                    backend_version=backend_version,
-                    duration_seconds=duration_seconds,
+                cancelled_result = await asyncio.shield(
+                    self._build_cancelled_result(
+                        process=process,
+                        prompt_text=prompt_text,
+                        prompt_file_path=prompt_file_path,
+                        log_file_path=log_file_path,
+                        redacted_command_args=redacted_command_args,
+                        backend_version=backend_version,
+                        duration_seconds=duration_seconds,
+                    )
                 )
                 raise ExecutionCancelledError(
                     cancelled_result,
@@ -108,6 +110,8 @@ class CLISubprocessExecutor(ExecutorAdapter):
                     timed_out=timed_out,
                 ),
             )
+        except ExecutionCancelledError:
+            raise
         except Exception as e:
             logger.error("Executor '{}' failed: {}", self.backend_name, e)
             if process.returncode is None:
@@ -451,14 +455,16 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 stdout_bytes, stderr_bytes = await process.communicate()
             except asyncio.CancelledError:
                 duration_seconds = round(time.time() - start_time, 2)
-                cancelled_result = await self._build_cancelled_result(
-                    process=process,
-                    prompt_text=prompt_text,
-                    prompt_file_path=prompt_file_path,
-                    log_file_path=log_file_path,
-                    redacted_command_args=redacted_command_args,
-                    backend_version=backend_version,
-                    duration_seconds=duration_seconds,
+                cancelled_result = await asyncio.shield(
+                    self._build_cancelled_result(
+                        process=process,
+                        prompt_text=prompt_text,
+                        prompt_file_path=prompt_file_path,
+                        log_file_path=log_file_path,
+                        redacted_command_args=redacted_command_args,
+                        backend_version=backend_version,
+                        duration_seconds=duration_seconds,
+                    )
                 )
                 raise ExecutionCancelledError(
                     cancelled_result,
@@ -506,6 +512,8 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 usage=usage,
                 telemetry=telemetry,
             )
+        except ExecutionCancelledError:
+            raise
         except Exception as e:
             logger.error("Executor '{}' failed: {}", self.backend_name, e)
             if process.returncode is None:
