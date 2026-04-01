@@ -187,7 +187,8 @@ class ExecutionFactoryTests(unittest.TestCase):
         self.assertIn("Save every artifact inside the current workspace", prompt)
         self.assertIn("CodeAct-style executor", prompt)
         self.assertIn("## Available Tools", prompt)
-        self.assertIn("## Avoidance Memory", prompt)
+        self.assertIn("## EHR Safeguards", prompt)
+        self.assertIn("## Recommended Workflows", prompt)
 
     def test_repo_root_does_not_depend_on_claude_md(self):
         repo_root = Path(__file__).resolve().parents[1]

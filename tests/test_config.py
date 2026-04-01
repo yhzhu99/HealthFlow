@@ -283,25 +283,7 @@ model_name = "model"
                 ):
                     get_config(config_path, "test")
 
-    def test_legacy_memory_mode_maps_to_write_policy(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config_path = Path(tmpdir) / "config.toml"
-            config_path.write_text(
-                """
-[llm.test]
-api_key = "key"
-base_url = "https://example.com/v1"
-model_name = "model"
-
-[memory]
-mode = "frozen_train"
-""".strip(),
-                encoding="utf-8",
-            )
-            config = get_config(config_path, "test")
-            self.assertEqual(config.memory.write_policy, "freeze")
-
-    def test_removed_memory_policy_keys_raise_clear_error(self):
+    def test_unknown_memory_keys_raise_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
@@ -320,7 +302,7 @@ strategy_k = 3
             with self.assertRaisesRegex(ValueError, "strategy_k"):
                 get_config(config_path, "test")
 
-    def test_removed_policy_sections_raise_clear_error(self):
+    def test_unknown_policy_sections_raise_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(

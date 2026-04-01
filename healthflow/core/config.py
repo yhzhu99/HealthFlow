@@ -5,7 +5,7 @@ from typing import Dict, List, Literal
 
 import toml
 from loguru import logger
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LLMProviderConfig(BaseModel):
@@ -178,16 +178,8 @@ class LLMRoleConfig(BaseModel):
     reflector: str | None = Field(default=None, description="Optional model key for the reflector agent.")
 
 
-LEGACY_MEMORY_MODE_MAP = {
-    "accumulate_eval": "append",
-    "frozen_train": "freeze",
-    "reset": "reset_before_run",
-}
-REMOVED_CONFIG_SECTIONS = {"ehr", "verification"}
-REMOVED_MEMORY_KEYS = {"retrieve_k", "strategy_k", "failure_k", "dataset_k", "writeback_on_failure"}
-
-
 class MemoryConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     write_policy: Literal["append", "freeze", "reset_before_run"] = "append"
 
 
@@ -247,46 +239,12 @@ def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> L
 
     return LLMProviderConfig(**resolved_config)
 
-
-def _normalize_memory_config(memory_config: dict) -> dict:
-    normalized = dict(memory_config)
-    removed_keys = sorted(key for key in normalized if key in REMOVED_MEMORY_KEYS)
-    if removed_keys:
+def _validate_top_level_sections(config_data: dict) -> None:
+    allowed_sections = {"llm", "llm_roles", "system", "executor", "tools", "memory", "evaluation", "logging"}
+    unexpected_sections = sorted(section for section in config_data if section not in allowed_sections)
+    if unexpected_sections:
         raise ValueError(
-            "The following [memory] keys were removed because retrieval policy is now internal: "
-            f"{', '.join(removed_keys)}. Keep only [memory].write_policy."
-        )
-
-    if "mode" in normalized and "write_policy" in normalized:
-        raise ValueError(
-            "Use either deprecated [memory].mode or [memory].write_policy, not both. "
-            "Prefer [memory].write_policy."
-        )
-
-    if "mode" in normalized:
-        legacy_mode = normalized.pop("mode")
-        if legacy_mode not in LEGACY_MEMORY_MODE_MAP:
-            raise ValueError(
-                f"Unsupported legacy [memory].mode '{legacy_mode}'. "
-                "Supported legacy values are: accumulate_eval, frozen_train, reset."
-            )
-        mapped_value = LEGACY_MEMORY_MODE_MAP[legacy_mode]
-        logger.warning(
-            "Deprecated [memory].mode='{}' detected. Map it to [memory].write_policy='{}' instead.",
-            legacy_mode,
-            mapped_value,
-        )
-        normalized["write_policy"] = mapped_value
-
-    return normalized
-
-
-def _validate_removed_sections(config_data: dict) -> None:
-    removed_sections = sorted(section for section in REMOVED_CONFIG_SECTIONS if section in config_data)
-    if removed_sections:
-        raise ValueError(
-            "The following config sections were removed because task policy is now internal to HealthFlow: "
-            f"{', '.join(f'[{section}]' for section in removed_sections)}."
+            "Unsupported config sections: " + ", ".join(f"[{section}]" for section in unexpected_sections)
         )
 
 
@@ -304,7 +262,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
 
     try:
         config_data = toml.load(config_path)
-        _validate_removed_sections(config_data)
+        _validate_top_level_sections(config_data)
 
         if not active_llm:
             raise ValueError("'active_llm' parameter is required")
@@ -339,7 +297,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
             system=SystemConfig(**config_data.get("system", {})),
             executor=executor_config,
             tools=ToolsConfig(**config_data.get("tools", {})),
-            memory=MemoryConfig(**_normalize_memory_config(config_data.get("memory", {}))),
+            memory=MemoryConfig(**config_data.get("memory", {})),
             evaluation=EvaluationConfig(**config_data.get("evaluation", {})),
             logging=LoggingConfig(**config_data.get("logging", {})),
         )

@@ -164,35 +164,3 @@ def deliverable_guidance(task_family: str, domain_focus: str = "general") -> lis
         if task_family == "cohort_extraction":
             suggestions.append("If this is an EHR cohort task, save the cohort definition in a machine-readable artifact.")
     return list(dict.fromkeys(suggestions))
-
-
-def verification_guidance(task_family: str, domain_focus: str = "general") -> list[str]:
-    guidance = {
-        "predictive_modeling": [
-            "Keep metrics and validation strategy auditable.",
-            "Record split logic when it materially affects the result.",
-        ],
-        "survival_analysis": [
-            "Keep metrics, censoring assumptions, and temporal validation auditable.",
-        ],
-        "time_series_modeling": [
-            "Keep metrics and chronological validation auditable.",
-        ],
-        "visualization": [
-            "Save the generated figure so it can be inspected directly.",
-        ],
-        "report_generation": [
-            "Produce a report artifact rather than relying only on stdout.",
-        ],
-    }
-    suggestions = list(
-        guidance.get(
-            task_family,
-            [
-                "Prefer reproducible artifacts when they materially support deterministic review.",
-            ],
-        )
-    )
-    if domain_focus == "ehr" and task_family in {"cohort_extraction", "predictive_modeling", "survival_analysis", "time_series_modeling"}:
-        suggestions.append("For EHR-style workflows, keep cohort, split, and leakage evidence auditable when applicable.")
-    return list(dict.fromkeys(suggestions))

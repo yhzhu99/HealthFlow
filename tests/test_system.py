@@ -166,11 +166,16 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(Path(result["cost_analysis_path"]).exists())
             self.assertEqual(Path(result["workspace_path"]).parent, workspace_dir)
             self.assertTrue(experience_path.parent.exists())
+            self.assertTrue((Path(result["workspace_path"]) / "task_state.json").exists())
             self.assertEqual(result["cost_summary"]["llm_estimated_cost_usd"], 0.0021)
             self.assertEqual(result["cost_summary"]["executor_estimated_cost_usd"], 0.1234)
             self.assertEqual(result["cost_summary"]["total_estimated_cost_usd"], 0.1255)
             self.assertEqual(result["usage_summary"]["execution"]["session_ids"], ["ses_test"])
             self.assertEqual(result["usage_summary"]["execution"]["tool_names"], ["read"])
+
+            memory_context = json.loads(Path(result["memory_context_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(memory_context["task_family"], "predictive_modeling")
+            self.assertEqual(memory_context["domain_focus"], "ehr")
 
             run_result = json.loads(Path(result["run_result_path"]).read_text(encoding="utf-8"))
             self.assertEqual(run_result["backend"], "claude_code")

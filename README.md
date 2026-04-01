@@ -5,7 +5,7 @@
 
 HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task reporting, and long-term reflective memory. Dataset preparation and benchmark evaluation workflows can still live in the repository under `data/`, but they are intentionally decoupled from the `healthflow/` runtime package.
 
-- structured `Meta` planning with explicit positive and avoidance memory
+- structured `Meta` planning with EHR-adaptive memory retrieval
 - `Executor` as a CodeAct runtime over pluggable tool surfaces
 - `Evaluator`-driven retry and failure diagnosis
 - `Reflector` writeback from both successful and failed trajectories
@@ -19,18 +19,18 @@ The current release surface is intentionally **backend and CLI only**. A fronten
 
 HealthFlow runs a lean **Meta -> Executor -> Evaluator -> Reflector** loop.
 
-1. **Meta**: retrieve relevant memory, separate recommended experience from avoidance memory, and emit a structured execution plan.
+1. **Meta**: retrieve relevant safeguard, workflow, dataset, and execution memories, then emit a structured execution plan.
 2. **Executor**: interpret the plan as a CodeAct brief and act through code, commands, workspace artifacts, and configured tool surfaces.
 3. **Evaluator**: review the execution trace and produced artifacts, classify the outcome as `success`, `needs_retry`, or `failed`, and provide repair instructions for the next attempt.
-4. **Reflector**: synthesize reusable positive or negative memories from the full trajectory after the task session ends.
+4. **Reflector**: synthesize reusable safeguard, workflow, dataset, or execution memories from the full trajectory after the task session ends.
 
 The task-level self-correction budget is controlled by `system.max_attempts`, which counts total full attempts through the loop rather than "retries plus one".
 
 ## What HealthFlow Contributes
 
-- **MERF core runtime**: the framework definition is the four-stage Meta, Executor, Evaluator, Reflector loop rather than an outer profiling or verification pipeline.
+- **MERF core runtime**: the framework definition is the four-stage Meta, Executor, Evaluator, Reflector loop rather than an outer benchmark-evaluation pipeline.
 - **CodeAct execution surface**: the executor is framed around explicit actions and can work over pluggable tool surfaces such as CLI or MCP-backed tools.
-- **Inspectable memory**: strategy, failure, dataset, and artifact memories are stored in JSONL, separated into recommendation vs avoidance guidance at retrieval time, and exposed through a saved retrieval audit.
+- **Inspectable memory**: safeguard, workflow, dataset, and execution memories are stored in JSONL, routed through adaptive retrieval lanes, and exposed through a saved retrieval audit.
 - **Evaluator-centered recovery**: retries are driven by structured failure diagnosis and repair instructions instead of a single scalar score alone.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
 - **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, executor usage, and stage-level estimated cost summaries.
@@ -61,7 +61,7 @@ These files are the main source of truth for rebuttal-oriented inspection.
 ## Runtime Boundary
 
 - **Core runtime**: the MERF loop in `healthflow/system.py`.
-- **Task-level reporting and verification**: per-task report generation plus artifact/report checks under `healthflow/reporting/` and `healthflow/verification/`.
+- **Task-level reporting**: optional post-run report generation helpers under `healthflow/reporting/`.
 - **Domain specialization**: EHR-specific helpers under `healthflow/ehr/`.
 - **Dataset prep and benchmark evaluation**: repository-level workflows under `data/`, intentionally decoupled from `healthflow/`.
 
@@ -69,27 +69,28 @@ The framework package is focused on taking a task, executing it, improving task 
 
 ## Memory Behavior
 
-HealthFlow uses four memory layers:
+HealthFlow uses four memory classes:
 
+- `safeguard`
+- `workflow`
 - `dataset`
-- `strategy`
-- `failure`
-- `artifact`
+- `execution`
 
 Retrieval is auditable:
 
-- verified memories are preferred for positive strategy layers
-- failure memories keep their own retrieval budget
-- contradictory memories are tracked by `conflict_group`
-- safety-critical failure memories suppress conflicting strategy memories before execution
-- retrieved memories are split into recommendation vs avoidance guidance before they reach the planner
+- retrieval is conditioned on task family, dataset signature, schema tags, and EHR risk tags
+- safeguard memories are prioritized for elevated-risk EHR tasks
+- contradictory memories are tracked by `conflict_slot`
+- safeguard memories suppress conflicting workflow or execution memories before planning
+- dataset memories act as anchors without replacing workflow guidance
 - the retrieval audit is saved to `memory_context.json`
 
 Writeback behavior:
 
-- verified runs can produce `dataset`, `strategy`, and `artifact` memories
-- failed runs can still produce `failure` / `warning` style memory for future avoidance
-- both successful and failed runs can teach future tasks, unless the memory mode is frozen
+- failed runs and near-miss recoveries can produce `safeguard` memory
+- successful reusable procedures can produce `workflow` memory
+- stable schema observations can produce `dataset` memory
+- reusable task-completion habits can produce `execution` memory
 
 ## Supported Execution Backends
 
@@ -304,9 +305,8 @@ By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entr
 - `healthflow/system.py`: orchestration loop
 - `healthflow/execution/`: executor layer
 - `healthflow/ehr/`: optional EHR specialization helpers kept outside the core loop
-- `healthflow/verification/`: task-level artifact and report verification helpers
 - `healthflow/reporting/`: post-run report generation helpers
-- `healthflow/experience/`: hierarchical memory and retrieval audit
+- `healthflow/experience/`: EHR-adaptive memory and retrieval audit
 - `healthflow/tools/`: tool catalog and optional tool-surface metadata
 
 ## Citation
