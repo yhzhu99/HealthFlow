@@ -189,8 +189,8 @@ class CLISubprocessExecutor(ExecutorAdapter):
         return await process.communicate()
 
     def _build_command(self, prompt_text: str) -> List[str]:
-        command = [self.backend_config.binary, *self.backend_config.args]
         template_context = self._template_context()
+        command = [self.backend_config.binary, *self._render_args(template_context)]
         command.extend(self._render_arg_templates(template_context))
 
         provider = self._resolved_provider()
@@ -290,6 +290,7 @@ class CLISubprocessExecutor(ExecutorAdapter):
             "model_argument": self._resolved_model_argument(),
             "model_flag": self.backend_config.model_flag,
             "model_template": self.backend_config.model_template,
+            "reasoning_effort": self.backend_config.reasoning_effort,
             "env_keys": sorted(self.backend_config.env.keys()),
             "prompt_mode": self.backend_config.prompt_mode,
             "timeout_seconds": self.backend_config.timeout_seconds,
@@ -340,12 +341,19 @@ class CLISubprocessExecutor(ExecutorAdapter):
             "provider_base_url": self.backend_config.provider_base_url or "",
             "provider_api": self.backend_config.provider_api or "",
             "provider_api_key_env": self.backend_config.provider_api_key_env or "",
+            "reasoning_effort": self.backend_config.reasoning_effort or "",
         }
 
     def _template_context(self) -> dict[str, str]:
         context = self._template_base_context()
         context["model_argument"] = self._resolved_model_argument() or ""
         return context
+
+    def _render_args(self, template_context: dict[str, str]) -> list[str]:
+        return [
+            self._render_template_value(argument, template_context, "args")
+            for argument in self.backend_config.args
+        ]
 
     def _render_arg_templates(self, template_context: dict[str, str]) -> list[str]:
         return [

@@ -93,11 +93,15 @@ class HealthFlowSystem:
 
     def __init__(self, config: HealthFlowConfig, experience_path: Path):
         self.config = config
-        provider_cache: dict[tuple[str, str], Any] = {}
+        provider_cache: dict[tuple[str, str, str], Any] = {}
 
         def provider_for(role: str):
             role_config = config.llm_config_for_role(role)
-            provider_key = (role_config.base_url, role_config.model_name)
+            provider_key = (
+                role_config.base_url,
+                role_config.model_name,
+                role_config.reasoning_effort or "",
+            )
             if provider_key not in provider_cache:
                 provider_cache[provider_key] = create_llm_provider(role_config)
             return provider_cache[provider_key]

@@ -146,7 +146,7 @@ export DEEPSEEK_API_KEY="your_deepseek_key_here"
 The repo already ships a ready-to-edit [`config.toml`](/home/yhzhu/projects/HealthFlow/config.toml). Update that file with the model entries you want to expose to HealthFlow. If you prefer to write your own from scratch, use the same shape and keep secrets in `api_key_env`:
 
 ```toml
-[llm."deepseek/deepseek-v3.2"]
+[llm."deepseek/deepseek-chat"]
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-chat"
@@ -162,6 +162,7 @@ output_cost_per_million_tokens = 0.43
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-reasoner"
+reasoning_effort = "high"
 executor_model_name = "deepseek-reasoner"
 executor_provider = "deepseek"
 executor_provider_base_url = "https://api.deepseek.com/anthropic"
@@ -183,10 +184,10 @@ input_cost_per_million_tokens = 0.50
 output_cost_per_million_tokens = 3.00
 
 [runtime]
-planner_llm = "deepseek/deepseek-v3.2"
+planner_llm = "deepseek/deepseek-chat"
 evaluator_llm = "openai/gpt-5.4"
 reflector_llm = "google/gemini-3-flash-preview"
-executor_llm = "deepseek/deepseek-v3.2"
+executor_llm = "deepseek/deepseek-chat"
 ```
 
 `api_key` still works for inline secrets, but `api_key_env` is the recommended path. Use quoted TOML table names for model keys that contain `/`.
@@ -210,7 +211,8 @@ Example executor configuration with ZenMux-backed defaults:
 ```toml
 [executor.backends.opencode]
 binary = "opencode"
-args = ["run", "--variant", "high", "--format", "json"]
+args = ["run", "--variant", "$reasoning_effort", "--format", "json"]
+reasoning_effort = "high"
 model_flag = "-m"
 model_template = "$provider/$model"
 provider = "zenmux"
@@ -218,7 +220,8 @@ provider = "zenmux"
 [executor.backends.codex]
 binary = "codex"
 args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
-arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"high\"", "-c", "model_reasoning_summary=\"detailed\""]
+arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"$reasoning_effort\"", "-c", "model_reasoning_summary=\"detailed\""]
+reasoning_effort = "high"
 model = "openai/gpt-5.4"
 model_flag = "-m"
 inherit_executor_llm = false
@@ -228,7 +231,8 @@ provider_api_key_env = "ZENMUX_API_KEY"
 
 [executor.backends.pi]
 binary = "pi"
-args = ["--print", "--thinking", "high"]
+args = ["--print", "--thinking", "$reasoning_effort"]
+reasoning_effort = "high"
 provider_flag = "--provider"
 model_flag = "--model"
 provider = "zenmux"
@@ -238,7 +242,8 @@ provider_api_key_env = "ZENMUX_API_KEY"
 
 [executor.backends.claude_code]
 binary = "claude"
-args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "high"]
+args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "$reasoning_effort"]
+reasoning_effort = "high"
 env = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
 model_flag = "--model"
 provider = "zenmux"
@@ -261,10 +266,10 @@ To select explicit runtime models, set:
 
 ```toml
 [runtime]
-planner_llm = "deepseek/deepseek-v3.2"
+planner_llm = "deepseek/deepseek-chat"
 evaluator_llm = "openai/gpt-5.4"
 reflector_llm = "google/gemini-3-flash-preview"
-executor_llm = "deepseek/deepseek-v3.2"
+executor_llm = "deepseek/deepseek-chat"
 ```
 
 Any model named in `[runtime]` must also be declared under `[llm]`.
