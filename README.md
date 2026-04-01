@@ -301,6 +301,16 @@ python run_healthflow.py interactive \
   --active-executor opencode
 ```
 
+Interactive mode now supports a command-aware shell:
+
+- `/help`: show commands and keyboard hints
+- `/clear`: clear the terminal and redraw the session banner
+- `/new`: start a fresh local session while preserving `workspace/memory/experience.jsonl`
+- `/exit`: exit interactive mode
+- `exit` / `quit`: aliases for `/exit`
+- `Tab`: complete slash commands
+- `ESC ESC`: cancel the current run without leaving the shell
+
 ### Training
 
 Training data must be JSONL with `qid`, `task`, and `answer`.
