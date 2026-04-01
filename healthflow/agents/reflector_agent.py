@@ -4,7 +4,7 @@ from loguru import logger
 
 from ..core.contracts import EvaluationVerdict
 from ..core.llm_provider import LLMProvider, LLMMessage
-from ..prompts.templates import get_prompt
+from ..prompts.templates import get_prompt, render_prompt
 from ..experience.experience_models import (
     Experience,
     ExperiencePolarity,
@@ -46,7 +46,7 @@ class ReflectorAgent:
         }
         history_str = json.dumps(history_for_prompt, indent=2)
 
-        user_prompt = get_prompt("reflector_user").format(task_history=history_str)
+        user_prompt = render_prompt("reflector_user", task_history=history_str)
 
         messages = [
             LLMMessage(role="system", content=system_prompt),

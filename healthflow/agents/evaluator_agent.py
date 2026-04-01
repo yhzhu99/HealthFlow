@@ -3,7 +3,7 @@ from loguru import logger
 
 from ..core.contracts import EvaluationVerdict, ExecutionPlan
 from ..core.llm_provider import LLMProvider, LLMMessage
-from ..prompts.templates import get_prompt
+from ..prompts.templates import get_prompt, render_prompt
 
 
 class EvaluatorAgent:
@@ -29,7 +29,8 @@ class EvaluatorAgent:
         Evaluate an execution attempt and return a structured verdict.
         """
         system_prompt = get_prompt("evaluator_system")
-        user_prompt = get_prompt("evaluator_user").format(
+        user_prompt = render_prompt(
+            "evaluator_user",
             user_request=user_request,
             plan_markdown=plan.to_markdown(),
             execution_log=execution_log,

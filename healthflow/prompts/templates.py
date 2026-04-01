@@ -1,4 +1,6 @@
 # A centralized repository for prompt templates used by HealthFlow.
+from string import Template
+
 from loguru import logger
 
 _PROMPTS = {
@@ -27,25 +29,25 @@ Create a structured plan for the following request.
 
 User request:
 ---
-{user_request}
+$user_request
 ---
 
 Available tools:
 ---
-{available_tools}
+$available_tools
 ---
 
 Recommended memories:
 ---
-{recommended_experiences}
+$recommended_experiences
 ---
 
 Avoidance memories:
 ---
-{avoidance_experiences}
+$avoidance_experiences
 ---
 
-{feedback}
+$feedback
 
 Instructions:
 1. Make the executor inspect the workspace early instead of assuming input structure.
@@ -61,27 +63,27 @@ Evaluate the following task attempt. Provide a structured verdict.
 
 Original user request:
 ---
-{user_request}
+$user_request
 ---
 
 Planned execution:
 ---
-{plan_markdown}
+$plan_markdown
 ---
 
 Execution log:
 ---
-{execution_log}
+$execution_log
 ---
 
 Generated answer:
 ---
-{generated_answer}
+$generated_answer
 ---
 
 Workspace artifacts:
 ---
-{workspace_artifacts}
+$workspace_artifacts
 ---
 
 Evaluation criteria:
@@ -110,7 +112,7 @@ Analyze the following task history and extract 1-3 reusable memories.
 
 Task history:
 ---
-{task_history}
+$task_history
 ---
 
 Instructions:
@@ -143,3 +145,10 @@ def get_prompt(name: str) -> str:
     if not prompt:
         logger.warning("Prompt template '{}' not found.", name)
     return prompt
+
+
+def render_prompt(name: str, **kwargs: str) -> str:
+    prompt = get_prompt(name)
+    if not prompt:
+        return ""
+    return Template(prompt).safe_substitute(**kwargs)

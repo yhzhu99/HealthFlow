@@ -4,7 +4,7 @@ from loguru import logger
 
 from ..core.contracts import ExecutionPlan
 from ..core.llm_provider import LLMProvider, LLMMessage
-from ..prompts.templates import get_prompt
+from ..prompts.templates import get_prompt, render_prompt
 from ..experience.experience_models import Experience
 
 
@@ -61,7 +61,8 @@ class MetaAgent:
         if previous_feedback:
             feedback_str = f"**Feedback from Previous Failed Attempt (Must be addressed):**\n{previous_feedback}"
 
-        user_prompt = get_prompt("meta_agent_user").format(
+        user_prompt = render_prompt(
+            "meta_agent_user",
             user_request=user_request,
             recommended_experiences=recommended_str,
             avoidance_experiences=avoidance_str,
