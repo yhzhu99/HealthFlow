@@ -49,11 +49,18 @@ def load_dataset(dataset_path: Path) -> List[Dict[str, Any]]:
             except json.JSONDecodeError:
                 console.print(f"[bold yellow]Warning:[/bold yellow] Invalid JSON on line {line_num}")
                 continue
-            if not all(key in task_data for key in ["qid", "task", "answer"]):
+            if not all(key in task_data for key in ["qid", "task"]):
                 console.print(
-                    f"[bold yellow]Warning:[/bold yellow] Line {line_num} missing required fields (qid, task, answer)"
+                    f"[bold yellow]Warning:[/bold yellow] Line {line_num} missing required fields (qid, task)"
                 )
                 continue
+            reference_answer = task_data.get("reference_answer", task_data.get("answer"))
+            if reference_answer is None:
+                console.print(
+                    f"[bold yellow]Warning:[/bold yellow] Line {line_num} missing required answer field (answer or reference_answer)"
+                )
+                continue
+            task_data["answer"] = reference_answer
             tasks.append(task_data)
 
     return tasks
@@ -251,11 +258,11 @@ async def run_benchmark_async(
         for task_data in tasks:
             qid = str(task_data["qid"])
             task_text = task_data["task"]
-            reference_answer = task_data["answer"]
+            reference_answer = task_data.get("reference_answer", task_data["answer"])
             task_metadata = {
                 key: value
                 for key, value in task_data.items()
-                if key not in {"qid", "task", "answer"}
+                if key not in {"qid", "task", "answer", "reference_answer"}
             }
             output_dir = create_output_directory(dataset_name, system.config.active_executor_name, runtime_label, qid)
             progress.update(task_progress, description=f"[cyan]Processing task {qid}...")
