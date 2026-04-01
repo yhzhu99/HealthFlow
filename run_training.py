@@ -89,7 +89,8 @@ class TrainingRunner:
                         "score": self._extract_score_from_result(result),
                         "workspace_path": result.get("workspace_path"),
                         "backend": result.get("backend"),
-                        "reasoning_model": result.get("reasoning_model"),
+                        "planner_model": result.get("planner_model"),
+                        "runtime_llm_keys": result.get("runtime_llm_keys"),
                         "memory_write_policy": result.get("memory_write_policy"),
                         "evaluation_status": result.get("evaluation_status"),
                         "evaluation_score": result.get("evaluation_score"),
@@ -123,7 +124,8 @@ class TrainingRunner:
                         "score": 0.0,
                         "workspace_path": None,
                         "backend": None,
-                        "reasoning_model": None,
+                        "planner_model": None,
+                        "runtime_llm_keys": None,
                         "memory_write_policy": None,
                         "evaluation_status": "failed",
                         "evaluation_score": 0.0,
@@ -256,10 +258,10 @@ class TrainingRunner:
         console.print("\n")
         console.print(table)
 
-    def save_results(self, dataset_name: str, active_llm: str):
+    def save_results(self, dataset_name: str, runtime_label: str):
         """Save training results using the benchmark-style directory structure."""
         # Create main results directory using the same structure as benchmark
-        results_dir = Path("benchmark_results") / dataset_name / active_llm
+        results_dir = Path("benchmark_results") / dataset_name / runtime_label
         results_dir.mkdir(parents=True, exist_ok=True)
 
         # Save individual results in qid directories (same as benchmark)
@@ -302,10 +304,35 @@ class TrainingRunner:
         except Exception as e:
             logger.warning(f"Failed to copy workspace files: {e}")
 
-def _initialize_system(config_path: Path, experience_path: Path, active_llm: str, active_executor: str | None) -> HealthFlowSystem:
+def _runtime_output_label(config) -> str:
+    runtime_llm_keys = config.runtime_llm_keys
+    if len(set(runtime_llm_keys.values())) == 1:
+        return next(iter(runtime_llm_keys.values())).replace("/", "__")
+    return "__".join(
+        f"{role}={llm_key.replace('/', '__')}"
+        for role, llm_key in runtime_llm_keys.items()
+    )
+
+
+def _initialize_system(
+    config_path: Path,
+    experience_path: Path,
+    planner_llm: str | None,
+    evaluator_llm: str | None,
+    reflector_llm: str | None,
+    executor_llm: str | None,
+    active_executor: str | None,
+) -> HealthFlowSystem:
     """Initialize the HealthFlow system."""
     try:
-        config = get_config(config_path, active_llm, active_executor)
+        config = get_config(
+            config_path,
+            planner_llm=planner_llm,
+            evaluator_llm=evaluator_llm,
+            reflector_llm=reflector_llm,
+            executor_llm=executor_llm,
+            active_executor=active_executor,
+        )
         setup_logging(config)
         return HealthFlowSystem(
             config=config,
@@ -320,15 +347,26 @@ async def main_async(
     dataset_name: str,
     config_path: Path,
     experience_path: Path,
-    active_llm: str = None,
+    planner_llm: str | None = None,
+    evaluator_llm: str | None = None,
+    reflector_llm: str | None = None,
+    executor_llm: str | None = None,
     active_executor: str | None = None,
 ):
     """Main async function to run training."""
-    system = _initialize_system(config_path, experience_path, active_llm, active_executor)
+    system = _initialize_system(
+        config_path,
+        experience_path,
+        planner_llm,
+        evaluator_llm,
+        reflector_llm,
+        executor_llm,
+        active_executor,
+    )
 
     trainer = TrainingRunner(system, experience_path)
     summary = await trainer.run_training(training_file)
-    results_dir = trainer.save_results(dataset_name, active_llm)
+    results_dir = trainer.save_results(dataset_name, _runtime_output_label(system.config))
 
     # Create summary file (similar to benchmark)
     summary_data = {
@@ -341,7 +379,8 @@ async def main_async(
         "average_execution_time": summary["average_execution_time"],
         "evaluator_success_rate": summary["evaluator_success_rate"],
         "backend": system.config.active_executor_name,
-        "reasoning_model": system.config.llm.model_name,
+        "planner_model": system.config.planner_llm.model_name,
+        "runtime_llm_keys": system.config.runtime_llm_keys,
         "memory_write_policy": system.config.memory.write_policy,
         "results_directory": str(results_dir)
     }
@@ -363,11 +402,10 @@ def main():
     parser.add_argument("dataset_name", help="Name of the dataset (used for output directory structure)")
     parser.add_argument("--config", "-c", type=Path, default="config.toml", help="Path to the configuration file")
     parser.add_argument("--experience-path", type=Path, default="workspace/memory/experience.jsonl", help="Path to the experience knowledge base file")
-    parser.add_argument(
-        "--active-llm",
-        required=True,
-        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.4)",
-    )
+    parser.add_argument("--planner-llm", default=None, help="Override runtime.planner_llm from config.toml")
+    parser.add_argument("--evaluator-llm", default=None, help="Override runtime.evaluator_llm from config.toml")
+    parser.add_argument("--reflector-llm", default=None, help="Override runtime.reflector_llm from config.toml")
+    parser.add_argument("--executor-llm", default=None, help="Override runtime.executor_llm from config.toml")
     parser.add_argument("--active-executor", default=None, help="The executor backend to use (e.g., claude_code, opencode, pi)")
 
     args = parser.parse_args()
@@ -378,7 +416,10 @@ def main():
             dataset_name=args.dataset_name,
             config_path=args.config,
             experience_path=args.experience_path,
-            active_llm=args.active_llm,
+            planner_llm=args.planner_llm,
+            evaluator_llm=args.evaluator_llm,
+            reflector_llm=args.reflector_llm,
+            executor_llm=args.executor_llm,
             active_executor=args.active_executor,
         ))
     except KeyboardInterrupt:

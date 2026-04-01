@@ -9,7 +9,6 @@ from healthflow.core.config import (
     BackendCLIConfig,
     EnvironmentConfig,
     LLMProviderConfig,
-    LLMRoleConfig,
     LoggingConfig,
     MemoryConfig,
     SystemConfig,
@@ -124,7 +123,10 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
             config = HealthFlowConfig(
-                active_llm_name="test-llm",
+                planner_llm_name="test-llm",
+                evaluator_llm_name="test-llm",
+                reflector_llm_name="test-llm",
+                executor_llm_name="test-llm",
                 active_executor_name="claude_code",
                 llm_registry={
                     "test-llm": LLMProviderConfig(
@@ -133,12 +135,6 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
                         model_name="test-model",
                     ),
                 },
-                llm=LLMProviderConfig(
-                    api_key="key",
-                    base_url="https://example.com/v1",
-                    model_name="test-model",
-                ),
-                llm_roles=LLMRoleConfig(),
                 system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
                 environment=EnvironmentConfig(),
                 executor=ExecutorConfig(active_backend="claude_code"),

@@ -66,14 +66,16 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 stdout_bytes, stderr_bytes = await process.communicate()
             except asyncio.CancelledError:
                 duration_seconds = round(time.time() - start_time, 2)
-                cancelled_result = await self._build_cancelled_result(
-                    process=process,
-                    prompt_text=prompt_text,
-                    prompt_file_path=prompt_file_path,
-                    log_file_path=log_file_path,
-                    redacted_command_args=redacted_command_args,
-                    backend_version=backend_version,
-                    duration_seconds=duration_seconds,
+                cancelled_result = await asyncio.shield(
+                    self._build_cancelled_result(
+                        process=process,
+                        prompt_text=prompt_text,
+                        prompt_file_path=prompt_file_path,
+                        log_file_path=log_file_path,
+                        redacted_command_args=redacted_command_args,
+                        backend_version=backend_version,
+                        duration_seconds=duration_seconds,
+                    )
                 )
                 raise ExecutionCancelledError(
                     cancelled_result,
@@ -108,6 +110,8 @@ class CLISubprocessExecutor(ExecutorAdapter):
                     timed_out=timed_out,
                 ),
             )
+        except ExecutionCancelledError:
+            raise
         except Exception as e:
             logger.error("Executor '{}' failed: {}", self.backend_name, e)
             if process.returncode is None:
@@ -376,7 +380,29 @@ class CLISubprocessExecutor(ExecutorAdapter):
 
 
 class ClaudeCodeExecutor(CLISubprocessExecutor):
-    pass
+    def _prepare_environment(self, environment: dict[str, str], working_dir: Path) -> dict[str, str]:
+        resolved_environment = dict(environment)
+        api_key_env = self.backend_config.provider_api_key_env
+
+        if not api_key_env:
+            return resolved_environment
+        if api_key_env not in environment:
+            raise ValueError(
+                f"Backend '{self.backend_name}' requires executor provider key env '{api_key_env}', but it is not set."
+            )
+
+        api_key = environment[api_key_env]
+        model_name = self._resolved_model_name()
+
+        if self.backend_config.provider_base_url:
+            resolved_environment["ANTHROPIC_BASE_URL"] = self.backend_config.provider_base_url
+        resolved_environment["ANTHROPIC_API_KEY"] = api_key
+        resolved_environment["ANTHROPIC_AUTH_TOKEN"] = api_key
+        if model_name:
+            resolved_environment["ANTHROPIC_MODEL"] = model_name
+            resolved_environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model_name
+            resolved_environment["ANTHROPIC_SMALL_FAST_MODEL"] = model_name
+        return resolved_environment
 
 
 class CodexExecutor(CLISubprocessExecutor):
@@ -429,14 +455,16 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 stdout_bytes, stderr_bytes = await process.communicate()
             except asyncio.CancelledError:
                 duration_seconds = round(time.time() - start_time, 2)
-                cancelled_result = await self._build_cancelled_result(
-                    process=process,
-                    prompt_text=prompt_text,
-                    prompt_file_path=prompt_file_path,
-                    log_file_path=log_file_path,
-                    redacted_command_args=redacted_command_args,
-                    backend_version=backend_version,
-                    duration_seconds=duration_seconds,
+                cancelled_result = await asyncio.shield(
+                    self._build_cancelled_result(
+                        process=process,
+                        prompt_text=prompt_text,
+                        prompt_file_path=prompt_file_path,
+                        log_file_path=log_file_path,
+                        redacted_command_args=redacted_command_args,
+                        backend_version=backend_version,
+                        duration_seconds=duration_seconds,
+                    )
                 )
                 raise ExecutionCancelledError(
                     cancelled_result,
@@ -484,6 +512,8 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 usage=usage,
                 telemetry=telemetry,
             )
+        except ExecutionCancelledError:
+            raise
         except Exception as e:
             logger.error("Executor '{}' failed: {}", self.backend_name, e)
             if process.returncode is None:

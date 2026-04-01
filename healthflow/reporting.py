@@ -87,6 +87,7 @@ def _render_report(
     feedback = _sanitize_text(str(evaluation.get("feedback") or "No evaluator feedback was recorded."), task_workspace)
     reasoning = _sanitize_text(str(evaluation.get("reasoning") or "No evaluator reasoning was recorded."), task_workspace)
     llm_role_models = run_result.get("llm_role_models") or run_manifest.get("llm_role_models") or {}
+    runtime_llm_keys = run_result.get("runtime_llm_keys") or run_manifest.get("runtime_llm_keys") or {}
     execution_time = run_result.get("execution_time")
 
     lines = [
@@ -100,8 +101,9 @@ def _render_report(
         f"- Backend: `{_format_scalar(run_result.get('backend') or run_manifest.get('backend'))}`",
         f"- Executor Model: `{_format_scalar(run_result.get('executor_model') or run_manifest.get('executor_model'))}`",
         f"- Executor Provider: `{_format_scalar(run_result.get('executor_provider') or run_manifest.get('executor_provider'))}`",
-        f"- Planner Model: `{_format_scalar(run_result.get('reasoning_model') or run_manifest.get('reasoning_model'))}`",
+        f"- Planner Model: `{_format_scalar(run_result.get('planner_model') or run_manifest.get('planner_model'))}`",
         f"- Role Models: `{_format_role_models(llm_role_models)}`",
+        f"- Runtime LLM Keys: `{_format_role_models(runtime_llm_keys)}`",
         f"- Memory Write Policy: `{_format_scalar(run_result.get('memory_write_policy') or run_manifest.get('memory_write_policy'))}`",
         f"- Execution Time: `{_format_duration(execution_time)}`",
         "",

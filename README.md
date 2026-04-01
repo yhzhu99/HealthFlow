@@ -34,7 +34,7 @@ The task-level self-correction budget is controlled by `system.max_attempts`, wh
 - **Evaluator-centered recovery**: retries are driven by structured failure diagnosis and repair instructions instead of a single scalar score alone.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
 - **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, executor usage, and stage-level estimated cost summaries.
-- **Role-specific internal models**: planner, evaluator, and reflector can be configured against different reasoning models to reduce single-model coupling.
+- **Role-specific runtime models**: planner, evaluator, reflector, and executor can be configured against different model entries to reduce single-model coupling.
 
 ## Workspace Artifacts
 
@@ -143,14 +143,18 @@ export ZENMUX_API_KEY="your_zenmux_key_here"
 export DEEPSEEK_API_KEY="your_deepseek_key_here"
 ```
 
-The repo already ships a ready-to-edit [`config.toml`](/home/yhzhu/projects/HealthFlow/config.toml). Update that file with the reasoning models you want to expose to HealthFlow. If you prefer to write your own from scratch, use the same shape and keep secrets in `api_key_env`:
+The repo already ships a ready-to-edit [`config.toml`](/home/yhzhu/projects/HealthFlow/config.toml). Update that file with the model entries you want to expose to HealthFlow. If you prefer to write your own from scratch, use the same shape and keep secrets in `api_key_env`:
 
 ```toml
 [llm."deepseek/deepseek-v3.2"]
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-chat"
-executor_model_name = "deepseek/deepseek-chat"
+executor_model_name = "deepseek-chat"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 input_cost_per_million_tokens = 0.28
 output_cost_per_million_tokens = 0.43
 
@@ -158,7 +162,11 @@ output_cost_per_million_tokens = 0.43
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-reasoner"
-executor_model_name = "deepseek/deepseek-reasoner"
+executor_model_name = "deepseek-reasoner"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 
 [llm."openai/gpt-5.4"]
 api_key_env = "ZENMUX_API_KEY"
@@ -173,16 +181,24 @@ base_url = "https://zenmux.ai/api/v1"
 model_name = "google/gemini-3-flash-preview"
 input_cost_per_million_tokens = 0.50
 output_cost_per_million_tokens = 3.00
+
+[runtime]
+planner_llm = "deepseek/deepseek-v3.2"
+evaluator_llm = "openai/gpt-5.4"
+reflector_llm = "google/gemini-3-flash-preview"
+executor_llm = "deepseek/deepseek-v3.2"
 ```
 
 `api_key` still works for inline secrets, but `api_key_env` is the recommended path. Use quoted TOML table names for model keys that contain `/`.
 
-If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for the active reasoning model in `config.toml`. If those fields are omitted, HealthFlow skips cost estimation for that model. `opencode` executor runs also record per-step executor token usage and estimated executor cost when the CLI returns structured telemetry.
+If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for any model entry used by the planner, evaluator, or reflector in `config.toml`. If those fields are omitted, HealthFlow skips cost estimation for that model. `opencode` executor runs also record per-step executor token usage and estimated executor cost when the CLI returns structured telemetry.
 
-By default, the active executor inherits the same `model_name` as the selected `--active-llm`, except for `codex`, which is pinned to `openai/gpt-5.4` in the repo defaults because that is the only Codex model/provider path currently verified in this setup. Override the executor-side model only if you explicitly want the planner/evaluator model and the backend model to diverge for an experiment.
+By default, the active executor inherits the same `model_name` as the selected `runtime.executor_llm`, except for `codex`, which is pinned to `openai/gpt-5.4` in the repo defaults because that is the only Codex model/provider path currently verified in this setup. Override the executor-side model only if you explicitly want the planner/evaluator model and the backend model to diverge for an experiment.
+
+For official DeepSeek models, HealthFlow also inherits executor-specific routing fields. `opencode` uses its builtin `deepseek` provider directly, so no custom provider override is required if your DeepSeek credential is already configured in `opencode`. `pi` and `claude_code` inherit the same DeepSeek model but route through DeepSeek's Anthropic-compatible endpoint.
 
 The built-in executor defaults also enable reasoning-oriented modes out of the box:
-- `opencode`: `--variant high --thinking`
+- `opencode`: `--variant high --format json`
 - `codex`: `model_reasoning_effort="high"` and `model_reasoning_summary="detailed"`
 - `pi`: `--thinking high`
 - `claude_code`: `--effort high`
@@ -194,7 +210,7 @@ Example executor configuration with ZenMux-backed defaults:
 ```toml
 [executor.backends.opencode]
 binary = "opencode"
-args = ["run", "--variant", "high", "--thinking"]
+args = ["run", "--variant", "high", "--format", "json"]
 model_flag = "-m"
 model_template = "$provider/$model"
 provider = "zenmux"
@@ -205,7 +221,7 @@ args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypa
 arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"high\"", "-c", "model_reasoning_summary=\"detailed\""]
 model = "openai/gpt-5.4"
 model_flag = "-m"
-inherit_active_llm = false
+inherit_executor_llm = false
 provider = "zenmux"
 provider_base_url = "https://zenmux.ai/api/v1"
 provider_api_key_env = "ZENMUX_API_KEY"
@@ -223,8 +239,12 @@ provider_api_key_env = "ZENMUX_API_KEY"
 [executor.backends.claude_code]
 binary = "claude"
 args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "high"]
-env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KEY = "${ZENMUX_API_KEY}", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
+env = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
 model_flag = "--model"
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/anthropic"
+provider_api = "anthropic-messages"
+provider_api_key_env = "ZENMUX_API_KEY"
 ```
 
 HealthFlow also exposes a small execution-environment contract:
@@ -237,18 +257,23 @@ install_command = "uv add"
 run_prefix = "uv run"
 ```
 
-To decouple the internal roles, set:
+To select explicit runtime models, set:
 
 ```toml
-[llm_roles]
-planner = "deepseek/deepseek-v3.2"
-evaluator = "openai/gpt-5.4"
-reflector = "google/gemini-3-flash-preview"
+[runtime]
+planner_llm = "deepseek/deepseek-v3.2"
+evaluator_llm = "openai/gpt-5.4"
+reflector_llm = "google/gemini-3-flash-preview"
+executor_llm = "deepseek/deepseek-v3.2"
 ```
 
-Any model named in `[llm_roles]` must also be declared under `[llm]`.
+Any model named in `[runtime]` must also be declared under `[llm]`.
 
-Any unset role falls back to `--active-llm`.
+CLI flags override `config.toml` for the matching role:
+- `--planner-llm`
+- `--evaluator-llm`
+- `--reflector-llm`
+- `--executor-llm`
 
 Legacy tool-registration sections are intentionally unsupported. If you previously configured CLI or MCP tools inside HealthFlow, move that setup into the outer executor and keep only the environment defaults above in HealthFlow.
 
@@ -285,7 +310,6 @@ The OneEHR workflow is only surfaced as a recommendation for EHR modeling tasks,
 ```bash
 python run_healthflow.py run \
   "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
-  --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor opencode \
   --report
 ```
@@ -293,11 +317,13 @@ python run_healthflow.py run \
 The same CLI can also run EHR-focused prompts used in the paper and arbitrary external-CLI-driven workflows.
 When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single markdown artifact before exporting it to PDF or other formats.
 
+To override the configured runtime models from the CLI, pass any subset of:
+`--planner-llm`, `--evaluator-llm`, `--reflector-llm`, `--executor-llm`.
+
 ### Interactive Mode
 
 ```bash
 python run_healthflow.py interactive \
-  --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor opencode
 ```
 
@@ -318,7 +344,6 @@ Training data must be JSONL with `qid`, `task`, and `answer`.
 
 ```bash
 python run_training.py data/train_set.jsonl ehrflow_train \
-  --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor opencode
 ```
 
@@ -329,11 +354,10 @@ Dataset construction, benchmark-specific preparation, and benchmark-side evaluat
 
 ```bash
 python run_benchmark.py path/to/tasks.jsonl experiment_name \
-  --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor opencode
 ```
 
-Results are written under `benchmark_results/<dataset>/<executor>/<reasoning_model>/` with per-task copies of the workspace artifacts and dataset-level summary JSON.
+Results are written under `benchmark_results/<dataset>/<executor>/<runtime_selection>/` with per-task copies of the workspace artifacts and dataset-level summary JSON.
 
 For a minimal executor smoke test, use [executor_smoke.jsonl](/home/yhzhu/projects/HealthFlow/data/examples/processed/executor_smoke.jsonl) with any built-in backend.
 
@@ -347,8 +371,8 @@ For a minimal executor smoke test, use [executor_smoke.jsonl](/home/yhzhu/projec
 
 Main config sections:
 
-- `[llm.*]`: reasoning model providers, with either `api_key` or `api_key_env`
-- `[llm_roles]`: optional planner/evaluator/reflector model overrides
+- `[llm.*]`: model registry entries, with either `api_key` or `api_key_env`
+- `[runtime]`: planner/evaluator/reflector/executor model selection
 - `[executor]`: default backend and CLI backend definitions
 - `[environment]`: lightweight runtime defaults such as preferred Python version and `uv` command prefixes
 - `[memory]`: runtime write policy only (`append`, `freeze`, or `reset_before_run`)

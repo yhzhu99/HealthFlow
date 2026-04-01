@@ -8,7 +8,6 @@ from healthflow.core.config import EvaluationConfig, ExecutorConfig, HealthFlowC
 from healthflow.core.config import (
     EnvironmentConfig,
     LLMProviderConfig,
-    LLMRoleConfig,
     LoggingConfig,
     MemoryConfig,
     SystemConfig,
@@ -254,34 +253,36 @@ class _StubDirectResponseRouter:
         return self.responses.get(user_request)
 
 
+def _build_test_config(workspace_dir: Path, *, active_executor_name: str = "claude_code") -> HealthFlowConfig:
+    llm_registry = {
+        "test-llm": LLMProviderConfig(
+            api_key="key",
+            base_url="https://example.com/v1",
+            model_name="test-model",
+        ),
+    }
+    return HealthFlowConfig(
+        planner_llm_name="test-llm",
+        evaluator_llm_name="test-llm",
+        reflector_llm_name="test-llm",
+        executor_llm_name="test-llm",
+        active_executor_name=active_executor_name,
+        llm_registry=llm_registry,
+        system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+        environment=EnvironmentConfig(),
+        executor=ExecutorConfig(active_backend=active_executor_name, backends=default_executor_backends()),
+        memory=MemoryConfig(write_policy="append"),
+        evaluation=EvaluationConfig(success_threshold=0.8),
+        logging=LoggingConfig(),
+    )
+
+
 class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
     async def test_run_task_writes_structured_runtime_artifacts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
-            config = HealthFlowConfig(
-                active_llm_name="test-llm",
-                active_executor_name="claude_code",
-                llm_registry={
-                    "test-llm": LLMProviderConfig(
-                        api_key="key",
-                        base_url="https://example.com/v1",
-                        model_name="test-model",
-                    ),
-                },
-                llm=LLMProviderConfig(
-                    api_key="key",
-                    base_url="https://example.com/v1",
-                    model_name="test-model",
-                ),
-                llm_roles=LLMRoleConfig(),
-                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-                environment=EnvironmentConfig(),
-                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=0.8),
-                logging=LoggingConfig(),
-            )
+            config = _build_test_config(workspace_dir)
             experience_path = workspace_root / "memory" / "experience.jsonl"
             system = HealthFlowSystem(config=config, experience_path=experience_path)
             system.meta_agent = _FakeMetaAgent()
@@ -355,29 +356,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
-            config = HealthFlowConfig(
-                active_llm_name="test-llm",
-                active_executor_name="claude_code",
-                llm_registry={
-                    "test-llm": LLMProviderConfig(
-                        api_key="key",
-                        base_url="https://example.com/v1",
-                        model_name="test-model",
-                    ),
-                },
-                llm=LLMProviderConfig(
-                    api_key="key",
-                    base_url="https://example.com/v1",
-                    model_name="test-model",
-                ),
-                llm_roles=LLMRoleConfig(),
-                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-                environment=EnvironmentConfig(),
-                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=0.8),
-                logging=LoggingConfig(),
-            )
+            config = _build_test_config(workspace_dir)
             system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
             system.meta_agent = _FakeMetaAgent()
             system.evaluator = _LowScoreSuccessEvaluator()
@@ -394,29 +373,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
-            config = HealthFlowConfig(
-                active_llm_name="test-llm",
-                active_executor_name="claude_code",
-                llm_registry={
-                    "test-llm": LLMProviderConfig(
-                        api_key="key",
-                        base_url="https://example.com/v1",
-                        model_name="test-model",
-                    ),
-                },
-                llm=LLMProviderConfig(
-                    api_key="key",
-                    base_url="https://example.com/v1",
-                    model_name="test-model",
-                ),
-                llm_roles=LLMRoleConfig(),
-                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-                environment=EnvironmentConfig(),
-                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=0.8),
-                logging=LoggingConfig(),
-            )
+            config = _build_test_config(workspace_dir)
             system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
             system.meta_agent = _FakeMetaAgent()
             system.evaluator = _FailedEvaluator()
@@ -438,29 +395,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
-            config = HealthFlowConfig(
-                active_llm_name="test-llm",
-                active_executor_name="claude_code",
-                llm_registry={
-                    "test-llm": LLMProviderConfig(
-                        api_key="key",
-                        base_url="https://example.com/v1",
-                        model_name="test-model",
-                    ),
-                },
-                llm=LLMProviderConfig(
-                    api_key="key",
-                    base_url="https://example.com/v1",
-                    model_name="test-model",
-                ),
-                llm_roles=LLMRoleConfig(),
-                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-                environment=EnvironmentConfig(),
-                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=0.8),
-                logging=LoggingConfig(),
-            )
+            config = _build_test_config(workspace_dir)
             experience_path = workspace_root / "memory" / "experience.jsonl"
             system = HealthFlowSystem(config=config, experience_path=experience_path)
             system.meta_agent = _FakeMetaAgent()
@@ -482,29 +417,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
-            config = HealthFlowConfig(
-                active_llm_name="test-llm",
-                active_executor_name="claude_code",
-                llm_registry={
-                    "test-llm": LLMProviderConfig(
-                        api_key="key",
-                        base_url="https://example.com/v1",
-                        model_name="test-model",
-                    ),
-                },
-                llm=LLMProviderConfig(
-                    api_key="key",
-                    base_url="https://example.com/v1",
-                    model_name="test-model",
-                ),
-                llm_roles=LLMRoleConfig(),
-                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-                environment=EnvironmentConfig(),
-                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=0.8),
-                logging=LoggingConfig(),
-            )
+            config = _build_test_config(workspace_dir)
             system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
             system.meta_agent = _FakeMetaAgent()
             system.evaluator = _GeneratedAnswerCompletenessEvaluator()
@@ -522,29 +435,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
-            config = HealthFlowConfig(
-                active_llm_name="test-llm",
-                active_executor_name="claude_code",
-                llm_registry={
-                    "test-llm": LLMProviderConfig(
-                        api_key="key",
-                        base_url="https://example.com/v1",
-                        model_name="test-model",
-                    ),
-                },
-                llm=LLMProviderConfig(
-                    api_key="key",
-                    base_url="https://example.com/v1",
-                    model_name="test-model",
-                ),
-                llm_roles=LLMRoleConfig(),
-                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-                environment=EnvironmentConfig(),
-                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=0.8),
-                logging=LoggingConfig(),
-            )
+            config = _build_test_config(workspace_dir)
             experience_path = workspace_root / "memory" / "experience.jsonl"
             system = HealthFlowSystem(config=config, experience_path=experience_path)
             system.meta_agent = _UnexpectedCallMetaAgent()
@@ -579,29 +470,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
-            config = HealthFlowConfig(
-                active_llm_name="test-llm",
-                active_executor_name="claude_code",
-                llm_registry={
-                    "test-llm": LLMProviderConfig(
-                        api_key="key",
-                        base_url="https://example.com/v1",
-                        model_name="test-model",
-                    ),
-                },
-                llm=LLMProviderConfig(
-                    api_key="key",
-                    base_url="https://example.com/v1",
-                    model_name="test-model",
-                ),
-                llm_roles=LLMRoleConfig(),
-                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-                environment=EnvironmentConfig(),
-                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                memory=MemoryConfig(write_policy="append"),
-                evaluation=EvaluationConfig(success_threshold=0.8),
-                logging=LoggingConfig(),
-            )
+            config = _build_test_config(workspace_dir)
             experience_path = workspace_root / "memory" / "experience.jsonl"
             system = HealthFlowSystem(config=config, experience_path=experience_path)
             system.meta_agent = _UnexpectedCallMetaAgent()
@@ -632,29 +501,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
 class SystemAnswerExtractionTests(unittest.TestCase):
     def _build_system(self, workspace_root: Path, workspace_dir: Path) -> HealthFlowSystem:
-        config = HealthFlowConfig(
-            active_llm_name="test-llm",
-            active_executor_name="claude_code",
-            llm_registry={
-                "test-llm": LLMProviderConfig(
-                    api_key="key",
-                    base_url="https://example.com/v1",
-                    model_name="test-model",
-                ),
-            },
-            llm=LLMProviderConfig(
-                api_key="key",
-                base_url="https://example.com/v1",
-                model_name="test-model",
-            ),
-            llm_roles=LLMRoleConfig(),
-            system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
-            environment=EnvironmentConfig(),
-            executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-            memory=MemoryConfig(write_policy="append"),
-            evaluation=EvaluationConfig(success_threshold=0.8),
-            logging=LoggingConfig(),
-        )
+        config = _build_test_config(workspace_dir)
         return HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
 
     def test_extract_answer_prefers_substantive_reply_over_process_narration(self):

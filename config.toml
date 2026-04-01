@@ -12,7 +12,11 @@ output_cost_per_million_tokens = 1.22
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-chat"
-executor_model_name = "deepseek/deepseek-chat"
+executor_model_name = "deepseek-chat"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 input_cost_per_million_tokens = 0.28
 output_cost_per_million_tokens = 0.43
 
@@ -20,7 +24,11 @@ output_cost_per_million_tokens = 0.43
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-reasoner"
-executor_model_name = "deepseek/deepseek-reasoner"
+executor_model_name = "deepseek-reasoner"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 
 [llm."z-ai/glm-5"]
 api_key_env = "ZENMUX_API_KEY"
@@ -50,10 +58,11 @@ model_name = "google/gemini-3-flash-preview"
 input_cost_per_million_tokens = 0.50
 output_cost_per_million_tokens = 3.00
 
-[llm_roles]
-planner = "deepseek/deepseek-v3.2"
-evaluator = "openai/gpt-5.4"
-reflector = "google/gemini-3-flash-preview"
+[runtime]
+planner_llm = "deepseek/deepseek-v3.2"
+evaluator_llm = "openai/gpt-5.4"
+reflector_llm = "google/gemini-3-flash-preview"
+executor_llm = "deepseek/deepseek-v3.2"
 
 # --- Executor Configuration ---
 [executor]
@@ -62,8 +71,12 @@ active_backend = "opencode"
 [executor.backends.claude_code]
 binary = "claude"
 args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "high"]
-env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KEY = "${ZENMUX_API_KEY}", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
+env = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
 model_flag = "--model"
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/anthropic"
+provider_api = "anthropic-messages"
+provider_api_key_env = "ZENMUX_API_KEY"
 prompt_mode = "append"
 timeout_seconds = 1800
 
@@ -73,7 +86,7 @@ args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypa
 arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"high\"", "-c", "model_reasoning_summary=\"detailed\""]
 model = "openai/gpt-5.4"
 model_flag = "-m"
-inherit_active_llm = false
+inherit_executor_llm = false
 provider = "zenmux"
 provider_base_url = "https://zenmux.ai/api/v1"
 provider_api_key_env = "ZENMUX_API_KEY"
