@@ -295,7 +295,7 @@ start_run() {
 
   printf '%s\n' "$run_id" >"$LATEST_RUN_FILE"
 
-  nohup "$SELF_PATH" __worker "$start_id" "$end_id" "$run_dir" "$run_id" >/dev/null 2>&1 &
+  nohup env bash "$SELF_PATH" __worker "$start_id" "$end_id" "$run_dir" "$run_id" </dev/null >/dev/null 2>&1 &
   local pid=$!
   printf '%s\n' "$pid" >"$run_dir/pid"
 
