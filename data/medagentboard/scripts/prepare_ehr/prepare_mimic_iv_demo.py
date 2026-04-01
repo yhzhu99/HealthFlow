@@ -27,7 +27,7 @@ PROCESSED_ROOT = BENCHMARK_ROOT / "processed" / "mimic_iv_demo"
 EXTRACTED_ROOT = PROCESSED_ROOT / "_extracted"
 OUTPUT_PATH = PROCESSED_ROOT / "mimic_iv_demo_formatted_ehr.parquet"
 SPLIT_METADATA_PATH = PROCESSED_ROOT / "split_metadata.json"
-METADATA_BUNDLE_PATH = BENCHMARK_ROOT / "metadata" / "mimic_iv_demo_ehr_metadata.json"
+METADATA_BUNDLE_PATH = BENCHMARK_ROOT / "scripts" / "prepare_ehr" / "mimic_iv_demo_ehr_metadata.json"
 MAX_WINDOW = 7
 SEED = 42
 
