@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from healthflow.system import HealthFlowSystem
 from healthflow.core.config import get_config, setup_logging
-from healthflow.interactive_cli import InteractiveShell
 
 app = typer.Typer(
     name="healthflow",
@@ -141,6 +140,25 @@ async def run_single_task_flow(
     return result
 
 
+async def main_interactive_loop(system: HealthFlowSystem, *, verbose: bool = False):
+    """Runs the basic interactive loop used for non-TTY or fallback sessions."""
+    console.print(Panel("[bold green]HealthFlow Interactive Mode[/bold green]", subtitle="Type 'exit' or 'quit' to end the session.", border_style="green"))
+    while True:
+        try:
+            task_input = console.input("\n[bold magenta]HealthFlow > [/bold magenta]").strip()
+            if not task_input:
+                continue
+            if task_input.lower() in ["exit", "quit"]:
+                console.print("[yellow]Exiting interactive mode.[/yellow]")
+                break
+            await run_single_task_flow(system, task_input, verbose=verbose, chat_mode=True)
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Exiting interactive mode.[/yellow]")
+            break
+        except typer.Exit:
+            console.print("[yellow]Task failed. Ready for next command.[/yellow]")
+
+
 def _initialize_system(
     config_path: Path,
     experience_path: Path,
@@ -218,6 +236,18 @@ def interactive(
     """
     Starts HealthFlow in an interactive, chat-like mode for multiple tasks.
     """
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        system = _initialize_system(config_path, experience_path, active_llm, active_executor, verbose=verbose)
+        asyncio.run(main_interactive_loop(system, verbose=verbose))
+        return
+
+    try:
+        from healthflow.interactive_cli import InteractiveShell
+    except ModuleNotFoundError:
+        system = _initialize_system(config_path, experience_path, active_llm, active_executor, verbose=verbose)
+        asyncio.run(main_interactive_loop(system, verbose=verbose))
+        return
+
     system_factory = _build_system_factory(
         config_path,
         experience_path,
