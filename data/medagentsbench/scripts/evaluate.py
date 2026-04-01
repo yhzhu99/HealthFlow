@@ -20,4 +20,4 @@ from data.tools.first_class_mc_eval import run_cli
 
 
 if __name__ == "__main__":
-    run_cli(default_benchmark_file=str(PROJECT_ROOT / "data" / "medagentsbench" / "processed" / "eval.jsonl"))
+    run_cli(default_benchmark_file=str(PROJECT_ROOT / "data" / "medagentsbench" / "processed" / "test.jsonl"))
