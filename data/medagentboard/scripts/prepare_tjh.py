@@ -93,7 +93,7 @@ LABTEST_FEATURES = [
     "basophil count(#)",
     "mean corpuscular hemoglobin ",
     "Activation of partial thromboplastin time",
-    "High sensitivity C-reactive protein",
+    "Hypersensitive c-reactive protein",
     "HIV antibody quantification",
     "serum sodium",
     "thrombocytocrit",
