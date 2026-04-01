@@ -24,6 +24,7 @@ class PromptRenderingTests(unittest.TestCase):
         )
 
         self.assertIn('"status": "<success|needs_retry|failed>"', rendered)
+        self.assertIn('"violated_constraints": ["<constraint or contract that was violated>"]', rendered)
         self.assertIn('"details": {', rendered)
         self.assertIn('STDOUT: {"step": "done"}', rendered)
 
@@ -33,6 +34,7 @@ class PromptRenderingTests(unittest.TestCase):
         rendered = render_prompt("reflector_user", task_history=task_history)
 
         self.assertIn('"experiences": [', rendered)
+        self.assertIn('"memory_updates": [', rendered)
         self.assertIn('\\"ok\\": true', rendered)
 
 

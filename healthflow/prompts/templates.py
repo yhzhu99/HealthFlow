@@ -110,6 +110,8 @@ Output format:
   "failure_type": "<none or structured failure category>",
   "feedback": "<specific next-step feedback>",
   "repair_instructions": ["<repair step>"],
+  "violated_constraints": ["<constraint or contract that was violated>"],
+  "repair_hypotheses": ["<strategic repair hypothesis>"],
   "retry_recommended": <true|false>,
   "memory_worthy_insights": ["<reusable insight>"],
   "reasoning": "<short justification>"
@@ -129,12 +131,15 @@ $task_history
 Instructions:
 - Every run must yield reusable learning.
 - Use only the following kinds: `safeguard`, `workflow`, `dataset`, `execution`.
+- Compare the full attempt trajectory, not just the final attempt.
+- Prefer memories that capture a strategic delta: what changed, why it changed, and when it should be reused.
 - Failed runs and near-miss recoveries should produce `safeguard` memory only when they surface EHR hazards such as cohort boundary, split policy, temporal ordering, label leakage, or identifier handling.
 - Successful reusable procedures should produce `workflow` memory.
 - Stable schema or dataset observations should produce `dataset` memory.
 - Reusable task-completion artifacts or habits should produce `execution` memory.
 - Be specific and immediately useful for future analysis tasks.
 - Keep memories generalizable beyond the exact task.
+- Use `memory_updates` to validate, penalize, or retire retrieved memories from this run when the trajectory provides strong evidence.
 
 Output format:
 {
@@ -148,7 +153,15 @@ Output format:
       "risk_tags": ["<risk tag>"],
       "schema_tags": ["<schema tag>"],
       "tags": ["<tag1>", "<tag2>"],
-      "conflict_slot": "<string or null>"
+      "conflict_slot": "<string or null>",
+      "supersedes": ["<experience_id>"]
+    }
+  ],
+  "memory_updates": [
+    {
+      "experience_id": "<experience_id>",
+      "action": "<'validate'|'penalize'|'retire'>",
+      "reason": "<short justification>"
     }
   ]
 }

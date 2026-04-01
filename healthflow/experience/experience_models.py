@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from enum import Enum
+from uuid import uuid4
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -21,6 +22,10 @@ class SourceOutcome(str, Enum):
 class Experience(BaseModel):
     """A reusable memory item synthesized from prior task trajectories."""
 
+    experience_id: str = Field(
+        default_factory=lambda: uuid4().hex,
+        description="Stable identifier for this strategic memory item.",
+    )
     kind: MemoryKind = Field(default=MemoryKind.WORKFLOW, description="EHR-adaptive memory class.")
     category: str = Field(..., description="Short category for routing and audit.")
     content: str = Field(..., description="Reusable memory content.")
@@ -39,10 +44,45 @@ class Experience(BaseModel):
     risk_tags: List[str] = Field(default_factory=list, description="EHR risk-state tags associated with the memory.")
     schema_tags: List[str] = Field(default_factory=list, description="Schema/profile tags associated with the memory.")
     tags: List[str] = Field(default_factory=list, description="Additional retrieval tags.")
+    supersedes: List[str] = Field(
+        default_factory=list,
+        description="Prior experience identifiers superseded by this memory item.",
+    )
     provenance: dict = Field(default_factory=dict, description="Free-form provenance metadata.")
+    times_retrieved: int = Field(
+        default=0,
+        ge=0,
+        description="How many times this memory was selected into the planning context.",
+    )
+    times_helped: int = Field(
+        default=0,
+        ge=0,
+        description="How many completed trajectories validated this memory as helpful.",
+    )
+    times_hurt: int = Field(
+        default=0,
+        ge=0,
+        description="How many completed trajectories marked this memory as misleading or harmful.",
+    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Timestamp when the memory item was created.",
+    )
+    last_validated_at: datetime | None = Field(
+        default=None,
+        description="Timestamp when this memory was most recently validated or penalized.",
+    )
+    retired: bool = Field(
+        default=False,
+        description="Whether this memory has been retired from future retrieval.",
+    )
+    retired_reason: str | None = Field(
+        default=None,
+        description="Optional explanation for why the memory was retired.",
+    )
+    retired_at: datetime | None = Field(
+        default=None,
+        description="Timestamp when the memory was retired.",
     )
 
 
@@ -57,11 +97,13 @@ class MemoryScoreBreakdown(BaseModel):
     kind_bonus: int = 0
     source_bonus: int = 0
     confidence_bonus: float = 0.0
+    utility_bonus: float = 0.0
     recency_bonus: int = 0
     total_score: float = 0.0
 
 
 class MemoryAuditEntry(BaseModel):
+    experience_id: str
     source_task_id: str
     kind: MemoryKind
     source_outcome: SourceOutcome
@@ -106,3 +148,39 @@ class MemoryRetrievalResult(BaseModel):
     execution_experiences: List[Experience] = Field(default_factory=list)
     selected_experiences: List[Experience] = Field(default_factory=list)
     audit: MemoryRetrievalAudit
+
+
+class MemoryUpdateAction(str, Enum):
+    VALIDATE = "validate"
+    PENALIZE = "penalize"
+    RETIRE = "retire"
+
+
+class MemoryUpdate(BaseModel):
+    experience_id: str = Field(..., description="Identifier of the memory to update.")
+    action: MemoryUpdateAction = Field(..., description="Lifecycle update to apply.")
+    reason: str = Field(..., description="Concise justification grounded in the trajectory.")
+
+
+class SynthesizedExperience(BaseModel):
+    kind: MemoryKind = Field(default=MemoryKind.WORKFLOW, description="Memory class for the synthesized experience.")
+    category: str = Field(..., description="Short category for routing and audit.")
+    content: str = Field(..., description="Reusable memory content.")
+    confidence: float = Field(default=0.6, ge=0.0, le=1.0, description="Confidence score assigned during synthesis.")
+    conflict_slot: Optional[str] = Field(default=None, description="Domain-specific conflict slot identifier.")
+    applicability_scope: str = Field(
+        default="task_family",
+        description="Where the memory applies, e.g. dataset_exact, task_family, workflow_generic, domain_ehr.",
+    )
+    risk_tags: List[str] = Field(default_factory=list, description="EHR risk-state tags associated with the memory.")
+    schema_tags: List[str] = Field(default_factory=list, description="Schema/profile tags associated with the memory.")
+    tags: List[str] = Field(default_factory=list, description="Additional retrieval tags.")
+    supersedes: List[str] = Field(
+        default_factory=list,
+        description="Identifiers of prior memories that should be retired when this memory is stored.",
+    )
+
+
+class ReflectionSynthesisResult(BaseModel):
+    experiences: List[SynthesizedExperience] = Field(default_factory=list)
+    memory_updates: List[MemoryUpdate] = Field(default_factory=list)

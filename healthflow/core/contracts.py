@@ -85,6 +85,14 @@ class EvaluationVerdict(BaseModel):
         default_factory=list,
         description="Concrete steps for the planner/executor to address next.",
     )
+    violated_constraints: list[str] = Field(
+        default_factory=list,
+        description="Structured constraints, assumptions, or contracts that the attempt violated.",
+    )
+    repair_hypotheses: list[str] = Field(
+        default_factory=list,
+        description="Candidate hypotheses about what strategic change is most likely to improve the next attempt.",
+    )
     retry_recommended: bool = Field(
         default=False,
         description="Whether another attempt is likely to help.",
