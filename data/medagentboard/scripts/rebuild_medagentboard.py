@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import random
 import re
 import shutil
+from ast import literal_eval
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +41,15 @@ from sklearn.preprocessing import StandardScaler
 
 
 SEED = 42
+CONTRACT_VERSION = "medagentboard_llm_v2"
+JUDGE_PROMPT_TYPE = {
+    "data_extraction": "data_extraction",
+    "predictive_modeling": "predictive_modeling",
+    "visualization": "visualization",
+}
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+SCORE_SCALE_MAX = 10.0
+PASS_THRESHOLD = 7.0
 
 TASK_TYPE_DATA_EXTRACTION = "data_extraction"
 TASK_TYPE_PREDICTIVE_MODELING = "predictive_modeling"
@@ -108,6 +119,8 @@ class TaskSpec:
     builder_kind: str | None = None
     builder_config: dict[str, Any] = field(default_factory=dict)
     protocol_notes: list[str] = field(default_factory=list)
+    required_outputs: list[str] = field(default_factory=list)
+    judge_prompt_type: str | None = None
     qid: int | None = None
     split: str | None = None
 
@@ -166,8 +179,7 @@ REFRESHED_TASK_OVERRIDES: dict[int, dict[str, Any]] = {
             "`Hypersensitive c-reactive protein`, `White blood cell count`, `hemoglobin`, and "
             "`Platelet count` into mean, last, and record-count features, together with `Age` and "
             "`Sex`. Train a logistic regression model on `train + val`, evaluate on `test` with "
-            "AUROC, AUPRC, accuracy, and F1, save the metrics to `evaluation_metrics.csv`, and "
-            "visualize the AUROC trajectory in `performance_trajectory.png`."
+            "AUROC, AUPRC, accuracy, and F1, and visualize the AUROC trajectory."
         ),
         "protocol_notes": [
             "Fixed time points are 1, 3, 5, 7, 10, and 14 days after admission.",
@@ -179,9 +191,8 @@ REFRESHED_TASK_OVERRIDES: dict[int, dict[str, Any]] = {
         "builder_kind": "refresh_q54",
         "task_brief": (
             "Visualize the `Heart Rate` trajectory for the specific `RecordID` "
-            "`10002428_23473524`. Filter the dataset to that record, save the ordered time series "
-            "to `plot_summary.csv`, and plot `Heart Rate` against `RecordTime` in "
-            "`heart_rate_trend.png`."
+            "`10002428_23473524`. Filter the dataset to that record and plot `Heart Rate` "
+            "against `RecordTime`."
         ),
         "protocol_notes": [
             "The entity is fixed to RecordID 10002428_23473524.",
@@ -196,8 +207,7 @@ REFRESHED_TASK_OVERRIDES: dict[int, dict[str, Any]] = {
             "`Respiratory rate`, `Oxygen saturation`, `Temperature`, `Glucose`, and `pH` within "
             "the first `6h`, `12h`, `24h`, `48h`, and `full_stay` windows after the admission "
             "start, together with `Age` and `Sex`. Train logistic regression on `train + val`, "
-            "evaluate on `test`, save per-window metrics to `window_metrics.csv`, and visualize "
-            "AUROC by window in `performance_by_window.png`."
+            "evaluate on `test`, and visualize AUROC by window."
         ),
         "protocol_notes": [
             "Evaluation windows are fixed to 6h, 12h, 24h, 48h, and full_stay.",
@@ -211,10 +221,8 @@ REFRESHED_TASK_OVERRIDES: dict[int, dict[str, Any]] = {
             "Cluster admissions using `KMeans(n_clusters=3, random_state=42)` on first-24-hour "
             "clinical state summaries. For each `AdmissionID`, aggregate `Heart Rate`, `Mean blood "
             "pressure`, `Respiratory rate`, `Oxygen saturation`, `Temperature`, `Glucose`, and "
-            "`pH` within the first 24 hours, combine them with `Age` and `Sex`, save cluster "
-            "assignments to `clustered_admissions.csv`, save cluster metrics to "
-            "`clustering_metrics.json`, and visualize `LOS` by cluster in "
-            "`los_distribution_by_cluster.png`."
+            "`pH` within the first 24 hours, combine them with `Age` and `Sex`, and visualize "
+            "`LOS` by cluster."
         ),
         "protocol_notes": [
             "The clustering algorithm is fixed to KMeans with n_clusters=3 and random_state=42.",
@@ -229,9 +237,7 @@ REFRESHED_TASK_OVERRIDES: dict[int, dict[str, Any]] = {
             "of `Heart Rate`, `Mean blood pressure`, `Respiratory rate`, `Oxygen saturation`, "
             "`Glucose`, and `Temperature`. Define the target as the non-null `Glascow coma scale "
             "total` measurement closest to 24 hours after admission, breaking ties by choosing the "
-            "later record. Train a random forest regressor on `train + val`, evaluate on `test`, "
-            "save metrics to `evaluation_metrics.json`, predictions to `predictions.csv`, and the "
-            "feature/target protocol to `feature_definition.txt`."
+            "later record. Train a random forest regressor on `train + val` and evaluate on `test`."
         ),
         "protocol_notes": [
             "Input window is fixed to the first 6 hours after admission.",
@@ -339,7 +345,20 @@ def maybe_python_scalar(value: Any) -> Any:
     return value
 
 
-def format_task_text(dataset_name: str, data_path: str, task_brief: str) -> str:
+def format_task_text(
+    dataset_name: str,
+    data_path: str,
+    task_brief: str,
+    required_outputs: list[str],
+    task_type: str,
+) -> str:
+    if task_type == TASK_TYPE_VISUALIZATION:
+        output_header = "Required Final Image Files"
+        output_intro = "Save only the following final image files with exactly these names:"
+    else:
+        output_header = "Required Output Files"
+        output_intro = "Save the following final output files with exactly these names:"
+    output_lines = "\n".join(f"- `{file_name}`" for file_name in required_outputs)
     return (
         "As an expert AI agent, your goal is to accurately perform the requested task.\n"
         "Please use the dataset information below to understand the format and structure of the "
@@ -349,8 +368,100 @@ def format_task_text(dataset_name: str, data_path: str, task_brief: str) -> str:
         f"Data Path: `{data_path}`\n\n"
         "--- Specific Task to Perform ---\n"
         "Please **read the file from the Data Path** and complete the following task:\n"
-        f"\"{task_brief}\""
+        f"\"{task_brief}\"\n\n"
+        f"--- {output_header} ---\n"
+        f"{output_intro}\n"
+        f"{output_lines}\n"
     )
+
+
+def is_image_filename(file_name: str) -> bool:
+    return Path(file_name).suffix.lower() in IMAGE_SUFFIXES
+
+
+def guess_media_type(file_name: str) -> str:
+    suffix = Path(file_name).suffix.lower()
+    if suffix == ".csv":
+        return "csv"
+    if suffix == ".json":
+        return "json"
+    if suffix == ".txt":
+        return "text"
+    if suffix == ".parquet":
+        return "parquet"
+    if is_image_filename(file_name):
+        return "image"
+    return "binary"
+
+
+def build_visualization_output_names(builder_kind: str | None, builder_config: dict[str, Any]) -> list[str]:
+    if builder_kind == "generated_visualization_data_direct":
+        return {
+            0: ["trend_plot.png"],
+            1: ["boxplot.png"],
+            2: ["age_los_scatter.png"],
+            3: ["histogram.png"],
+            4: ["correlation_heatmap.png"],
+        }[builder_config["pattern"]]
+    if builder_kind == "generated_visualization_model_analysis":
+        if builder_config["task_kind"] == "classification":
+            return {
+                0: ["roc_curve.png", "feature_importance.png"],
+                1: ["pr_curve.png", "calibration.png"],
+                2: ["confusion_matrix.png", "score_distribution.png"],
+                3: ["model_comparison.png"],
+            }[builder_config["pattern"]]
+        return {
+            0: ["predicted_vs_actual.png", "residuals.png"],
+            1: ["predicted_vs_actual.png", "residuals.png"],
+            2: ["regression_comparison.png"],
+            3: ["feature_importance.png", "residual_trend.png"],
+        }[builder_config["pattern"]]
+    if builder_kind == "refresh_q21":
+        return ["performance_trajectory.png"]
+    if builder_kind == "refresh_q54":
+        return ["heart_rate_trend.png"]
+    if builder_kind == "refresh_q68":
+        return ["performance_by_window.png"]
+    if builder_kind == "refresh_q71":
+        return ["los_distribution_by_cluster.png"]
+    raise ValueError(f"cannot resolve visualization outputs for builder {builder_kind!r}")
+
+
+def load_source_visualization_outputs(source_dir: Path) -> list[str]:
+    manifest_path = source_dir / "answer_manifest.json"
+    ordered: list[str] = []
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for path_text in manifest.get("primary_outputs", []):
+            file_name = Path(path_text).name
+            if is_image_filename(file_name) and (source_dir / file_name).exists() and file_name not in ordered:
+                ordered.append(file_name)
+    if ordered:
+        return ordered
+    return sorted(path.name for path in source_dir.iterdir() if path.is_file() and is_image_filename(path.name))
+
+
+def required_outputs_for_task(
+    *,
+    task_type: str,
+    builder_kind: str | None,
+    builder_config: dict[str, Any],
+    source_reference_root: Path | None = None,
+    source_qid: int | None = None,
+) -> list[str]:
+    if task_type == TASK_TYPE_DATA_EXTRACTION:
+        return ["result.csv"]
+    if task_type == TASK_TYPE_PREDICTIVE_MODELING:
+        return ["metrics.json", "predictions.csv", "answer.json"]
+    if builder_kind is not None:
+        return build_visualization_output_names(builder_kind, builder_config)
+    if source_reference_root is None or source_qid is None:
+        raise ValueError("source reference root is required to infer legacy visualization outputs")
+    output_names = load_source_visualization_outputs(source_reference_root / str(source_qid))
+    if not output_names:
+        raise ValueError(f"source visualization task {source_qid} does not expose image outputs")
+    return output_names
 
 
 def compute_feature_stats(frame: pd.DataFrame, feature_columns: list[str]) -> dict[str, FeatureStats]:
@@ -447,14 +558,30 @@ def select_distinct_features(
         pool.extend(feature for feature in resources.auxiliary_features if feature not in pool)
     if not pool:
         raise ValueError(f"no feature columns available for {resources.config.display_name}")
+    unique_pool = list(dict.fromkeys(pool))
+    if len(unique_pool) < count:
+        raise ValueError(
+            f"{resources.config.display_name} requires {count} distinct features but only "
+            f"{len(unique_pool)} are available"
+        )
 
     selected: list[str] = []
-    cursor = index * 3 + 1
-    while len(selected) < count:
-        feature = pool[cursor % len(pool)]
+    cursor = (index * 3 + 1) % len(unique_pool)
+    step = (index + 2) % len(unique_pool) or 1
+    visited: list[int] = []
+    seen_positions: set[int] = set()
+    while cursor not in seen_positions:
+        visited.append(cursor)
+        seen_positions.add(cursor)
+        cursor = (cursor + step) % len(unique_pool)
+    visited.extend(position for position in range(len(unique_pool)) if position not in seen_positions)
+
+    for position in visited:
+        feature = unique_pool[position]
         if feature not in selected:
             selected.append(feature)
-        cursor += index + 2
+        if len(selected) == count:
+            break
     return selected
 
 
@@ -489,8 +616,7 @@ def build_data_wrangling_spec(resources: DatasetResources, index: int) -> tuple[
         f"`{resources.config.entity_key}`. For each {resources.config.unit_label}, keep the first "
         f"non-null `{first_feature}`, the last non-null `{last_feature}`, and the mean "
         f"`{mean_feature}` across all available records. Also carry the final available `Outcome` "
-        f"and `LOS` into the same table, save it as `entity_features.csv`, and report the row "
-        f"count and column count in `answer.json`."
+        f"and `LOS` into the same table."
     )
     return task_brief, {
         "kind": "generated_data_wrangling",
@@ -507,8 +633,7 @@ def build_data_querying_spec(resources: DatasetResources, index: int) -> tuple[s
     task_brief = (
         f"List the unique `{resources.config.entity_key}` values for {resources.config.unit_label_plural} "
         f"where `{feature}` is greater than {threshold} in at least one record and `{target}` equals "
-        "1. Exclude rows with missing values for the feature. Save the sorted identifiers to "
-        "`cohort.csv` and the final count to `answer.json`."
+        "1. Exclude rows with missing values for the feature."
     )
     return task_brief, {
         "kind": "generated_data_querying",
@@ -524,8 +649,7 @@ def build_data_statistics_spec(resources: DatasetResources, index: int) -> tuple
     task_brief = (
         f"At the `{resources.config.entity_key}` level, compute the mean `{mean_feature}` and "
         f"maximum `{max_feature}` for each {resources.config.unit_label}. Then summarize both "
-        f"derived features by `{group_target}` using count, mean, standard deviation, and median. "
-        "Save the summary table to `summary.csv` and the main numeric findings to `answer.json`."
+        f"derived features by `{group_target}` using count, mean, standard deviation, and median."
     )
     return task_brief, {
         "kind": "generated_data_statistics",
@@ -546,9 +670,7 @@ def build_data_preprocessing_spec(resources: DatasetResources, index: int) -> tu
         f"Build a model-ready {resources.config.unit_label}-level feature table keyed by "
         f"`{resources.config.entity_key}`. For each {resources.config.unit_label}, compute the mean "
         f"`{mean_feature}`, max `{max_feature}`, min `{min_feature}`, and a per-row missing-value "
-        "count across these three features. Keep `Outcome` and `LOS` in the output, save the "
-        "table to `patient_features.csv`, and report the missing-value rate for each derived "
-        "feature in `answer.json`."
+        "count across these three features. Keep `Outcome` and `LOS` in the output."
     )
     return task_brief, {
         "kind": "generated_data_preprocessing",
@@ -580,41 +702,33 @@ def build_modeling_spec(resources: DatasetResources, index: int) -> tuple[str, d
             f"Build a deterministic {task_kind} pipeline to predict `{target}` at the "
             f"{resources.config.unit_label}-level. Use the mean, max, and last available values "
             f"of `{feature_one}`, `{feature_two}`, and `{feature_three}` together with `Age` and "
-            f"`Sex` when available. Save `metrics.json` with {metrics_text}, save "
-            f"`predictions.csv` with {prediction_note}, and summarize the feature set in "
-            "`answer.json`."
+            f"`Sex` when available."
         )
     elif pattern == 1:
         task_brief = (
             f"Build a deterministic {task_kind} model to predict `{target}` using first-record "
             f"values, last-record values, and first-to-last deltas for `{feature_one}`, "
-            f"`{feature_two}`, and `{feature_three}` for each `{resources.config.entity_key}`. Save "
-            "`metrics.json`, `predictions.csv`, and a short model summary in `answer.json`."
+            f"`{feature_two}`, and `{feature_three}` for each `{resources.config.entity_key}`."
         )
     elif pattern == 2:
         task_brief = (
             f"Train two reproducible {task_kind} baselines, logistic/linear regression and random "
             f"forest, to predict `{target}` using aggregated `{feature_one}`, `{feature_two}`, "
-            f"`{feature_three}`, `Age`, and `Sex`. Compare the two models in `metrics.json`, save "
-            "the best model predictions to `predictions.csv`, and write the winning model name to "
-            "`answer.json`."
+            f"`{feature_three}`, `Age`, and `Sex`. Compare the two models."
         )
     elif pattern == 3:
         task_brief = (
             f"Construct a missingness-aware {task_kind} model for `{target}`. Use the mean values "
             f"of `{feature_one}`, `{feature_two}`, and `{feature_three}` plus binary indicators "
             f"showing whether each feature is ever missing for a given "
-            f"`{resources.config.entity_key}`. Save evaluation results to `metrics.json`, save "
-            "predictions to `predictions.csv`, and report the strongest missingness signal in "
-            "`answer.json`."
+            f"`{resources.config.entity_key}`."
         )
     else:
         task_brief = (
             f"Build a deterministic {task_kind} model for `{target}` that uses three feature "
             f"blocks for each `{resources.config.entity_key}`: the earliest available values of "
             f"`{feature_one}` and `{feature_two}`, the latest available value of `{feature_three}`, "
-            f"and the total record count per {resources.config.unit_label}. Save `metrics.json`, "
-            "`predictions.csv`, and the final feature list in `answer.json`."
+            f"and the total record count per {resources.config.unit_label}."
         )
 
     return task_brief, {
@@ -641,39 +755,28 @@ def build_visualization_spec(resources: DatasetResources, index: int) -> tuple[s
         if pattern == 0:
             task_brief = (
                 f"Create a line plot showing the average temporal trend of `{feature_one}` over "
-                f"`RecordTime`, grouped by `{group_target}`. Save the aggregated plotting table to "
-                "`plot_summary.csv`, save the figure to `trend_plot.png`, and summarize the "
-                "largest between-group difference in `answer.json`."
+                f"`RecordTime`, grouped by `{group_target}`."
             )
         elif pattern == 1:
             task_brief = (
                 f"Create box plots comparing the distribution of `{feature_one}` across "
-                f"`{group_target}` groups. Save the summary table used for plotting to "
-                "`plot_summary.csv`, save the figure to `boxplot.png`, and report the group "
-                "medians in `answer.json`."
+                f"`{group_target}` groups."
             )
         elif pattern == 2:
             task_brief = (
                 f"Create a scatter plot of `Age` versus `LOS`, with points colored by "
-                f"`{group_target}` and point sizes scaled by `{feature_one}`. Save the plotting "
-                "table to `plot_summary.csv`, save the figure to `age_los_scatter.png`, and "
-                f"report the per-group sample counts together with the median `{feature_one}` in "
-                "`answer.json`."
+                f"`{group_target}` and point sizes scaled by `{feature_one}`."
             )
         elif pattern == 3:
             task_brief = (
                 f"Create side-by-side histograms of `{feature_one}` for each `{group_target}` "
-                "group. Save the underlying plotting table to `plot_summary.csv`, save the figure "
-                "to `histogram.png`, and report which group shows the higher mean value in "
-                "`answer.json`."
+                "group."
             )
         else:
             task_brief = (
                 f"Create a correlation heatmap for `{feature_one}`, `{feature_two}`, `Age`, and "
                 "`LOS` after aggregating the data to one row per "
-                f"`{resources.config.entity_key}`. Save the aggregated table to "
-                "`plot_summary.csv`, save the figure to `correlation_heatmap.png`, and report the "
-                "strongest absolute correlation in `answer.json`."
+                f"`{resources.config.entity_key}`."
             )
         return task_brief, {
             "kind": "generated_visualization_data_direct",
@@ -697,58 +800,44 @@ def build_visualization_spec(resources: DatasetResources, index: int) -> tuple[s
             task_brief = (
                 f"Train a reproducible classifier for `{target}` using aggregated `{feature_one}`, "
                 f"`{feature_two}`, `{feature_three}`, `Age`, and `Sex`. Visualize the ROC curve "
-                "and the top 10 feature importances. Save the plotting data to `plot_summary.csv`, "
-                "save the figures to `roc_curve.png` and `feature_importance.png`, and write the "
-                "AUROC to `answer.json`."
+                "and the top 10 feature importances."
             )
         elif pattern == 1:
             task_brief = (
                 f"Train a reproducible classifier for `{target}` and create a precision-recall "
                 f"curve plus a calibration plot using aggregated `{feature_one}`, `{feature_two}`, "
-                f"and `{feature_three}`. Save the plotting data to `plot_summary.csv`, save the "
-                "figures to `pr_curve.png` and `calibration.png`, and report the average predicted "
-                "probability by outcome group in `answer.json`."
+                f"and `{feature_three}`."
             )
         elif pattern == 2:
             task_brief = (
                 f"Train a reproducible classifier for `{target}` and visualize a confusion matrix "
                 f"together with the distribution of prediction scores using aggregated "
-                f"`{feature_one}`, `{feature_two}`, and `{feature_three}`. Save the plotting data "
-                "to `plot_summary.csv`, save the figures to `confusion_matrix.png` and "
-                "`score_distribution.png`, and report the accuracy in `answer.json`."
+                f"`{feature_one}`, `{feature_two}`, and `{feature_three}`."
             )
         else:
             task_brief = (
                 f"Train two reproducible classifiers for `{target}` and visualize their ROC "
                 f"curves on the same chart using aggregated `{feature_one}`, `{feature_two}`, and "
-                f"`{feature_three}`. Save the plotting data to `plot_summary.csv`, save the "
-                "comparison figure to `model_comparison.png`, and report the better model in "
-                "`answer.json`."
+                f"`{feature_three}`."
             )
     else:
         if pattern in {0, 1}:
             task_brief = (
                 f"Train a reproducible regression model for `{target}` using aggregated "
                 f"`{feature_one}`, `{feature_two}`, `{feature_three}`, `Age`, and `Sex`. "
-                "Visualize predicted versus actual values and the residual distribution. Save the "
-                "plotting data to `plot_summary.csv`, save the figures to `predicted_vs_actual.png` "
-                "and `residuals.png`, and report the RMSE in `answer.json`."
+                "Visualize predicted versus actual values and the residual distribution."
             )
         elif pattern == 2:
             task_brief = (
                 f"Train two reproducible regression baselines for `{target}` and compare them with "
                 f"a bar chart of MAE and RMSE using aggregated `{feature_one}`, `{feature_two}`, "
-                f"and `{feature_three}`. Save the plotting data to `plot_summary.csv`, save the "
-                "comparison figure to `regression_comparison.png`, and report the better model in "
-                "`answer.json`."
+                f"and `{feature_three}`."
             )
         else:
             task_brief = (
                 f"Train a reproducible regression model for `{target}` and visualize the top "
                 f"feature importances together with the residual trend over predicted values using "
-                f"aggregated `{feature_one}`, `{feature_two}`, and `{feature_three}`. Save the "
-                "plotting data to `plot_summary.csv`, save the figures to `feature_importance.png` "
-                "and `residual_trend.png`, and report the strongest predictor in `answer.json`."
+                f"aggregated `{feature_one}`, `{feature_two}`, and `{feature_three}`."
             )
 
     return task_brief, {
@@ -762,26 +851,41 @@ def build_visualization_spec(resources: DatasetResources, index: int) -> tuple[s
     }
 
 
-def create_current_task_specs(dataset_path: Path) -> list[TaskSpec]:
+def create_current_task_specs(dataset_path: Path, source_reference_root: Path) -> list[TaskSpec]:
     rows = load_jsonl(dataset_path)
     specs: list[TaskSpec] = []
     for row in rows:
         if row["task_type"] == TASK_TYPE_REPORT_GENERATION:
             continue
         qid = int(row["qid"])
+        if row["task_type"] == TASK_TYPE_PREDICTIVE_MODELING and qid not in REFRESHED_TASK_OVERRIDES:
+            continue
         task_brief = row["task_brief"]
-        task_text = row["task"]
         builder_kind = None
+        builder_config: dict[str, Any] = {}
         protocol_notes: list[str] = []
         if qid in REFRESHED_TASK_OVERRIDES:
             override = REFRESHED_TASK_OVERRIDES[qid]
             task_brief = override["task_brief"]
-            task_text = format_task_text(row["dataset"], DATASET_CONFIGS[row["dataset"]].task_data_path, task_brief)
             builder_kind = override["builder_kind"]
             protocol_notes = override["protocol_notes"]
             origin = "refreshed"
         else:
             origin = "current"
+        required_outputs = required_outputs_for_task(
+            task_type=row["task_type"],
+            builder_kind=builder_kind,
+            builder_config=builder_config,
+            source_reference_root=source_reference_root,
+            source_qid=qid,
+        )
+        task_text = format_task_text(
+            row["dataset"],
+            DATASET_CONFIGS[row["dataset"]].task_data_path,
+            task_brief,
+            required_outputs,
+            row["task_type"],
+        )
         specs.append(
             TaskSpec(
                 dataset=row["dataset"],
@@ -791,7 +895,10 @@ def create_current_task_specs(dataset_path: Path) -> list[TaskSpec]:
                 origin=origin,
                 source_qid=qid,
                 builder_kind=builder_kind,
+                builder_config=builder_config,
                 protocol_notes=protocol_notes,
+                required_outputs=required_outputs,
+                judge_prompt_type=JUDGE_PROMPT_TYPE[row["task_type"]],
             )
         )
     return specs
@@ -851,12 +958,28 @@ def create_generated_task_specs(resources_by_name: dict[str, DatasetResources], 
                     TaskSpec(
                         dataset=dataset_name,
                         task_type=task_type,
-                        task=format_task_text(dataset_name, resources.config.task_data_path, task_brief),
+                        task=format_task_text(
+                            dataset_name,
+                            resources.config.task_data_path,
+                            task_brief,
+                            required_outputs_for_task(
+                                task_type=task_type,
+                                builder_kind=builder_config["kind"],
+                                builder_config=builder_config,
+                            ),
+                            task_type,
+                        ),
                         task_brief=task_brief,
                         origin="generated",
                         builder_kind=builder_config["kind"],
                         builder_config=builder_config,
                         protocol_notes=["Generated filler task to satisfy the 3-type MedAgentBoard target counts."],
+                        required_outputs=required_outputs_for_task(
+                            task_type=task_type,
+                            builder_kind=builder_config["kind"],
+                            builder_config=builder_config,
+                        ),
+                        judge_prompt_type=JUDGE_PROMPT_TYPE[task_type],
                     )
                 )
                 needed -= 1
@@ -1067,30 +1190,199 @@ def save_feature_importance_plot(feature_importance: pd.DataFrame, output_path: 
     plt.close()
 
 
-def save_answer_manifest(
-    task: TaskSpec,
-    output_dir: Path,
-    *,
-    primary_outputs: list[str] | None = None,
-) -> None:
+def serialize_cell(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if pd.isna(value):
+        return ""
+    if isinstance(value, (np.integer, np.floating)):
+        return value.item()
+    return value
+
+
+def structured_frame_from_object(payload: Any) -> pd.DataFrame:
+    if isinstance(payload, dict):
+        if all(not isinstance(value, (dict, list)) for value in payload.values()):
+            return pd.DataFrame([{str(key): serialize_cell(value) for key, value in payload.items()}])
+        return pd.DataFrame(
+            [
+                {
+                    "field": str(key),
+                    "value": serialize_cell(value),
+                }
+                for key, value in payload.items()
+            ]
+        )
+    if isinstance(payload, list):
+        if payload and all(isinstance(item, dict) for item in payload):
+            return pd.DataFrame(payload)
+        return pd.DataFrame({"value": [serialize_cell(item) for item in payload]})
+    return pd.DataFrame([{"value": serialize_cell(payload)}])
+
+
+def structured_frame_from_text(text: str) -> pd.DataFrame:
+    stripped = text.strip()
+    if not stripped:
+        return pd.DataFrame(columns=["value"])
+
+    for parser in (json.loads, literal_eval):
+        try:
+            return structured_frame_from_object(parser(stripped))
+        except Exception:
+            pass
+
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    key_values: dict[str, Any] = {}
+    for line in lines:
+        match = re.match(r"^(.*?)[=:]\s*([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*$", line)
+        if not match:
+            key_values = {}
+            break
+        key_values[match.group(1).strip()] = float(match.group(2))
+    if key_values:
+        return pd.DataFrame([key_values])
+
+    if re.fullmatch(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", stripped):
+        return pd.DataFrame([{"value": float(stripped)}])
+
+    return pd.DataFrame([{"value": stripped}])
+
+
+def load_structured_frame(path: Path) -> pd.DataFrame:
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix == ".parquet":
+        return pd.read_parquet(path)
+    if suffix == ".json":
+        return structured_frame_from_object(json.loads(path.read_text(encoding="utf-8")))
+    if suffix == ".txt":
+        return structured_frame_from_text(path.read_text(encoding="utf-8", errors="replace"))
+    return pd.DataFrame([{"value": path.read_text(encoding="utf-8", errors="replace")}])
+
+
+def bundle_structured_frames(items: list[tuple[str, pd.DataFrame]]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for file_name, frame in items:
+        normalized = frame.copy()
+        normalized.columns = [str(column) for column in normalized.columns]
+        if normalized.empty and not normalized.columns.tolist():
+            rows.append({"source_file": file_name, "row_index": 0, "field": "value", "value": ""})
+            continue
+        for row_index, record in normalized.reset_index(drop=True).iterrows():
+            for field, value in record.items():
+                rows.append(
+                    {
+                        "source_file": file_name,
+                        "row_index": int(row_index),
+                        "field": str(field),
+                        "value": serialize_cell(value),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def normalize_data_extraction_output_dir(output_dir: Path) -> None:
+    source_files = [
+        path
+        for path in sorted(output_dir.iterdir())
+        if path.is_file() and path.name not in {"answer_manifest.json", "result.csv"}
+    ]
+    if not source_files and (output_dir / "result.csv").exists():
+        return
+
+    if not source_files:
+        raise ValueError(f"data_extraction task is missing source files in {output_dir}")
+
+    structured_items = [(path.name, load_structured_frame(path)) for path in source_files]
+    if len(structured_items) == 1:
+        result_frame = structured_items[0][1]
+    else:
+        result_frame = bundle_structured_frames(structured_items)
+    result_frame.to_csv(output_dir / "result.csv", index=False)
+
+
+def normalize_predictive_modeling_output_dir(output_dir: Path) -> None:
+    metrics_path = output_dir / "metrics.json"
+    if not metrics_path.exists():
+        for candidate_name in ["evaluation_metrics.json", "results.json"]:
+            candidate = output_dir / candidate_name
+            if candidate.exists():
+                payload = json.loads(candidate.read_text(encoding="utf-8"))
+                write_json(metrics_path, payload)
+                break
+
+    predictions_path = output_dir / "predictions.csv"
+    if not predictions_path.exists():
+        for candidate_name in ["test_predictions.csv", "final_predictions.csv"]:
+            candidate = output_dir / candidate_name
+            if candidate.exists():
+                shutil.copy2(candidate, predictions_path)
+                break
+
+    answer_path = output_dir / "answer.json"
+    if not answer_path.exists():
+        answer_payload: dict[str, Any] = {}
+        for candidate_name in ["feature_definition.txt", "feature_list.txt", "features.txt"]:
+            candidate = output_dir / candidate_name
+            if candidate.exists():
+                answer_payload["notes"] = candidate.read_text(encoding="utf-8", errors="replace").strip()
+                break
+        if not answer_payload:
+            answer_payload["notes"] = "No additional summary provided."
+        write_json(answer_path, answer_payload)
+
+
+def prune_output_dir(output_dir: Path, required_outputs: list[str]) -> None:
+    keep = set(required_outputs) | {"answer_manifest.json"}
+    for path in sorted(output_dir.iterdir()):
+        if not path.is_file():
+            continue
+        if path.name not in keep:
+            path.unlink()
+
+
+def normalize_output_dir_for_task(task: TaskSpec, output_dir: Path) -> None:
+    if task.task_type == TASK_TYPE_DATA_EXTRACTION:
+        normalize_data_extraction_output_dir(output_dir)
+    elif task.task_type == TASK_TYPE_PREDICTIVE_MODELING:
+        normalize_predictive_modeling_output_dir(output_dir)
+
+    prune_output_dir(output_dir, task.required_outputs)
+    missing = [file_name for file_name in task.required_outputs if not (output_dir / file_name).exists()]
+    if missing:
+        raise FileNotFoundError(f"task qid={task.qid} missing normalized outputs: {missing}")
+
+
+def save_answer_manifest(task: TaskSpec, output_dir: Path) -> None:
     files = [
         f"reference_answers/{task.qid}/{path.relative_to(output_dir).as_posix()}"
         for path in sorted(output_dir.rglob("*"))
         if path.is_file() and path.name != "answer_manifest.json"
     ]
-    normalized_primary_outputs = []
-    for item in primary_outputs or files:
-        if item.startswith("_rebuild_staging/"):
-            normalized_primary_outputs.append(item.removeprefix("_rebuild_staging/"))
-        else:
-            normalized_primary_outputs.append(item)
+    normalized_primary_outputs = [f"reference_answers/{task.qid}/{file_name}" for file_name in task.required_outputs]
     manifest = {
         "qid": task.qid,
         "dataset": task.dataset,
         "task_type": task.task_type,
+        "contract_version": CONTRACT_VERSION,
+        "judge_prompt_type": task.judge_prompt_type or JUDGE_PROMPT_TYPE[task.task_type],
         "origin": task.origin,
         "source_qid": task.source_qid,
         "generator_script": "data/medagentboard/scripts/rebuild_medagentboard.py",
+        "score_scale": {
+            "min": 0,
+            "max": SCORE_SCALE_MAX,
+            "pass_threshold": PASS_THRESHOLD,
+        },
+        "required_outputs": [
+            {
+                "file_name": file_name,
+                "reference_path": f"reference_answers/{task.qid}/{file_name}",
+                "media_type": guess_media_type(file_name),
+            }
+            for file_name in task.required_outputs
+        ],
         "primary_outputs": normalized_primary_outputs,
         "all_outputs": files,
         "protocol_notes": task.protocol_notes,
@@ -1295,8 +1587,8 @@ def build_generated_modeling(task: TaskSpec, resources: DatasetResources, output
     entity_frame, feature_columns = build_model_dataset(resources, config)
     target = config["target"]
     train_frame, test_frame = split_train_test(resources, entity_frame, target)
-    x_train = train_frame[feature_columns]
-    x_test = test_frame[feature_columns]
+    x_train = train_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
+    x_test = test_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
     primary_outputs: list[str] = []
 
     if config["task_kind"] == "classification":
@@ -1599,8 +1891,8 @@ def build_visualization_model_analysis(task: TaskSpec, resources: DatasetResourc
     model_frame, feature_columns = build_model_dataset(resources, config)
     target = config["target"]
     train_frame, test_frame = split_train_test(resources, model_frame, target)
-    x_train = train_frame[feature_columns]
-    x_test = test_frame[feature_columns]
+    x_train = train_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
+    x_test = test_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
     primary_outputs: list[str] = []
 
     if config["task_kind"] == "classification":
@@ -1898,8 +2190,10 @@ def build_refresh_q21(task: TaskSpec, resources: DatasetResources, output_dir: P
         )
         train_frame, test_frame = split_train_test(resources, entity_frame, "Outcome")
         pipeline = classification_pipeline("logistic_regression")
-        pipeline.fit(train_frame[feature_columns], train_frame["Outcome"].astype(int))
-        probabilities = pipeline.predict_proba(test_frame[feature_columns])[:, 1]
+        x_train = train_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
+        x_test = test_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
+        pipeline.fit(x_train, train_frame["Outcome"].astype(int))
+        probabilities = pipeline.predict_proba(x_test)[:, 1]
         metrics = compute_classification_metrics(test_frame["Outcome"].astype(int), probabilities)
         metrics_rows.append(
             {
@@ -1989,8 +2283,10 @@ def build_refresh_q68(task: TaskSpec, resources: DatasetResources, output_dir: P
         )
         train_frame, test_frame = split_train_test(resources, entity_frame, "Outcome")
         pipeline = classification_pipeline("logistic_regression")
-        pipeline.fit(train_frame[feature_columns], train_frame["Outcome"].astype(int))
-        probabilities = pipeline.predict_proba(test_frame[feature_columns])[:, 1]
+        x_train = train_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
+        x_test = test_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
+        pipeline.fit(x_train, train_frame["Outcome"].astype(int))
+        probabilities = pipeline.predict_proba(x_test)[:, 1]
         metrics = compute_classification_metrics(test_frame["Outcome"].astype(int), probabilities)
         rows.append(
             {
@@ -2118,25 +2414,31 @@ def build_refresh_q91(task: TaskSpec, resources: DatasetResources, output_dir: P
     )
     train_frame, test_frame = split_train_test(resources, entity_frame, "target_gcs_24h")
     pipeline = regression_pipeline("random_forest")
-    pipeline.fit(train_frame[feature_columns], train_frame["target_gcs_24h"])
-    predictions = pipeline.predict(test_frame[feature_columns])
+    x_train = train_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
+    x_test = test_frame[feature_columns].apply(pd.to_numeric, errors="coerce")
+    pipeline.fit(x_train, train_frame["target_gcs_24h"])
+    predictions = pipeline.predict(x_test)
     metrics = compute_regression_metrics(test_frame["target_gcs_24h"], predictions)
-    write_json(output_dir / "evaluation_metrics.json", metrics)
+    write_json(output_dir / "metrics.json", metrics)
     predictions_frame = test_frame[["AdmissionID", "target_gcs_24h"]].copy()
     predictions_frame["predicted_gcs_24h"] = predictions
     predictions_frame.to_csv(output_dir / "predictions.csv", index=False)
-    feature_definition = (
-        "Input window: first 6 hours after the first admission record.\n"
-        "Target: non-null Glascow coma scale total closest to 24 hours after admission; ties use the later record.\n"
-        f"Features: {', '.join(feature_columns)}\n"
-    )
-    (output_dir / "feature_definition.txt").write_text(feature_definition, encoding="utf-8")
     dump(pipeline, output_dir / "gcs_predictor.joblib")
-    write_json(output_dir / "answer.json", {"rmse": metrics["rmse"], "feature_columns": feature_columns})
+    write_json(
+        output_dir / "answer.json",
+        {
+            "rmse": metrics["rmse"],
+            "feature_columns": feature_columns,
+            "target_protocol": (
+                "Target is the non-null Glascow coma scale total measurement closest to 24 hours "
+                "after admission; ties use the later record."
+            ),
+        },
+    )
     return [
-        str((output_dir / "evaluation_metrics.json").relative_to(PROCESSED_ROOT)),
+        str((output_dir / "metrics.json").relative_to(PROCESSED_ROOT)),
         str((output_dir / "predictions.csv").relative_to(PROCESSED_ROOT)),
-        str((output_dir / "feature_definition.txt").relative_to(PROCESSED_ROOT)),
+        str((output_dir / "answer.json").relative_to(PROCESSED_ROOT)),
     ]
 
 
@@ -2169,11 +2471,11 @@ def build_reference_answers(
         if spec.origin == "current" and spec.source_qid is not None:
             source_dir = source_reference_root / str(spec.source_qid)
             shutil.copytree(source_dir, output_dir, dirs_exist_ok=True)
-            save_answer_manifest(spec, output_dir)
         else:
             builder = BUILDERS[spec.builder_kind]
-            primary_outputs = builder(spec, resources_by_name[spec.dataset], output_dir)
-            save_answer_manifest(spec, output_dir, primary_outputs=primary_outputs)
+            builder(spec, resources_by_name[spec.dataset], output_dir)
+        normalize_output_dir_for_task(spec, output_dir)
+        save_answer_manifest(spec, output_dir)
         qid_remap.append(
             {
                 "new_qid": spec.qid,
@@ -2212,7 +2514,13 @@ def replace_processed_artifacts(staging_dir: Path) -> None:
     shutil.move(str(staging_dir / "reference_answers"), str(REFERENCE_ROOT))
 
 
-def build_subset_manifest(specs: list[TaskSpec], train_specs: list[TaskSpec], test_specs: list[TaskSpec], qid_remap: list[dict[str, Any]], backup_dir: Path) -> dict[str, Any]:
+def build_subset_manifest(
+    specs: list[TaskSpec],
+    train_specs: list[TaskSpec],
+    test_specs: list[TaskSpec],
+    qid_remap: list[dict[str, Any]],
+    backup_dir: Path | None,
+) -> dict[str, Any]:
     def count_rows(rows: list[TaskSpec]) -> dict[str, Any]:
         task_type_counts: dict[str, int] = {
             TASK_TYPE_DATA_EXTRACTION: 0,
@@ -2270,7 +2578,7 @@ def build_subset_manifest(specs: list[TaskSpec], train_specs: list[TaskSpec], te
         "qid_remap": qid_remap,
         "refreshed_source_qids": [21, 54, 68, 71, 91],
         "deleted_report_source_qids": [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84],
-        "backup_dir": str(backup_dir.relative_to(PROCESSED_ROOT)),
+        "backup_dir": str(backup_dir.relative_to(PROCESSED_ROOT)) if backup_dir is not None else None,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -2301,6 +2609,14 @@ def validate_rebuild(specs: list[TaskSpec], train_specs: list[TaskSpec], test_sp
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Rebuild the MedAgentBoard benchmark corpus.")
+    parser.add_argument(
+        "--skip-backup",
+        action="store_true",
+        help="Skip copying the existing processed outputs before rebuilding.",
+    )
+    args = parser.parse_args()
+
     if not CURRENT_DATASET_PATH.exists():
         raise FileNotFoundError(f"missing dataset file: {CURRENT_DATASET_PATH}")
     if not REFERENCE_ROOT.exists():
@@ -2308,7 +2624,7 @@ def main() -> None:
 
     resources_by_name = load_resources()
     source_dataset_path, source_reference_root = resolve_source_artifacts()
-    current_specs = create_current_task_specs(source_dataset_path)
+    current_specs = create_current_task_specs(source_dataset_path, source_reference_root)
     generated_specs = create_generated_task_specs(resources_by_name, current_specs)
     combined_specs = assign_global_qids(current_specs + generated_specs)
     train_specs, test_specs = assign_splits(combined_specs)
@@ -2320,7 +2636,7 @@ def main() -> None:
     staging_reference_root = STAGING_ROOT / "reference_answers"
     staging_reference_root.mkdir(parents=True, exist_ok=False)
 
-    backup_dir = make_backup()
+    backup_dir = None if args.skip_backup else make_backup()
     qid_remap = build_reference_answers(
         combined_specs,
         resources_by_name,
@@ -2340,7 +2656,7 @@ def main() -> None:
     shutil.rmtree(STAGING_ROOT, ignore_errors=True)
 
     print("MedAgentBoard rebuild completed.")
-    print(f"Backup: {backup_dir}")
+    print(f"Backup: {backup_dir if backup_dir is not None else 'skipped'}")
     print(f"Combined tasks: {len(combined_specs)}")
     print(f"Train tasks: {len(train_specs)}")
     print(f"Test tasks: {len(test_specs)}")
