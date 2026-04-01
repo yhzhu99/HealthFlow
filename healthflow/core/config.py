@@ -65,6 +65,23 @@ class SystemConfig(BaseModel):
     shell: str = Field("/usr/bin/zsh", description="Shell to use for subprocess execution.")
 
 
+class EnvironmentConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    python_version: str = Field("3.12", description="Preferred Python version for executor-side workflows.")
+    package_manager: str = Field("uv", description="Preferred package manager available in the execution environment.")
+    install_command: str = Field("uv add", description="Preferred dependency installation command when adding packages is necessary.")
+    run_prefix: str = Field("uv run", description="Preferred command prefix for Python entrypoints.")
+
+    def summary_lines(self) -> list[str]:
+        return [
+            f"Preferred Python version: {self.python_version}",
+            f"Package manager: {self.package_manager}",
+            f"Dependency install command: {self.install_command}",
+            f"Python command prefix: {self.run_prefix}",
+        ]
+
+
 def default_executor_backends() -> Dict[str, BackendCLIConfig]:
     return {
         "claude_code": BackendCLIConfig(
@@ -153,25 +170,6 @@ class ExecutorConfig(BaseModel):
         return self
 
 
-class ToolDefinitionConfig(BaseModel):
-    surface: Literal["cli", "mcp"] = "cli"
-    description: str = ""
-    invocation_hint: str = ""
-
-
-class ToolsConfig(BaseModel):
-    entries: Dict[str, ToolDefinitionConfig] = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_entries(cls, value):
-        if value is None:
-            return {"entries": {}}
-        if isinstance(value, dict) and "entries" not in value:
-            return {"entries": value}
-        return value
-
-
 class LLMRoleConfig(BaseModel):
     planner: str | None = Field(default=None, description="Optional model key for the planning agent.")
     evaluator: str | None = Field(default=None, description="Optional model key for the evaluator agent.")
@@ -201,8 +199,8 @@ class HealthFlowConfig(BaseModel):
     llm: LLMProviderConfig
     llm_roles: LLMRoleConfig
     system: SystemConfig
+    environment: EnvironmentConfig
     executor: ExecutorConfig
-    tools: ToolsConfig
     memory: MemoryConfig
     evaluation: EvaluationConfig
     logging: LoggingConfig
@@ -240,7 +238,14 @@ def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> L
     return LLMProviderConfig(**resolved_config)
 
 def _validate_top_level_sections(config_data: dict) -> None:
-    allowed_sections = {"llm", "llm_roles", "system", "executor", "tools", "memory", "evaluation", "logging"}
+    if "tools" in config_data:
+        raise ValueError(
+            "Legacy [tools] configuration is no longer supported. "
+            "HealthFlow does not host MCP or CLI tool integrations; configure tools in the outer executor instead. "
+            "Use [environment] for lightweight runtime defaults."
+        )
+
+    allowed_sections = {"llm", "llm_roles", "system", "environment", "executor", "memory", "evaluation", "logging"}
     unexpected_sections = sorted(section for section in config_data if section not in allowed_sections)
     if unexpected_sections:
         raise ValueError(
@@ -295,8 +300,8 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
             llm=llm_registry[active_llm],
             llm_roles=llm_roles,
             system=SystemConfig(**config_data.get("system", {})),
+            environment=EnvironmentConfig(**config_data.get("environment", {})),
             executor=executor_config,
-            tools=ToolsConfig(**config_data.get("tools", {})),
             memory=MemoryConfig(**config_data.get("memory", {})),
             evaluation=EvaluationConfig(**config_data.get("evaluation", {})),
             logging=LoggingConfig(**config_data.get("logging", {})),

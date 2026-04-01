@@ -5,7 +5,14 @@ from pathlib import Path
 
 from healthflow.core.contracts import EvaluationVerdict, ExecutionPlan
 from healthflow.core.config import EvaluationConfig, ExecutorConfig, HealthFlowConfig
-from healthflow.core.config import LLMProviderConfig, LLMRoleConfig, LoggingConfig, MemoryConfig, SystemConfig, ToolsConfig
+from healthflow.core.config import (
+    EnvironmentConfig,
+    LLMProviderConfig,
+    LLMRoleConfig,
+    LoggingConfig,
+    MemoryConfig,
+    SystemConfig,
+)
 from healthflow.core.config import default_executor_backends
 from healthflow.execution.base import ExecutionResult
 from healthflow.system import HealthFlowSystem
@@ -22,7 +29,7 @@ class _FakeMetaAgent:
             objective="Train a readmission prediction model on the uploaded cohort.",
             assumptions_to_check=["Confirm the uploaded file schema."],
             recommended_steps=["Inspect the data.", "Write artifacts.", "Summarize the result."],
-            preferred_tools=["python", "shell"],
+            recommended_workflows=["Use reproducible Python scripts.", "Persist cohort and validation artifacts."],
             avoidances=["Do not skip the final answer."],
             success_signals=["The expected artifacts exist in the workspace."],
             executor_brief="Use a simple reproducible implementation path.",
@@ -137,8 +144,8 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 llm_roles=LLMRoleConfig(),
                 system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+                environment=EnvironmentConfig(),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                tools=ToolsConfig(),
                 memory=MemoryConfig(write_policy="append"),
                 evaluation=EvaluationConfig(success_threshold=8.0),
                 logging=LoggingConfig(),
@@ -172,6 +179,8 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["cost_summary"]["total_estimated_cost_usd"], 0.1255)
             self.assertEqual(result["usage_summary"]["execution"]["session_ids"], ["ses_test"])
             self.assertEqual(result["usage_summary"]["execution"]["tool_names"], ["read"])
+            self.assertEqual(result["execution_environment"]["package_manager"], "uv")
+            self.assertTrue(result["workflow_recommendations"])
 
             memory_context = json.loads(Path(result["memory_context_path"]).read_text(encoding="utf-8"))
             self.assertEqual(memory_context["task_family"], "predictive_modeling")
@@ -181,8 +190,13 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(run_result["backend"], "claude_code")
             self.assertEqual(run_result["executor_model"], "test-model")
             self.assertEqual(run_result["memory_write_policy"], "append")
+            self.assertEqual(run_result["execution_environment"]["run_prefix"], "uv run")
             self.assertEqual(run_result["cost_summary"]["executor_estimated_cost_usd"], 0.1234)
             self.assertEqual(run_result["evaluation_status"], "success")
+
+            run_manifest = json.loads(Path(result["run_manifest_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(run_manifest["execution_environment"]["python_version"], "3.12")
+            self.assertTrue(run_manifest["workflow_recommendations"])
 
             cost_analysis = json.loads(Path(result["cost_analysis_path"]).read_text(encoding="utf-8"))
             self.assertEqual(cost_analysis["attempts"][0]["execution"]["estimated_cost_usd"], 0.1234)
@@ -211,8 +225,8 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 llm_roles=LLMRoleConfig(),
                 system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+                environment=EnvironmentConfig(),
                 executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
-                tools=ToolsConfig(),
                 memory=MemoryConfig(write_policy="append"),
                 evaluation=EvaluationConfig(success_threshold=8.0),
                 logging=LoggingConfig(),

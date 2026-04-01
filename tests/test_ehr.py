@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from healthflow.ehr import detect_risk_findings, profile_workspace_data
-from healthflow.tools import ToolBroker
+from healthflow.execution import WorkflowRecommendationBroker
 
 
 class EHRProfilingTests(unittest.TestCase):
@@ -37,12 +37,11 @@ class EHRProfilingTests(unittest.TestCase):
             self.assertIn("target-like", finding_text)
             self.assertIn("split evidence", finding_text)
 
-            bundle = ToolBroker().select_bundle(profile.task_family, profile)
-            self.assertIn("patient-level split audit", bundle)
-            self.assertTrue(
-                any(item in bundle for item in ["validation + leakage audit", "temporal leakage check"])
-            )
-            self.assertIn("external cli workflows", bundle)
+            recommendations = WorkflowRecommendationBroker().recommend(request, profile)
+            recommendation_text = " ".join(recommendations).lower()
+            self.assertIn("oneehr", recommendation_text)
+            self.assertIn("split", recommendation_text)
+            self.assertIn("leakage", recommendation_text)
 
     def test_general_modeling_request_stays_general_without_ehr_overlay(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -65,10 +64,22 @@ class EHRProfilingTests(unittest.TestCase):
             self.assertIn("entity-aware", finding_text)
             self.assertNotIn("patient-aware", finding_text)
 
-            bundle = ToolBroker().select_bundle(profile.task_family, profile)
-            self.assertIn("group-aware split audit", bundle)
-            self.assertNotIn("patient-level split audit", bundle)
-            self.assertNotIn("external cli workflows", bundle)
+            recommendations = WorkflowRecommendationBroker().recommend(request, profile)
+            recommendation_text = " ".join(recommendations).lower()
+            self.assertNotIn("oneehr", recommendation_text)
+            self.assertIn("uv run", recommendation_text)
+
+    def test_tooluniverse_is_only_suggested_for_explicit_tool_lookup_requests(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            request = "Use ToolUniverse to find a biomedical tool for pathway analysis on the uploaded gene list."
+            profile = profile_workspace_data(workspace, request)
+
+            recommendations = WorkflowRecommendationBroker().recommend(request, profile)
+            recommendation_text = " ".join(recommendations).lower()
+
+            self.assertIn("tooluniverse", recommendation_text)
+            self.assertIn("tu", recommendation_text)
 
 
 if __name__ == "__main__":

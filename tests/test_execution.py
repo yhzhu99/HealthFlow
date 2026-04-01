@@ -5,8 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from healthflow.core.contracts import ExecutionPlan
-from healthflow.core.config import ToolsConfig
-from healthflow.core.config import BackendCLIConfig
+from healthflow.core.config import BackendCLIConfig, EnvironmentConfig
 from healthflow.execution.base import ExecutionContext
 from healthflow.execution.cli_adapters import (
     CLISubprocessExecutor,
@@ -17,7 +16,6 @@ from healthflow.execution.cli_adapters import (
 )
 from healthflow.execution.factory import create_executor_adapter
 from healthflow.execution.opencode_parser import parse_opencode_json_events
-from healthflow.tools import ToolCatalog
 
 
 class ExecutionFactoryTests(unittest.TestCase):
@@ -175,20 +173,23 @@ class ExecutionFactoryTests(unittest.TestCase):
                 objective="Build a cohort table.",
                 assumptions_to_check=["Confirm what files are available in the workspace."],
                 recommended_steps=["Inspect the workspace.", "Create the cohort artifact.", "Summarize the result."],
-                preferred_tools=["python", "shell"],
+                recommended_workflows=["Use reproducible Python scripts.", "Persist a cohort artifact."],
                 avoidances=["Do not write outside the workspace."],
                 success_signals=["A cohort artifact exists in the workspace."],
                 executor_brief="Prefer a small reproducible script if the logic is non-trivial.",
             ),
-            available_tools=ToolCatalog.from_config("codex", ToolsConfig()),
+            execution_environment=EnvironmentConfig(),
+            workflow_recommendations=["Prefer workspace-local Python entrypoints via `uv run`."],
         )
         prompt = context.render_prompt()
         self.assertIn("Do not rely on repository-level executor-specific instruction files", prompt)
         self.assertIn("Save every artifact inside the current workspace", prompt)
         self.assertIn("CodeAct-style executor", prompt)
-        self.assertIn("## Available Tools", prompt)
+        self.assertIn("## Execution Environment", prompt)
+        self.assertIn("HealthFlow does not manage MCP servers", prompt)
         self.assertIn("## EHR Safeguards", prompt)
-        self.assertIn("## Recommended Workflows", prompt)
+        self.assertIn("## Workflow Recommendations", prompt)
+        self.assertIn("## Workflow Memory", prompt)
 
     def test_repo_root_does_not_depend_on_claude_md(self):
         repo_root = Path(__file__).resolve().parents[1]

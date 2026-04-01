@@ -15,9 +15,9 @@ class ExecutionPlan(BaseModel):
         default_factory=list,
         description="Ordered high-level steps for the executor to follow.",
     )
-    preferred_tools: list[str] = Field(
+    recommended_workflows: list[str] = Field(
         default_factory=list,
-        description="Preferred tools or action surfaces suggested by the planner.",
+        description="Recommended execution workflows suggested by the planner.",
     )
     avoidances: list[str] = Field(
         default_factory=list,
@@ -45,8 +45,8 @@ class ExecutionPlan(BaseModel):
             "## Recommended Steps",
             *self._render_numbered(self.recommended_steps, "Inspect the environment and act directly."),
             "",
-            "## Preferred Tools",
-            *self._render_bullets(self.preferred_tools, "No preferred tools were specified."),
+            "## Recommended Workflows",
+            *self._render_bullets(self.recommended_workflows, "No workflow recommendations were specified."),
             "",
             "## Avoidances",
             *self._render_bullets(self.avoidances, "No explicit avoidances were listed."),

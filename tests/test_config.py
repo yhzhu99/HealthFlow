@@ -32,6 +32,8 @@ model_name = "model"
             self.assertIn("pi", config.executor.backends)
             self.assertEqual(config.system.max_attempts, 3)
             self.assertEqual(config.system.workspace_dir, "workspace/tasks")
+            self.assertEqual(config.environment.python_version, "3.12")
+            self.assertEqual(config.environment.package_manager, "uv")
             self.assertEqual(config.memory.write_policy, "append")
 
     def test_default_backend_uses_opencode_executor(self):
@@ -200,7 +202,7 @@ executor_model_name = "deepseek/deepseek-chat"
 
             self.assertEqual(config.active_executor.model, "deepseek/deepseek-chat")
 
-    def test_tool_entries_can_be_loaded_for_cli_and_mcp_surfaces(self):
+    def test_environment_defaults_can_be_overridden(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
@@ -210,10 +212,27 @@ api_key = "key"
 base_url = "https://example.com/v1"
 model_name = "model"
 
-[tools.python]
-surface = "cli"
-description = "Workspace python runner"
-invocation_hint = "python script.py"
+[environment]
+python_version = "3.12.2"
+package_manager = "uv"
+install_command = "uv add --dev"
+run_prefix = "uv run"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "test")
+            self.assertEqual(config.environment.python_version, "3.12.2")
+            self.assertEqual(config.environment.install_command, "uv add --dev")
+
+    def test_legacy_tools_config_raises_migration_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
 
 [tools.local_mcp]
 surface = "mcp"
@@ -222,10 +241,8 @@ invocation_hint = "connector-defined"
 """.strip(),
                 encoding="utf-8",
             )
-            config = get_config(config_path, "test")
-            self.assertEqual(config.tools.entries["python"].surface, "cli")
-            self.assertEqual(config.tools.entries["local_mcp"].surface, "mcp")
-            self.assertEqual(config.tools.entries["local_mcp"].invocation_hint, "connector-defined")
+            with self.assertRaisesRegex(ValueError, r"Legacy \[tools\] configuration"):
+                get_config(config_path, "test")
 
     def test_llm_api_key_can_be_loaded_from_env_variable(self):
         with tempfile.TemporaryDirectory() as tmpdir:
