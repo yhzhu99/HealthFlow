@@ -1,13 +1,13 @@
 # MedAgentsBench
 
-`medagentsbench` 是第一类基准数据集中的一个多项选择子集。这里保存的是从 10 个子数据集的 `test_hard` 切分中分别抽取 10 题后汇总得到的 100 道题。
-仓库不再提交 `raw/` 或 `processed/` 数据；这些目录是本地准备/重建产物，并被 `.gitignore` 忽略。
+`medagentsbench` is a multiple-choice subset in the first benchmark category. It contains 110 questions formed by sampling 11 questions from the `test_hard` split of each of 10 sub-datasets, then splitting them into 10 training questions and 100 test questions.
+The repository does not commit `raw/` or `processed/` data. These directories are local preparation/rebuild artifacts and are ignored by `.gitignore`.
 
-## 数据集来源
+## Dataset Source
 
-- 原始数据链接：https://github.com/gersteinlab/medagents-benchmark
-- 本地原始目录：`raw/`
-- 使用的子数据集：
+- Original dataset link: https://github.com/gersteinlab/medagents-benchmark
+- Local raw directory: `raw/`
+- Sub-datasets used:
   - `AfrimedQA`
   - `MMLU`
   - `MMLU-Pro`
@@ -19,19 +19,26 @@
   - `MedXpertQA-U`
   - `PubMedQA`
 
-## 处理方式
+## Processing
 
-- 对每个子数据集读取 `raw/<dataset>/test_hard-00000-of-00001.parquet`
-- 每个子数据集独立使用固定随机种子 `SEED=42`
-- 从每个子数据集随机抽取 10 题，共 100 题
-- 选项统一保留为字母到文本的映射
-- 若原始选项中存在空值，则在处理时清理这些空选项
-- 汇总后重新编号 `qid=1..100`
-- 处理后本地写入：
-  - `processed/eval.jsonl`
+- For each sub-dataset, read `raw/<dataset>/test_hard-00000-of-00001.parquet`
+- Use a fixed random seed `SEED=42` independently for each sub-dataset
+- Randomly sample 11 questions from each sub-dataset, for 110 questions in total
+- Split each sub-dataset sample into:
+  - 1 training question
+  - 10 test questions
+- Normalize answer options as a letter-to-text mapping
+- If the original options contain empty values, remove those empty options during preprocessing
+- After merging all subsets, generate:
+  - `processed/train.jsonl`: 10 questions
+  - `processed/test.jsonl`: 100 questions
+- Reassign `qid=1..N` separately within `train.jsonl` and `test.jsonl`
+- Write the processed outputs locally to:
+  - `processed/train.jsonl`
+  - `processed/test.jsonl`
   - `processed/subset_manifest.json`
 
-处理后的 `eval.jsonl` 每行 schema 为：
+Each line in the processed `train.jsonl` and `test.jsonl` follows this schema:
 
 ```json
 {
@@ -46,41 +53,42 @@
 }
 ```
 
-## 评测方式
+## Evaluation
 
-该数据集的评测是确定性的精确匹配，不需要大模型。
+Evaluation for this dataset is deterministic exact matching and does not require an LLM.
 
-- 输入预测文件为一个 `jsonl`
-- 每行必须至少包含：
+- The default evaluation reference file is `processed/test.jsonl`
+- The input predictions file must be a `jsonl`
+- Each line must contain at least:
   - `qid`
   - `predicted_answer`
-- `predicted_answer` 必须是单个选项字母
-- 评测时要求预测文件中的 `qid` 与 `processed/eval.jsonl` 完全对齐，不能缺失、重复或多出
-- 逐题比较 `predicted_answer == ground_truth`
-- 输出总题数、答对题数、准确率，以及逐题结果
+- `predicted_answer` must be a single option letter
+- During evaluation, the `qid` values in the predictions file must match `processed/test.jsonl` exactly, with no missing, duplicate, or extra entries
+- Compare `predicted_answer == ground_truth` for each question
+- Output the total number of questions, number correct, accuracy, and per-question results
 
-预测文件示例：
+Example predictions file:
 
 ```json
 {"qid": 1, "predicted_answer": "D"}
 {"qid": 2, "predicted_answer": "A"}
 ```
 
-## 代码使用
+## Usage
 
-重建处理后数据：
+Rebuild the processed data:
 
 ```bash
 uv run python data/medagentsbench/scripts/preprocess.py
 ```
 
-评测预测结果：
+Evaluate a predictions file:
 
 ```bash
 uv run python data/medagentsbench/scripts/evaluate.py --predictions-file path/to/predictions.jsonl
 ```
 
-如需指定评测输出文件：
+To specify an output file for evaluation results:
 
 ```bash
 uv run python data/medagentsbench/scripts/evaluate.py \
@@ -88,7 +96,8 @@ uv run python data/medagentsbench/scripts/evaluate.py \
   --output-file path/to/predictions.eval.json
 ```
 
-## 处理后文件
+## Processed Files
 
-- `processed/eval.jsonl`：100 道多项选择题（本地重建产物）
-- `processed/subset_manifest.json`：各子数据集抽样明细与原始题目映射（本地重建产物）
+- `processed/train.jsonl`: 10 multiple-choice training questions (local rebuild artifact)
+- `processed/test.jsonl`: 100 multiple-choice test questions (local rebuild artifact)
+- `processed/subset_manifest.json`: per-sub-dataset sampling details and original-question mapping (local rebuild artifact)

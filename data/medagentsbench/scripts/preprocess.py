@@ -11,10 +11,13 @@ import pandas as pd
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1]
 RAW_ROOT = BENCHMARK_ROOT / "raw"
 PROCESSED_ROOT = BENCHMARK_ROOT / "processed"
-OUTPUT_PATH = PROCESSED_ROOT / "eval.jsonl"
+TRAIN_OUTPUT_PATH = PROCESSED_ROOT / "train.jsonl"
+TEST_OUTPUT_PATH = PROCESSED_ROOT / "test.jsonl"
 MANIFEST_PATH = PROCESSED_ROOT / "subset_manifest.json"
 SEED = 42
-SAMPLE_SIZE_PER_DATASET = 10
+TRAIN_SIZE_PER_DATASET = 1
+TEST_SIZE_PER_DATASET = 10
+SAMPLE_SIZE_PER_DATASET = TRAIN_SIZE_PER_DATASET + TEST_SIZE_PER_DATASET
 SUBDATASETS = [
     "AfrimedQA",
     "MMLU",
@@ -65,8 +68,51 @@ def normalize_options(raw_options: dict[str, Any]) -> tuple[dict[str, str], list
     return normalized, removed_empty_labels
 
 
+def split_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    train_rows = rows[:TRAIN_SIZE_PER_DATASET]
+    test_rows = rows[TRAIN_SIZE_PER_DATASET:]
+    if len(train_rows) != TRAIN_SIZE_PER_DATASET or len(test_rows) != TEST_SIZE_PER_DATASET:
+        raise ValueError(
+            f"unexpected split sizes: train={len(train_rows)} test={len(test_rows)} "
+            f"expected train={TRAIN_SIZE_PER_DATASET} test={TEST_SIZE_PER_DATASET}"
+        )
+    train_rows.sort(key=lambda row: sort_key(row["source_id"]))
+    test_rows.sort(key=lambda row: sort_key(row["source_id"]))
+    return train_rows, test_rows
+
+
+def build_split_output(
+    rows: list[dict[str, Any]],
+    *,
+    split: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    processed_rows: list[dict[str, Any]] = []
+    manifest_rows: list[dict[str, Any]] = []
+    for qid, row in enumerate(rows, start=1):
+        processed_rows.append(
+            {
+                "qid": qid,
+                "question": row["question"],
+                "question_type": row["question_type"],
+                "options": row["options"],
+                "ground_truth": row["ground_truth"],
+            }
+        )
+        manifest_rows.append(
+            {
+                "split": split,
+                "qid": qid,
+                "source_dataset": row["source_dataset"],
+                "source_id": row["source_id"],
+                "removed_empty_labels": row["removed_empty_labels"],
+            }
+        )
+    return processed_rows, manifest_rows
+
+
 def main() -> None:
-    all_selected_rows: list[dict[str, Any]] = []
+    all_train_rows: list[dict[str, Any]] = []
+    all_test_rows: list[dict[str, Any]] = []
     manifest_subdatasets: list[dict[str, Any]] = []
 
     for dataset_name in SUBDATASETS:
@@ -104,56 +150,58 @@ def main() -> None:
             )
 
         sampled = random.Random(SEED).sample(candidates, SAMPLE_SIZE_PER_DATASET)
-        sampled.sort(key=lambda row: sort_key(row["source_id"]))
-        all_selected_rows.extend(sampled)
+        train_rows, test_rows = split_rows(sampled)
+        all_train_rows.extend(train_rows)
+        all_test_rows.extend(test_rows)
         manifest_subdatasets.append(
             {
                 "name": dataset_name,
                 "source_file": str(source_path.relative_to(BENCHMARK_ROOT)),
                 "seed": SEED,
                 "candidate_count": len(candidates),
-                "selected_count": len(sampled),
+                "selected_count": len(train_rows) + len(test_rows),
+                "split_counts": {
+                    "train": len(train_rows),
+                    "test": len(test_rows),
+                },
                 "selected_rows": [
                     {
                         "source_id": row["source_id"],
                         "removed_empty_labels": row["removed_empty_labels"],
+                        "split": "train",
                     }
-                    for row in sampled
+                    for row in train_rows
+                ]
+                + [
+                    {
+                        "source_id": row["source_id"],
+                        "removed_empty_labels": row["removed_empty_labels"],
+                        "split": "test",
+                    }
+                    for row in test_rows
                 ],
             }
         )
 
-    processed_rows: list[dict[str, Any]] = []
-    manifest_rows: list[dict[str, Any]] = []
-    for qid, row in enumerate(all_selected_rows, start=1):
-        processed_rows.append(
-            {
-                "qid": qid,
-                "question": row["question"],
-                "question_type": row["question_type"],
-                "options": row["options"],
-                "ground_truth": row["ground_truth"],
-            }
-        )
-        manifest_rows.append(
-            {
-                "qid": qid,
-                "source_dataset": row["source_dataset"],
-                "source_id": row["source_id"],
-                "removed_empty_labels": row["removed_empty_labels"],
-            }
-        )
+    train_processed_rows, train_manifest_rows = build_split_output(all_train_rows, split="train")
+    test_processed_rows, test_manifest_rows = build_split_output(all_test_rows, split="test")
+    manifest_rows = train_manifest_rows + test_manifest_rows
 
     manifest = {
         "dataset": "medagentsbench",
         "seed": SEED,
         "sample_size_per_dataset": SAMPLE_SIZE_PER_DATASET,
-        "selected_count": len(processed_rows),
+        "split_counts": {
+            "train": len(train_processed_rows),
+            "test": len(test_processed_rows),
+        },
+        "selected_count": len(train_processed_rows) + len(test_processed_rows),
         "subdatasets": manifest_subdatasets,
         "selected_rows": manifest_rows,
     }
 
-    write_jsonl(OUTPUT_PATH, processed_rows)
+    write_jsonl(TRAIN_OUTPUT_PATH, train_processed_rows)
+    write_jsonl(TEST_OUTPUT_PATH, test_processed_rows)
     write_json(MANIFEST_PATH, manifest)
 
 
