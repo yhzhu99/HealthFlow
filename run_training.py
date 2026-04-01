@@ -91,10 +91,11 @@ class TrainingRunner:
                         "backend": result.get("backend"),
                         "reasoning_model": result.get("reasoning_model"),
                         "memory_write_policy": result.get("memory_write_policy"),
-                        "verification_passed": result.get("verification_passed"),
+                        "evaluation_status": result.get("evaluation_status"),
+                        "evaluation_score": result.get("evaluation_score"),
                         "execution_time": result.get("execution_time", 0.0),
                         "memory_context_path": result.get("memory_context_path"),
-                        "verification_path": result.get("verification_path"),
+                        "evaluation_path": result.get("evaluation_path"),
                     }
                     self.results.append(training_result)
 
@@ -113,10 +114,11 @@ class TrainingRunner:
                         "backend": None,
                         "reasoning_model": None,
                         "memory_write_policy": None,
-                        "verification_passed": False,
+                        "evaluation_status": "failed",
+                        "evaluation_score": 0.0,
                         "execution_time": 0.0,
                         "memory_context_path": None,
-                        "verification_path": None,
+                        "evaluation_path": None,
                     }
                     self.results.append(error_result)
 
@@ -199,8 +201,8 @@ class TrainingRunner:
             if self.results
             else 0.0
         )
-        verifier_pass_rate = (
-            sum(1 for r in self.results if r.get("verification_passed")) / total_tasks * 100
+        evaluator_success_rate = (
+            sum(1 for r in self.results if r.get("evaluation_status") == "success") / total_tasks * 100
             if total_tasks > 0
             else 0.0
         )
@@ -212,7 +214,7 @@ class TrainingRunner:
             "success_rate": success_rate,
             "average_score": avg_score,
             "average_execution_time": avg_execution_time,
-            "verifier_pass_rate": verifier_pass_rate,
+            "evaluator_success_rate": evaluator_success_rate,
             "results": self.results
         }
 
@@ -229,7 +231,7 @@ class TrainingRunner:
         table.add_row("Failed", str(summary["failed_examples"]))
         table.add_row("Success Rate", f"{summary['success_rate']:.1f}%")
         table.add_row("Average Score", f"{summary['average_score']:.2f}/10.0")
-        table.add_row("Verifier Pass Rate", f"{summary['verifier_pass_rate']:.1f}%")
+        table.add_row("Evaluator Success Rate", f"{summary['evaluator_success_rate']:.1f}%")
         table.add_row("Average Execution Time", f"{summary['average_execution_time']:.2f}s")
 
         console.print("\n")
@@ -318,7 +320,7 @@ async def main_async(
         "success_rate": summary["success_rate"],
         "average_score": summary["average_score"],
         "average_execution_time": summary["average_execution_time"],
-        "verifier_pass_rate": summary["verifier_pass_rate"],
+        "evaluator_success_rate": summary["evaluator_success_rate"],
         "backend": system.config.active_executor_name,
         "reasoning_model": system.config.llm.model_name,
         "memory_write_policy": system.config.memory.write_policy,

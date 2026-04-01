@@ -95,6 +95,25 @@ class ExecutorConfig(BaseModel):
         return self
 
 
+class ToolDefinitionConfig(BaseModel):
+    surface: Literal["cli", "mcp"] = "cli"
+    description: str = ""
+    invocation_hint: str = ""
+
+
+class ToolsConfig(BaseModel):
+    entries: Dict[str, ToolDefinitionConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_entries(cls, value):
+        if value is None:
+            return {"entries": {}}
+        if isinstance(value, dict) and "entries" not in value:
+            return {"entries": value}
+        return value
+
+
 class LLMRoleConfig(BaseModel):
     planner: str | None = Field(default=None, description="Optional model key for the planning agent.")
     evaluator: str | None = Field(default=None, description="Optional model key for the evaluator agent.")
@@ -133,6 +152,7 @@ class HealthFlowConfig(BaseModel):
     llm_roles: LLMRoleConfig
     system: SystemConfig
     executor: ExecutorConfig
+    tools: ToolsConfig
     memory: MemoryConfig
     evaluation: EvaluationConfig
     logging: LoggingConfig
@@ -256,6 +276,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
             llm_roles=llm_roles,
             system=SystemConfig(**config_data.get("system", {})),
             executor=executor_config,
+            tools=ToolsConfig(**config_data.get("tools", {})),
             memory=MemoryConfig(**_normalize_memory_config(config_data.get("memory", {}))),
             evaluation=EvaluationConfig(**config_data.get("evaluation", {})),
             logging=LoggingConfig(**config_data.get("logging", {})),

@@ -26,6 +26,12 @@ class ValidationStatus(str, Enum):
     UNVERIFIED = "unverified"
     FAILED = "failed"
 
+
+class ExperiencePolarity(str, Enum):
+    RECOMMEND = "recommend"
+    AVOID = "avoid"
+
+
 class Experience(BaseModel):
     """
     Pydantic model representing a single piece of learned knowledge.
@@ -33,6 +39,10 @@ class Experience(BaseModel):
     """
     type: ExperienceType = Field(..., description="The type of the experience.")
     layer: MemoryLayer = Field(default=MemoryLayer.STRATEGY, description="Hierarchical memory layer.")
+    polarity: ExperiencePolarity = Field(
+        default=ExperiencePolarity.RECOMMEND,
+        description="Whether the memory is a positive recommendation or an avoidance cue.",
+    )
     category: str = Field(..., description="A classification for the experience, e.g., 'medical_data_cleaning', 'hipaa_compliance', 'model_evaluation'.")
     content: str = Field(..., description="The actual content of the experience, e.g., a rule, a piece of code, or a warning message.")
     source_task_id: str = Field(..., description="The ID of the task from which this experience was synthesized.")
@@ -50,6 +60,7 @@ class Experience(BaseModel):
     safety_critical: bool = Field(default=False, description="Whether the memory should override conflicting strategy memories for safety reasons.")
     verifier_supported: bool = Field(default=False, description="Whether the memory is backed by deterministic verifier evidence.")
     tags: List[str] = Field(default_factory=list, description="Additional retrieval tags.")
+    provenance: dict = Field(default_factory=dict, description="Free-form provenance metadata for audit and conflict resolution.")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Timestamp of when the experience was created.",
@@ -107,5 +118,7 @@ class MemoryRetrievalAudit(BaseModel):
 
 
 class MemoryRetrievalResult(BaseModel):
+    recommended_experiences: List[Experience] = Field(default_factory=list)
+    avoidance_experiences: List[Experience] = Field(default_factory=list)
     selected_experiences: List[Experience] = Field(default_factory=list)
     audit: MemoryRetrievalAudit

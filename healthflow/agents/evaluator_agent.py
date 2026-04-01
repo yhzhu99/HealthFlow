@@ -1,8 +1,10 @@
 import json
 from loguru import logger
 
+from ..core.contracts import EvaluationVerdict, ExecutionPlan
 from ..core.llm_provider import LLMProvider, LLMMessage
 from ..prompts.templates import get_prompt
+
 
 class EvaluatorAgent:
     """
@@ -18,23 +20,21 @@ class EvaluatorAgent:
     async def evaluate(
         self,
         user_request: str,
-        task_list: str,
+        plan: ExecutionPlan,
         execution_log: str,
-        verification_summary: str,
-        task_family: str = "general_analysis",
-        domain_focus: str = "general",
-    ) -> dict:
+        workspace_artifacts: list[str],
+        generated_answer: str,
+    ) -> EvaluationVerdict:
         """
-        Evaluates the task's code execution and returns a structured dictionary.
+        Evaluate an execution attempt and return a structured verdict.
         """
         system_prompt = get_prompt("evaluator_system")
         user_prompt = get_prompt("evaluator_user").format(
             user_request=user_request,
-            task_list=task_list,
+            plan_markdown=plan.to_markdown(),
             execution_log=execution_log,
-            verification_summary=verification_summary,
-            task_family=task_family,
-            domain_focus=domain_focus,
+            workspace_artifacts="\n".join(f"- {item}" for item in workspace_artifacts) or "- No workspace artifacts found.",
+            generated_answer=generated_answer or "No final answer was extracted.",
         )
         logger.info("Requesting code execution evaluation from LLM...")
         
@@ -44,7 +44,7 @@ class EvaluatorAgent:
         ]
         return await self._get_evaluation(messages)
 
-    async def _get_evaluation(self, messages: list[LLMMessage]) -> dict:
+    async def _get_evaluation(self, messages: list[LLMMessage]) -> EvaluationVerdict:
         """Helper to call LLM and parse evaluation JSON."""
         response = await self.llm_provider.generate(messages, json_mode=True)
         self.last_usage = response.usage
@@ -52,24 +52,27 @@ class EvaluatorAgent:
         self.last_estimated_cost_usd = response.estimated_cost_usd
         try:
             eval_data = json.loads(response.content)
-            # Basic validation
-            if "score" in eval_data and "feedback" in eval_data and "reasoning" in eval_data:
-                eval_data["usage"] = response.usage
-                eval_data["judge_model"] = response.model_name
-                eval_data["estimated_cost_usd"] = response.estimated_cost_usd
-                logger.info(f"Evaluation received successfully. Score: {eval_data['score']}")
-                return eval_data
-            else:
-                raise ValueError("Evaluation JSON is missing required keys: 'score', 'feedback', 'reasoning'.")
+            verdict = EvaluationVerdict(
+                **eval_data,
+                usage=response.usage,
+                judge_model=response.model_name,
+                estimated_cost_usd=response.estimated_cost_usd,
+            )
+            logger.info(f"Evaluation received successfully. Score: {verdict.score}")
+            return verdict
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to parse valid evaluation from LLM. Error: {e}")
             logger.debug(f"Invalid JSON response from LLM: {response.content}")
-            # Fallback to prevent system crash
-            return {
-                "score": 1.0,
-                "feedback": "Evaluation Agent failed. The LLM's evaluation response was malformed or empty.",
-                "reasoning": "Fallback due to a JSON parsing error.",
-                "usage": response.usage,
-                "judge_model": response.model_name,
-                "estimated_cost_usd": response.estimated_cost_usd,
-            }
+            return EvaluationVerdict(
+                status="failed",
+                score=1.0,
+                failure_type="evaluator_malformed_response",
+                feedback="Evaluation Agent failed. The LLM evaluation response was malformed or empty.",
+                repair_instructions=["Retry with a simpler execution path and ensure the final answer is explicit."],
+                retry_recommended=True,
+                memory_worthy_insights=["Malformed evaluator output should not be treated as a task success."],
+                reasoning="Fallback due to a JSON parsing error.",
+                usage=response.usage,
+                judge_model=response.model_name,
+                estimated_cost_usd=response.estimated_cost_usd,
+            )

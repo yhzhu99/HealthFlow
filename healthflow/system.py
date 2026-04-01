@@ -15,14 +15,11 @@ from .agents.evaluator_agent import EvaluatorAgent
 from .agents.meta_agent import MetaAgent
 from .agents.reflector_agent import ReflectorAgent
 from .core.config import HealthFlowConfig
+from .core.contracts import EvaluationVerdict
 from .core.llm_provider import create_llm_provider
-from .ehr import deliverable_guidance, detect_risk_findings, profile_workspace_data, verification_guidance
-from .experience.experience_models import RetrievalContext
 from .execution import ExecutionContext, create_executor_adapter
 from .experience.experience_manager import ExperienceManager
-from .tools import ToolBroker
-from .verification import WorkspaceVerifier
-from .verification.contracts import resolve_verification_contract
+from .tools import ToolCatalog
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -34,8 +31,8 @@ class DateTimeEncoder(json.JSONEncoder):
 
 class HealthFlowSystem:
     """
-    Backend-agnostic HealthFlow runtime for general analysis with conditional EHR-aware
-    safeguards, verifier gating, and hierarchical long-term memory.
+    Backend-agnostic HealthFlow runtime organized around a four-stage
+    Meta -> Executor -> Evaluator -> Reflector loop.
     """
 
     def __init__(self, config: HealthFlowConfig, experience_path: Path):
@@ -56,8 +53,7 @@ class HealthFlowSystem:
         self.evaluator = EvaluatorAgent(provider_for("evaluator"))
         self.reflector = ReflectorAgent(provider_for("reflector"))
         self.executor = create_executor_adapter(config.active_executor_name, config.active_executor)
-        self.tool_broker = ToolBroker()
-        self.verifier = WorkspaceVerifier()
+        self.tool_catalog = ToolCatalog.from_config(config.active_executor_name, config.tools)
 
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -122,10 +118,11 @@ class HealthFlowSystem:
                 "cost_summary": result.get("cost_summary"),
                 "cost_analysis_path": result.get("cost_analysis_path"),
                 "execution_time": execution_time,
-                "verification_passed": result.get("verification_passed", False),
+                "evaluation_status": result.get("evaluation_status"),
                 "success": result.get("success", False),
                 "log_path": result.get("log_path"),
                 "prompt_path": result.get("prompt_path"),
+                "evaluation_path": result.get("evaluation_path"),
             },
         )
         return result
@@ -139,26 +136,11 @@ class HealthFlowSystem:
         spinner: Optional[Spinner],
     ) -> Dict[str, Any]:
         if spinner and live:
-            spinner.text = "Profiling inputs and retrieving memory..."
+            spinner.text = "Retrieving memory and preparing the planner..."
 
-        data_profile = profile_workspace_data(task_workspace, user_request)
-        risk_findings = detect_risk_findings(user_request, data_profile)
-        verification_contract = resolve_verification_contract(data_profile.task_family, data_profile.domain_focus)
-        tool_bundle = self.tool_broker.select_bundle(data_profile.task_family, data_profile)
-        suggested_deliverables = deliverable_guidance(data_profile.task_family, data_profile.domain_focus)
-        verifier_guidance = verification_guidance(data_profile.task_family, data_profile.domain_focus)
-        retrieval_result = await self.experience_manager.retrieve_experiences(
-            user_request,
-            retrieval_context=RetrievalContext(
-                task_family=data_profile.task_family,
-                domain_focus=data_profile.domain_focus,
-                dataset_signature=data_profile.dataset_signature,
-                risk_findings=[item.to_bullet() for item in risk_findings],
-                verification_targets=verification_contract.verification_targets,
-            ),
-        )
-        retrieved_experiences = retrieval_result.selected_experiences
-        memory_summary = self._summarize_retrieval_audit(retrieval_result.audit)
+        retrieval_result = await self.experience_manager.retrieve_experiences(user_request)
+        recommended_experiences = retrieval_result.recommended_experiences
+        avoidance_experiences = retrieval_result.avoidance_experiences
         self._write_json(
             task_workspace / "memory_context.json",
             retrieval_result.audit.model_dump(mode="json"),
@@ -167,63 +149,57 @@ class HealthFlowSystem:
         full_history: Dict[str, Any] = {
             "task_id": task_id,
             "user_request": user_request,
-            "task_family": data_profile.task_family,
-            "domain_focus": data_profile.domain_focus,
-            "dataset_signature": data_profile.dataset_signature,
             "backend": self.config.active_executor_name,
             "reasoning_model": self.config.llm_config_for_role("planner").model_name,
             "llm_role_models": self._role_model_names(),
             "memory_write_policy": self.config.memory.write_policy,
-            "data_profile": data_profile.to_markdown(),
-            "risk_findings": [item.to_bullet() for item in risk_findings],
-            "tool_bundle": tool_bundle,
-            "deliverable_guidance": suggested_deliverables,
-            "verification_guidance": verifier_guidance,
-            "verification_targets": verification_contract.verification_targets,
+            "available_tools": self.tool_catalog.names(),
             "memory_context_path": str(task_workspace / "memory_context.json"),
             "memory_retrieval": retrieval_result.audit.model_dump(mode="json"),
-            "retrieved_experiences": [exp.model_dump() for exp in retrieved_experiences],
+            "recommended_experiences": [exp.model_dump(mode="json") for exp in recommended_experiences],
+            "avoidance_experiences": [exp.model_dump(mode="json") for exp in avoidance_experiences],
             "attempts": [],
         }
 
         is_success = False
-        verification_passed = False
         final_answer = "No answer generated."
         final_summary = "Task failed to complete within the allowed attempts."
+        final_verdict = EvaluationVerdict(
+            status="failed",
+            score=0.0,
+            failure_type="not_started",
+            feedback="The task did not start.",
+            repair_instructions=[],
+            retry_recommended=False,
+            memory_worthy_insights=[],
+            reasoning="No attempt was executed.",
+        )
         reflection_usage = None
 
         for attempt_num in range(1, self.config.system.max_attempts + 1):
-            previous_feedback = full_history["attempts"][-1]["evaluation"]["feedback"] if attempt_num > 1 else None
+            previous_feedback = self._feedback_from_attempt(full_history["attempts"][-1]) if attempt_num > 1 else None
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Planning..."
 
-            task_list_md = await self.meta_agent.generate_plan(
+            plan = await self.meta_agent.generate_plan(
                 user_request=user_request,
-                experiences=retrieved_experiences,
-                task_family=data_profile.task_family,
-                domain_focus=data_profile.domain_focus,
-                data_profile=data_profile.to_markdown(),
-                risk_checks=[item.to_bullet() for item in risk_findings],
-                tool_bundle=tool_bundle,
-                deliverable_guidance=suggested_deliverables,
+                recommended_experiences=recommended_experiences,
+                avoidance_experiences=avoidance_experiences,
+                available_tools=self.tool_catalog.names(),
                 previous_feedback=previous_feedback,
             )
             planning_usage = self._capture_agent_usage(self.meta_agent)
+            plan_markdown = plan.to_markdown()
             task_list_path = task_workspace / f"task_list_v{attempt_num}.md"
-            task_list_path.write_text(task_list_md, encoding="utf-8")
+            task_list_path.write_text(plan_markdown, encoding="utf-8")
 
             execution_context = ExecutionContext(
                 user_request=user_request,
-                task_family=data_profile.task_family,
-                data_profile=data_profile.to_markdown(),
-                domain_focus=data_profile.domain_focus,
-                risk_checks=[item.to_bullet() for item in risk_findings],
-                tool_bundle=tool_bundle,
-                deliverable_guidance=suggested_deliverables,
-                plan_markdown=task_list_md,
+                plan=plan,
+                available_tools=self.tool_catalog,
+                recommended_memory=self._format_memory_lines(recommended_experiences),
+                avoidance_memory=self._format_memory_lines(avoidance_experiences),
                 prior_feedback=previous_feedback,
-                memory_summary=memory_summary,
-                verification_guidance=verifier_guidance,
             )
 
             if spinner and live:
@@ -233,28 +209,25 @@ class HealthFlowSystem:
                 task_workspace,
             )
 
-            verification = self.verifier.verify(
-                task_workspace,
-                data_profile.task_family,
-                execution_result.log,
-                data_profile,
-            )
+            generated_answer = self._extract_answer_from_workspace(task_workspace, execution_result.log, user_request)
+            workspace_artifacts = self._workspace_artifact_paths(task_workspace)
 
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Evaluating..."
-            evaluation = await self.evaluator.evaluate(
+            verdict = await self.evaluator.evaluate(
                 user_request=user_request,
-                task_list=task_list_md,
+                plan=plan,
                 execution_log=execution_result.log,
-                verification_summary=verification.summary(),
-                task_family=data_profile.task_family,
-                domain_focus=data_profile.domain_focus,
+                workspace_artifacts=workspace_artifacts,
+                generated_answer=generated_answer,
             )
             evaluation_usage = self._capture_agent_usage(self.evaluator)
+            final_verdict = verdict
 
             attempt_history = {
                 "attempt": attempt_num,
-                "task_list": task_list_md,
+                "plan": plan.model_dump(mode="json"),
+                "plan_markdown": plan_markdown,
                 "planning": planning_usage,
                 "execution": {
                     "success": execution_result.success,
@@ -271,38 +244,40 @@ class HealthFlowSystem:
                     "usage": execution_result.usage,
                     "telemetry": execution_result.telemetry,
                 },
-                "verification": {
-                    "passed": verification.passed,
-                    "checks": [check.to_dict() for check in verification.checks],
-                    "artifact_paths": verification.artifact_paths,
+                "artifacts": {
+                    "workspace_paths": workspace_artifacts,
+                    "generated_answer": generated_answer,
                 },
                 "gate": {
                     "execution_ok": execution_result.success,
-                    "evaluation_threshold_ok": evaluation["score"] >= self.config.evaluation.success_threshold,
-                    "verification_blocking_ok": verification.blocking_passed,
+                    "evaluation_threshold_ok": verdict.score >= self.config.evaluation.success_threshold,
+                    "verdict_success": verdict.status == "success",
+                    "retry_recommended": verdict.retry_recommended,
                 },
-                "evaluation": evaluation,
+                "evaluation": verdict.model_dump(mode="json"),
                 "evaluation_meta": evaluation_usage,
             }
             full_history["attempts"].append(attempt_history)
 
-            verification_passed = verification.blocking_passed
-            passed_threshold = evaluation["score"] >= self.config.evaluation.success_threshold
-            if execution_result.success and passed_threshold and verification.blocking_passed:
+            if execution_result.success and verdict.is_success(self.config.evaluation.success_threshold):
                 is_success = True
-                final_answer = self._extract_answer_from_workspace(task_workspace, execution_result.log, user_request)
+                final_answer = generated_answer
                 final_summary = (
                     "Task completed successfully. "
-                    f"Verification: {verification.summary()} "
-                    f"Evaluation: {evaluation.get('reasoning', 'N/A')}"
+                    f"Evaluator verdict: {verdict.feedback} "
+                    f"Reasoning: {verdict.reasoning or 'N/A'}"
                 )
                 break
 
+            final_answer = generated_answer
             final_summary = (
-                f"Attempt {attempt_num} failed. Verification: {verification.summary()} "
-                f"Feedback: {evaluation['feedback']}"
+                f"Attempt {attempt_num} failed. "
+                f"Failure type: {verdict.failure_type}. "
+                f"Feedback: {verdict.feedback}"
             )
             logger.warning("[{}] Attempt {} failed: {}", task_id, attempt_num, final_summary)
+            if not verdict.retry_recommended:
+                break
 
         should_write_memory = self.config.memory.write_policy != "freeze"
         if should_write_memory:
@@ -310,12 +285,12 @@ class HealthFlowSystem:
                 spinner.text = "Synthesizing memory..."
             new_experiences = await self.reflector.synthesize_experience(
                 full_history,
-                verified=is_success and verification_passed,
+                final_verdict=final_verdict,
             )
             reflection_usage = self._capture_agent_usage(self.reflector)
             if new_experiences:
                 await self.experience_manager.save_experiences(new_experiences)
-                full_history["new_experiences"] = [exp.model_dump() for exp in new_experiences]
+                full_history["new_experiences"] = [exp.model_dump(mode="json") for exp in new_experiences]
         if reflection_usage:
             full_history["reflection"] = reflection_usage
 
@@ -323,8 +298,8 @@ class HealthFlowSystem:
         self._write_json(history_path, full_history)
         if full_history["attempts"]:
             self._write_json(
-                task_workspace / "verification.json",
-                full_history["attempts"][-1]["verification"],
+                task_workspace / "evaluation.json",
+                full_history["attempts"][-1]["evaluation"],
             )
         last_execution = full_history["attempts"][-1]["execution"] if full_history["attempts"] else {}
         usage_summary = self._summarize_run_usage(full_history["attempts"], reflection_usage)
@@ -336,9 +311,8 @@ class HealthFlowSystem:
             "success": is_success,
             "final_summary": final_summary,
             "answer": final_answer,
-            "task_family": data_profile.task_family,
-            "dataset_signature": data_profile.dataset_signature,
-            "verification_passed": verification_passed,
+            "evaluation_status": final_verdict.status,
+            "evaluation_score": final_verdict.score,
             "memory_write_policy": self.config.memory.write_policy,
             "backend_version": last_execution.get("backend_version"),
             "executor_metadata": last_execution.get("executor_metadata"),
@@ -347,7 +321,7 @@ class HealthFlowSystem:
             "cost_analysis": cost_analysis,
             "log_path": full_history["attempts"][-1]["execution"]["log_path"] if full_history["attempts"] else None,
             "prompt_path": full_history["attempts"][-1]["execution"]["prompt_path"] if full_history["attempts"] else None,
-            "verification_path": str(task_workspace / "verification.json"),
+            "evaluation_path": str(task_workspace / "evaluation.json"),
             "memory_context_path": str(task_workspace / "memory_context.json"),
         }
 
@@ -386,6 +360,40 @@ class HealthFlowSystem:
             "Execution completed. Review the workspace artifacts for details. "
             f"The original request was: '{user_request}'"
         )
+
+    def _workspace_artifact_paths(self, task_workspace: Path) -> list[str]:
+        artifact_paths: list[str] = []
+        for path in sorted(task_workspace.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                artifact_paths.append(str(path.relative_to(task_workspace)))
+            except ValueError:
+                artifact_paths.append(str(path))
+        return artifact_paths
+
+    def _format_memory_lines(self, experiences: list[Any]) -> list[str]:
+        lines: list[str] = []
+        for exp in experiences:
+            layer = exp.layer.value if hasattr(exp.layer, "value") else str(exp.layer)
+            validation_status = (
+                exp.validation_status.value
+                if hasattr(exp.validation_status, "value")
+                else str(exp.validation_status)
+            )
+            lines.append(f"[{layer}/{validation_status}] {exp.category}: {exp.content}")
+        return lines
+
+    def _feedback_from_attempt(self, attempt: dict[str, Any]) -> str | None:
+        if not attempt:
+            return None
+        evaluation = attempt.get("evaluation", {})
+        feedback = evaluation.get("feedback")
+        repairs = evaluation.get("repair_instructions", [])
+        parts = [feedback] if feedback else []
+        if repairs:
+            parts.append("Repair instructions: " + "; ".join(repairs))
+        return "\n".join(parts) if parts else None
 
     def _summarize_retrieval_audit(self, audit: dict | Any) -> str:
         selected_entries = getattr(audit, "selected", None)

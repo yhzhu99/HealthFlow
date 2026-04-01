@@ -230,10 +230,11 @@ async def run_benchmark_async(
                     "backend": system.config.active_executor_name,
                     "reasoning_model": system.config.llm_config_for_role("planner").model_name,
                     "memory_write_policy": system.config.memory.write_policy,
-                    "verification_passed": False,
+                    "evaluation_status": "failed",
+                    "evaluation_score": 0.0,
                     "execution_time": 0.0,
                     "log_path": None,
-                    "verification_path": None,
+                    "evaluation_path": None,
                     "memory_context_path": None,
                     "run_result_path": None,
                     "error": str(exc),
@@ -249,7 +250,6 @@ async def run_benchmark_async(
                 "generated_answer": result.get("answer", ""),
                 "success": result.get("success", False),
                 "score": score,
-                "verification_passed": result.get("verification_passed", False),
                 "backend": result.get("backend"),
                 "backend_version": result.get("backend_version"),
                 "executor_metadata": result.get("executor_metadata"),
@@ -261,7 +261,9 @@ async def run_benchmark_async(
                 "execution_time": result.get("execution_time", 0.0),
                 "workspace_path": result.get("workspace_path"),
                 "log_path": result.get("log_path"),
-                "verification_path": result.get("verification_path"),
+                "evaluation_status": result.get("evaluation_status"),
+                "evaluation_score": result.get("evaluation_score"),
+                "evaluation_path": result.get("evaluation_path"),
                 "memory_context_path": result.get("memory_context_path"),
                 "cost_analysis_path": result.get("cost_analysis_path"),
                 "run_result_path": result.get("run_result_path"),
@@ -282,7 +284,7 @@ async def run_benchmark_async(
             handle.write(json.dumps(result, ensure_ascii=False) + "\n")
 
     successful_tasks = sum(1 for item in results if item["success"])
-    verifier_passed = sum(1 for item in results if item["verification_passed"])
+    evaluator_successes = sum(1 for item in results if item.get("evaluation_status") == "success")
     average_score = sum(item["score"] for item in results) / len(results) if results else 0.0
     average_execution_time = sum(item["execution_time"] for item in results) / len(results) if results else 0.0
     cost_totals = aggregate_cost_totals(results)
@@ -290,9 +292,9 @@ async def run_benchmark_async(
         "dataset_name": dataset_name,
         "total_tasks": len(tasks),
         "successful_tasks": successful_tasks,
-        "verifier_passed_tasks": verifier_passed,
+        "evaluator_successful_tasks": evaluator_successes,
         "success_rate": successful_tasks / len(tasks) if tasks else 0,
-        "verifier_pass_rate": verifier_passed / len(tasks) if tasks else 0,
+        "evaluator_success_rate": evaluator_successes / len(tasks) if tasks else 0,
         "average_score": average_score,
         "average_execution_time": average_execution_time,
         "backend": system.config.active_executor_name,
@@ -315,7 +317,7 @@ async def run_benchmark_async(
             f"[bold green]Benchmarking Complete[/bold green]\n\n"
             f"Total tasks: {len(tasks)}\n"
             f"Successful: {successful_tasks}\n"
-            f"Verifier passed: {verifier_passed}\n"
+            f"Evaluator successful: {evaluator_successes}\n"
             f"Success rate: {summary['success_rate']:.1%}\n"
             f"Average score: {average_score:.2f}\n"
             f"Average execution time: {average_execution_time:.2f}s\n\n"
