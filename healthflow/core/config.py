@@ -73,6 +73,8 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
                 "--print",
                 "--output-format",
                 "text",
+                "--effort",
+                "high",
             ],
             env={
                 "ANTHROPIC_BASE_URL": "https://zenmux.ai/api/anthropic",
@@ -96,6 +98,10 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
                 'model_provider="$provider"',
                 "-c",
                 'model_providers.$provider={name="ZenMux", base_url="$provider_base_url", env_key="$provider_api_key_env", wire_api="responses"}',
+                "-c",
+                'model_reasoning_effort="high"',
+                "-c",
+                'model_reasoning_summary="detailed"',
             ],
             model_flag="-m",
             provider="zenmux",
@@ -105,7 +111,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
         ),
         "opencode": BackendCLIConfig(
             binary="opencode",
-            args=["run"],
+            args=["run", "--variant", "high", "--thinking"],
             model_flag="-m",
             model_template="$provider/$model",
             provider="zenmux",
@@ -114,7 +120,7 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
         ),
         "pi": BackendCLIConfig(
             binary="pi",
-            args=["--print"],
+            args=["--print", "--thinking", "high"],
             model_flag="--model",
             provider_flag="--provider",
             provider="zenmux",

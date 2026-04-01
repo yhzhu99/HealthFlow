@@ -50,7 +50,7 @@ model_name = "model"
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
-            self.assertEqual(config.active_executor.args, ["run"])
+            self.assertEqual(config.active_executor.args, ["run", "--variant", "high", "--thinking"])
             self.assertEqual(config.active_executor.prompt_mode, "append")
             self.assertEqual(config.active_executor.model, "model")
 
@@ -93,6 +93,8 @@ active_backend = "codex"
             self.assertIsInstance(executor, CodexExecutor)
             self.assertEqual(config.active_executor.binary, "codex")
             self.assertEqual(config.active_executor.prompt_mode, "stdin")
+            self.assertIn('model_reasoning_effort="high"', config.active_executor.arg_templates)
+            self.assertIn('model_reasoning_summary="detailed"', config.active_executor.arg_templates)
 
     def test_custom_configured_backend_uses_generic_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:

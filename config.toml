@@ -49,7 +49,7 @@ active_backend = "opencode"
 
 [executor.backends.claude_code]
 binary = "claude"
-args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text"]
+args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "high"]
 env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KEY = "${ZENMUX_API_KEY}", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
 model_flag = "--model"
 prompt_mode = "append"
@@ -58,7 +58,7 @@ timeout_seconds = 1800
 [executor.backends.codex]
 binary = "codex"
 args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
-arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}"]
+arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"high\"", "-c", "model_reasoning_summary=\"detailed\""]
 model_flag = "-m"
 provider = "zenmux"
 provider_base_url = "https://zenmux.ai/api/v1"
@@ -68,7 +68,7 @@ timeout_seconds = 1800
 
 [executor.backends.opencode]
 binary = "opencode"
-args = ["run"]
+args = ["run", "--variant", "high", "--thinking"]
 model_flag = "-m"
 model_template = "$provider/$model"
 provider = "zenmux"
@@ -78,7 +78,7 @@ timeout_seconds = 1800
 
 [executor.backends.pi]
 binary = "pi"
-args = ["--print"]
+args = ["--print", "--thinking", "high"]
 model_flag = "--model"
 provider_flag = "--provider"
 provider = "zenmux"

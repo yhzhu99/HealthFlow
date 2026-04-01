@@ -153,12 +153,20 @@ If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_m
 
 By default, the active executor inherits the same `model_name` as the selected `--active-llm`. Override the executor-side model only if you explicitly want the planner/evaluator model and the backend model to diverge for an experiment.
 
+The built-in executor defaults also enable reasoning-oriented modes out of the box:
+- `opencode`: `--variant high --thinking`
+- `codex`: `model_reasoning_effort="high"` and `model_reasoning_summary="detailed"`
+- `pi`: `--thinking high`
+- `claude_code`: `--effort high`
+
+These are still ordinary backend settings in `config.toml`, so you can override them per executor for large experiment sweeps.
+
 Example executor configuration with ZenMux-backed defaults:
 
 ```toml
 [executor.backends.opencode]
 binary = "opencode"
-args = ["run"]
+args = ["run", "--variant", "high", "--thinking"]
 model_flag = "-m"
 model_template = "$provider/$model"
 provider = "zenmux"
@@ -166,7 +174,7 @@ provider = "zenmux"
 [executor.backends.codex]
 binary = "codex"
 args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
-arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}"]
+arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"high\"", "-c", "model_reasoning_summary=\"detailed\""]
 model_flag = "-m"
 provider = "zenmux"
 provider_base_url = "https://zenmux.ai/api/v1"
@@ -174,7 +182,7 @@ provider_api_key_env = "ZENMUX_API_KEY"
 
 [executor.backends.pi]
 binary = "pi"
-args = ["--print"]
+args = ["--print", "--thinking", "high"]
 provider_flag = "--provider"
 model_flag = "--model"
 provider = "zenmux"
@@ -184,7 +192,7 @@ provider_api_key_env = "ZENMUX_API_KEY"
 
 [executor.backends.claude_code]
 binary = "claude"
-args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text"]
+args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "high"]
 env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KEY = "${ZENMUX_API_KEY}", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
 model_flag = "--model"
 ```
