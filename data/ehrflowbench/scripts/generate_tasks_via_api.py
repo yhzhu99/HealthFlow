@@ -17,7 +17,8 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 DEFAULT_MODEL_KEY = "openai/gpt-5.4"
 DEFAULT_TASK_COUNT = 2
-DEFAULT_MAX_OUTPUT_TOKENS = 6000
+DEFAULT_MAX_OUTPUT_TOKENS = 8000
+DEFAULT_MAX_REASONING_TOKENS = 6000
 
 
 def find_project_root() -> Path:
@@ -227,7 +228,7 @@ def model_to_jsonable(value: Any) -> Any:
 
 
 def encode_pdf_as_base64(pdf_path: Path) -> str:
-    encoded = base64.b64encode(pdf_path.read_bytes()).decode("ascii")
+    encoded = base64.b64encode(pdf_path.read_bytes()).decode("utf-8")
     return f"data:application/pdf;base64,{encoded}"
 
 
@@ -239,7 +240,7 @@ def call_generation_api(
     paper_paths: PaperPaths,
     max_output_tokens: int,
 ) -> tuple[GeneratedTaskBundle, dict[str, Any]]:
-    response = client.responses.parse(
+    response = client.responses.create(
         model=llm_config.model_name,
         input=[
             {
@@ -254,7 +255,10 @@ def call_generation_api(
                 ],
             }
         ],
-        reasoning={"effort": llm_config.reasoning_effort},
+        reasoning={
+            "effort": llm_config.reasoning_effort,
+            "max_tokens": DEFAULT_MAX_REASONING_TOKENS,
+        },
         text_format=GeneratedTaskBundle,
         max_output_tokens=max_output_tokens,
         store=False,
