@@ -22,6 +22,33 @@ app = typer.Typer(
 )
 console = Console()
 
+
+def _chat_panel_style(result: dict) -> tuple[str, str]:
+    success = result.get("success", False)
+    cancelled = result.get("cancelled", False)
+    if cancelled:
+        return "[bold yellow]Run Cancelled[/bold yellow]", "yellow"
+    if success:
+        return "[bold green]HealthFlow[/bold green]", "green"
+    return "[bold red]Run Failed[/bold red]", "red"
+
+
+def _display_chat_result(result: dict) -> None:
+    success = result.get("success", False)
+    cancelled = result.get("cancelled", False)
+    answer = str(result.get("answer") or "").strip() or "No answer available."
+    title, border_style = _chat_panel_style(result)
+
+    console.print(Panel(answer, title=title, border_style=border_style, expand=False))
+    if cancelled:
+        console.print(f"[yellow]{result.get('final_summary', 'Task cancelled.')}[/yellow]")
+    elif not success:
+        console.print(f"[red]{result.get('final_summary', 'Task failed.')}[/red]")
+
+    status = "cancelled" if cancelled else ("success" if success else "failed")
+    console.print(f"[dim]{status} · {result.get('execution_time', 0):.2f}s[/dim]")
+
+
 def _display_task_result(result: dict, *, verbose: bool = False, chat_mode: bool = False):
     """Display a task result using either a concise or detailed layout."""
     success = result.get("success", False)
@@ -30,12 +57,7 @@ def _display_task_result(result: dict, *, verbose: bool = False, chat_mode: bool
 
     if not verbose:
         if chat_mode:
-            if answer:
-                console.print(answer)
-            if cancelled:
-                console.print(f"[yellow]{result.get('final_summary', 'Task cancelled.')}[/yellow]")
-            elif not success:
-                console.print(f"[red]{result.get('final_summary', 'Task failed.')}[/red]")
+            _display_chat_result(result)
             return
 
         if answer:

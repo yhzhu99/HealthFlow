@@ -45,6 +45,7 @@ class CliOutputTests(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Hi! I'm HealthFlow.", result.output)
+        self.assertIn("0.12s", result.output)
         self.assertNotIn("ANSWER:", result.output)
         self.assertNotIn("Usage Summary", result.output)
         self.assertNotIn("Starting HealthFlow Task", result.output)
