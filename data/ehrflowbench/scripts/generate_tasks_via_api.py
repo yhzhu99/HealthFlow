@@ -15,7 +15,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
-DEFAULT_MODEL_KEY = "openai/gpt-5.4"
+DEFAULT_MODEL_KEY = "openai/gpt-5.4:laozhang"
 DEFAULT_TASK_COUNT = 2
 DEFAULT_MAX_OUTPUT_TOKENS = 6000
 
@@ -62,6 +62,7 @@ class LLMConfig:
     api_key_env: str
     base_url: str
     model_name: str
+    reasoning_effort: str
     input_cost_per_million_tokens: float | None
     output_cost_per_million_tokens: float | None
 
@@ -96,6 +97,7 @@ def load_llm_config(config_path: Path, model_key: str) -> LLMConfig:
         api_key_env=model_payload["api_key_env"],
         base_url=model_payload["base_url"],
         model_name=model_payload["model_name"],
+        reasoning_effort=model_payload["reasoning_effort"],
         input_cost_per_million_tokens=model_payload.get("input_cost_per_million_tokens"),
         output_cost_per_million_tokens=model_payload.get("output_cost_per_million_tokens"),
     )
@@ -252,6 +254,7 @@ def call_generation_api(
                 ],
             }
         ],
+        reasoning={"effort": llm_config.reasoning_effort},
         text_format=GeneratedTaskBundle,
         max_output_tokens=max_output_tokens,
         store=False,
