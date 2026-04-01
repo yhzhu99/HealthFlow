@@ -3,7 +3,7 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2508.02621-b31b1b.svg)](https://arxiv.org/abs/2508.02621)
 [![Project Website](https://img.shields.io/badge/Project%20Website-HealthFlow-0066cc.svg)](https://healthflow-agent.netlify.app)
 
-HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, and long-term reflective memory. Benchmark reproducibility code, deterministic evaluators, and EHR-specific overlays still exist in the repository, but they are treated as outer-layer evaluation or specialization modules rather than core framework stages.
+HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task reporting, and long-term reflective memory. Dataset preparation and benchmark evaluation workflows can still live in the repository under `data/`, but they are intentionally decoupled from the `healthflow/` runtime package.
 
 - structured `Meta` planning with explicit positive and avoidance memory
 - `Executor` as a CodeAct runtime over pluggable tool surfaces
@@ -43,7 +43,7 @@ Runtime state lives under `workspace/` by default:
 - task artifacts: `workspace/tasks/<task_id>/`
 - long-term memory: `workspace/memory/experience.jsonl`
 
-Benchmark datasets remain under `data/`.
+Dataset preparation and benchmark evaluation assets remain under `data/`; they are outside the `healthflow/` package boundary.
 
 Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 
@@ -58,13 +58,14 @@ Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 
 These files are the main source of truth for rebuttal-oriented inspection.
 
-## Core Runtime vs Outer Layers
+## Runtime Boundary
 
 - **Core runtime**: the MERF loop in `healthflow/system.py`.
-- **Evaluation layer**: deterministic benchmark evaluators, artifact comparators, and benchmark rebuild logic under `healthflow/benchmarks/` and `data/`.
-- **Domain specialization layer**: EHR-specific profiling, risk logic, and verification helpers under `healthflow/ehr/` and `healthflow/verification/`.
+- **Task-level reporting and verification**: per-task report generation plus artifact/report checks under `healthflow/reporting/` and `healthflow/verification/`.
+- **Domain specialization**: EHR-specific helpers under `healthflow/ehr/`.
+- **Dataset prep and benchmark evaluation**: repository-level workflows under `data/`, intentionally decoupled from `healthflow/`.
 
-The current codebase keeps the outer layers available, but the framework itself no longer depends on them in order to run.
+The framework package is focused on taking a task, executing it, improving task success rate across attempts, and writing inspectable artifacts and reports for each task run.
 
 ## Memory Behavior
 
@@ -182,7 +183,7 @@ python run_healthflow.py run \
   --active-executor opencode
 ```
 
-The same CLI can also run EHR-focused prompts used in the paper, benchmark rebuilds, and arbitrary external-CLI-driven workflows.
+The same CLI can also run EHR-focused prompts used in the paper and arbitrary external-CLI-driven workflows.
 
 ### Interactive Mode
 
@@ -204,12 +205,11 @@ python run_training.py data/train_set.jsonl ehrflow_train \
 
 ### Benchmarking
 
-Benchmarking uses the same task JSONL shape and the same core runtime as interactive or single-task execution.
-The repository does not vendor benchmark `raw/` or `processed/` data anymore, so rebuild or fetch the local dataset artifacts first.
+Benchmarking is just batch task execution over the same JSONL task shape used elsewhere in the runtime.
+Dataset construction, benchmark-specific preparation, and benchmark-side evaluation are not part of the `healthflow/` package and should be handled under `data/` or other repo-level tooling.
 
 ```bash
-python data/ehrflowbench/scripts/rebuild.py
-python run_benchmark.py data/ehrflowbench/processed/eval.jsonl ehrflow_eval \
+python run_benchmark.py path/to/tasks.jsonl experiment_name \
   --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor opencode
 ```
@@ -241,11 +241,12 @@ By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entr
 
 - `run_healthflow.py`: single-task and interactive CLI
 - `run_training.py`: dataset-style batch runner over task JSONL files
-- `run_benchmark.py`: benchmark runner over task JSONL files
+- `run_benchmark.py`: batch task runner over task JSONL files
 - `healthflow/system.py`: orchestration loop
 - `healthflow/execution/`: executor layer
 - `healthflow/ehr/`: optional EHR specialization helpers kept outside the core loop
-- `healthflow/verification/`: optional deterministic evaluation helpers
+- `healthflow/verification/`: task-level artifact and report verification helpers
+- `healthflow/reporting/`: post-run report generation helpers
 - `healthflow/experience/`: hierarchical memory and retrieval audit
 - `healthflow/tools/`: tool catalog and optional tool-surface metadata
 

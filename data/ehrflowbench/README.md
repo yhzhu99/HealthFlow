@@ -1,7 +1,7 @@
 # EHRFlowBench
 
 This benchmark is rebuilt from extracted paper tasks into reproducible local-data proxy tasks.
-The repository keeps the rebuild code and lightweight metadata, but `raw/`, `processed/`, and `scripts/upstream/extract_task/assets/` are local-only and gitignored.
+Dataset-specific preparation and curation workflows belong under `data/ehrflowbench/` and are intentionally decoupled from the `healthflow/` runtime package. `raw/`, `processed/`, and `scripts/upstream/extract_task/assets/` are local-only and gitignored.
 
 The canonical grading source of truth is:
 
@@ -33,14 +33,12 @@ Dataset sources described in the paper:
 
 - `python data/ehrflowbench/scripts/prepare_raw.py`
 - `python data/ehrflowbench/scripts/prepare_raw.py --include-markdowns`
-- `python data/ehrflowbench/scripts/rebuild.py`
-- `python data/ehrflowbench/scripts/evaluate.py --dataset-path <run_dir> --output-dir <eval_dir>`
 
-`prepare_raw.py` always refreshes selected paper IDs and extracted task files. It refreshes `raw/papers/paper_titles.csv` and can materialize `raw/papers/markdowns/` only when the optional upstream markdown mirror is available locally.
+`prepare_raw.py` refreshes selected paper IDs and extracted task files. It also refreshes `raw/papers/paper_titles.csv` and can materialize `raw/papers/markdowns/` when the optional upstream markdown mirror is available locally. Other benchmark build/evaluation flows should stay under `data/` and evolve independently from `healthflow/`.
 
 ## Processed
 
-These outputs are produced locally by the rebuild scripts and are not committed to git.
+These outputs are produced locally by dataset-specific workflow scripts and are not committed to git.
 
 - `processed/eval.jsonl`
 - `processed/train.jsonl`
