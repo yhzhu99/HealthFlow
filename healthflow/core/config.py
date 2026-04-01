@@ -18,6 +18,10 @@ class LLMProviderConfig(BaseModel):
     )
     base_url: str = Field(..., description="Base URL for the LLM API.")
     model_name: str = Field(..., description="Model name to use.")
+    executor_model_name: str | None = Field(
+        default=None,
+        description="Optional model name to inherit into executor backends when it differs from the internal LLM model ID.",
+    )
     timeout: int = Field(180, description="Request timeout in seconds.")
     input_cost_per_million_tokens: float | None = Field(
         default=None,
@@ -103,7 +107,9 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
                 "-c",
                 'model_reasoning_summary="detailed"',
             ],
+            model="openai/gpt-5.4",
             model_flag="-m",
+            inherit_active_llm=False,
             provider="zenmux",
             provider_base_url="https://zenmux.ai/api/v1",
             provider_api_key_env="ZENMUX_API_KEY",
@@ -214,7 +220,7 @@ class HealthFlowConfig(BaseModel):
         active_executor = self.executor.backends[self.active_executor_name]
         resolved_model = active_executor.model
         if resolved_model is None and active_executor.inherit_active_llm:
-            resolved_model = self.llm.model_name
+            resolved_model = self.llm.executor_model_name or self.llm.model_name
         return active_executor.model_copy(update={"model": resolved_model})
 
     def llm_config_for_role(self, role: str) -> LLMProviderConfig:

@@ -93,6 +93,7 @@ active_backend = "codex"
             self.assertIsInstance(executor, CodexExecutor)
             self.assertEqual(config.active_executor.binary, "codex")
             self.assertEqual(config.active_executor.prompt_mode, "stdin")
+            self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
             self.assertIn('model_reasoning_effort="high"', config.active_executor.arg_templates)
             self.assertIn('model_reasoning_summary="detailed"', config.active_executor.arg_templates)
 
@@ -138,6 +139,26 @@ model_name = "openai/gpt-5.4"
 
             self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
 
+    def test_codex_default_model_is_pinned_to_gpt_5_4(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.default]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "deepseek/deepseek-v3.2"
+
+[executor]
+active_backend = "codex"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "default")
+
+            self.assertEqual(config.active_executor.model, "openai/gpt-5.4")
+            self.assertFalse(config.active_executor.inherit_active_llm)
+
     def test_llm_roles_can_override_default_reasoning_model(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
@@ -161,6 +182,23 @@ evaluator = "judge"
             config = get_config(config_path, "default")
             self.assertEqual(config.llm_config_for_role("planner").model_name, "planner-model")
             self.assertEqual(config.llm_config_for_role("evaluator").model_name, "judge-model")
+
+    def test_executor_inherits_executor_model_name_when_present(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.deepseek]
+api_key = "key"
+base_url = "https://api.deepseek.com"
+model_name = "deepseek-chat"
+executor_model_name = "deepseek/deepseek-chat"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "deepseek")
+
+            self.assertEqual(config.active_executor.model, "deepseek/deepseek-chat")
 
     def test_tool_entries_can_be_loaded_for_cli_and_mcp_surfaces(self):
         with tempfile.TemporaryDirectory() as tmpdir:

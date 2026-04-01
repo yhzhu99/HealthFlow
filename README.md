@@ -133,11 +133,18 @@ Then create `config.toml` with the reasoning models you want to expose to Health
 
 ```toml
 [llm."deepseek/deepseek-v3.2"]
-api_key_env = "ZENMUX_API_KEY"
-base_url = "https://zenmux.ai/api/v1"
-model_name = "deepseek/deepseek-v3.2"
+api_key_env = "DEEPSEEK_API_KEY"
+base_url = "https://api.deepseek.com"
+model_name = "deepseek-chat"
+executor_model_name = "deepseek/deepseek-chat"
 input_cost_per_million_tokens = 0.28
 output_cost_per_million_tokens = 0.43
+
+[llm."deepseek/deepseek-reasoner"]
+api_key_env = "DEEPSEEK_API_KEY"
+base_url = "https://api.deepseek.com"
+model_name = "deepseek-reasoner"
+executor_model_name = "deepseek/deepseek-reasoner"
 
 [llm."google/gemini-3-flash-preview"]
 api_key_env = "ZENMUX_API_KEY"
@@ -151,7 +158,7 @@ output_cost_per_million_tokens = 3.00
 
 If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for the active reasoning model in `config.toml`. If those fields are omitted, HealthFlow skips cost estimation for that model. `opencode` executor runs also record per-step executor token usage and estimated executor cost when the CLI returns structured telemetry.
 
-By default, the active executor inherits the same `model_name` as the selected `--active-llm`. Override the executor-side model only if you explicitly want the planner/evaluator model and the backend model to diverge for an experiment.
+By default, the active executor inherits the same `model_name` as the selected `--active-llm`, except for `codex`, which is pinned to `openai/gpt-5.4` in the repo defaults because that is the only Codex model/provider path currently verified in this setup. Override the executor-side model only if you explicitly want the planner/evaluator model and the backend model to diverge for an experiment.
 
 The built-in executor defaults also enable reasoning-oriented modes out of the box:
 - `opencode`: `--variant high --thinking`
@@ -175,7 +182,9 @@ provider = "zenmux"
 binary = "codex"
 args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
 arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"high\"", "-c", "model_reasoning_summary=\"detailed\""]
+model = "openai/gpt-5.4"
 model_flag = "-m"
+inherit_active_llm = false
 provider = "zenmux"
 provider_base_url = "https://zenmux.ai/api/v1"
 provider_api_key_env = "ZENMUX_API_KEY"
