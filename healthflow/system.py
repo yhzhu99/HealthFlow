@@ -22,6 +22,7 @@ from .ehr import detect_risk_findings, profile_workspace_data
 from .execution import ExecutionContext, create_executor_adapter
 from .experience.experience_manager import ExperienceManager
 from .experience.experience_models import Experience, RetrievalContext
+from .reporting import generate_task_report
 from .tools import ToolCatalog
 from .tools.broker import ToolBroker
 
@@ -68,6 +69,7 @@ class HealthFlowSystem:
         live: Optional[Live] = None,
         spinner: Optional[Spinner] = None,
         uploaded_files: Optional[Dict[str, bytes]] = None,
+        report_requested: bool = False,
     ) -> dict:
         task_id = str(uuid.uuid4())
         task_workspace = self.workspace_dir / task_id
@@ -91,6 +93,7 @@ class HealthFlowSystem:
             user_request,
             live,
             spinner,
+            report_requested,
         )
         execution_time = round(time.time() - start_time, 2)
         result["execution_time"] = execution_time
@@ -104,35 +107,23 @@ class HealthFlowSystem:
         result["run_result_path"] = str(task_workspace / "run_result.json")
         result["run_manifest_path"] = str(task_workspace / "run_manifest.json")
         result["cost_analysis_path"] = str(task_workspace / "cost_analysis.json")
-        self._write_json(
-            task_workspace / "run_result.json",
-            result,
-        )
-        self._write_json(
-            task_workspace / "run_manifest.json",
-            {
-                "task_id": task_id,
-                "user_request": user_request,
-                "workspace_path": str(task_workspace),
-                "backend": self.config.active_executor_name,
-                "executor_model": self.config.active_executor.model,
-                "executor_provider": self.config.active_executor.provider,
-                "reasoning_model": self.config.llm_config_for_role("planner").model_name,
-                "llm_role_models": result.get("llm_role_models"),
-                "memory_write_policy": self.config.memory.write_policy,
-                "backend_version": result.get("backend_version"),
-                "executor_metadata": result.get("executor_metadata"),
-                "usage_summary": result.get("usage_summary"),
-                "cost_summary": result.get("cost_summary"),
-                "cost_analysis_path": result.get("cost_analysis_path"),
-                "execution_time": execution_time,
-                "evaluation_status": result.get("evaluation_status"),
-                "success": result.get("success", False),
-                "log_path": result.get("log_path"),
-                "prompt_path": result.get("prompt_path"),
-                "evaluation_path": result.get("evaluation_path"),
-            },
-        )
+        result["report_requested"] = report_requested
+        result["report_generated"] = False
+        result["report_path"] = None
+        result["report_error"] = None
+        self._write_run_metadata_artifacts(task_workspace, task_id, user_request, execution_time, result)
+
+        if report_requested:
+            try:
+                report_path = generate_task_report(task_workspace)
+                result["report_generated"] = True
+                result["report_path"] = str(report_path)
+            except Exception as exc:
+                logger.exception("[{}] Failed to generate report.md: {}", task_id, exc)
+                result["report_generated"] = False
+                result["report_path"] = None
+                result["report_error"] = str(exc)
+            self._write_run_metadata_artifacts(task_workspace, task_id, user_request, execution_time, result)
         return result
 
     async def _run_unified_flow(
@@ -142,6 +133,7 @@ class HealthFlowSystem:
         user_request: str,
         live: Optional[Live],
         spinner: Optional[Spinner],
+        report_requested: bool,
     ) -> Dict[str, Any]:
         if spinner and live:
             spinner.text = "Profiling task state and preparing memory retrieval..."
@@ -164,6 +156,7 @@ class HealthFlowSystem:
             "reasoning_model": self.config.llm_config_for_role("planner").model_name,
             "llm_role_models": self._role_model_names(),
             "memory_write_policy": self.config.memory.write_policy,
+            "report_requested": report_requested,
             "available_tools": planner_tools,
             "task_state_path": str(task_workspace / "task_state.json"),
             "data_profile": task_state["data_profile"],
@@ -228,6 +221,7 @@ class HealthFlowSystem:
                 user_request=user_request,
                 plan=plan,
                 available_tools=self.tool_catalog,
+                report_requested=report_requested,
                 safeguard_memory=self._format_memory_lines(safeguard_experiences),
                 workflow_memory=self._format_memory_lines(workflow_experiences),
                 dataset_memory=self._format_memory_lines(dataset_experiences),
@@ -524,6 +518,45 @@ class HealthFlowSystem:
     def _write_json(self, path: Path, payload: Any) -> None:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, cls=DateTimeEncoder)
+
+    def _write_run_metadata_artifacts(
+        self,
+        task_workspace: Path,
+        task_id: str,
+        user_request: str,
+        execution_time: float,
+        result: dict[str, Any],
+    ) -> None:
+        self._write_json(task_workspace / "run_result.json", result)
+        self._write_json(
+            task_workspace / "run_manifest.json",
+            {
+                "task_id": task_id,
+                "user_request": user_request,
+                "workspace_path": str(task_workspace),
+                "backend": self.config.active_executor_name,
+                "executor_model": self.config.active_executor.model,
+                "executor_provider": self.config.active_executor.provider,
+                "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+                "llm_role_models": result.get("llm_role_models"),
+                "memory_write_policy": self.config.memory.write_policy,
+                "backend_version": result.get("backend_version"),
+                "executor_metadata": result.get("executor_metadata"),
+                "usage_summary": result.get("usage_summary"),
+                "cost_summary": result.get("cost_summary"),
+                "cost_analysis_path": result.get("cost_analysis_path"),
+                "execution_time": execution_time,
+                "evaluation_status": result.get("evaluation_status"),
+                "success": result.get("success", False),
+                "log_path": result.get("log_path"),
+                "prompt_path": result.get("prompt_path"),
+                "evaluation_path": result.get("evaluation_path"),
+                "report_requested": result.get("report_requested", False),
+                "report_generated": result.get("report_generated", False),
+                "report_path": result.get("report_path"),
+                "report_error": result.get("report_error"),
+            },
+        )
 
     def _role_model_names(self) -> dict[str, str]:
         return {

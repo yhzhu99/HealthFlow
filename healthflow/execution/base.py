@@ -14,6 +14,7 @@ class ExecutionContext:
     user_request: str
     plan: ExecutionPlan
     available_tools: ToolCatalog
+    report_requested: bool = False
     safeguard_memory: List[str] = field(default_factory=list)
     workflow_memory: List[str] = field(default_factory=list)
     dataset_memory: List[str] = field(default_factory=list)
@@ -83,6 +84,14 @@ class ExecutionContext:
                 "- End with a concise final answer that references any produced artifacts.",
             ]
         )
+        if self.report_requested:
+            prompt.extend(
+                [
+                    "- Keep filenames, headings, and comments clear enough for a later system-generated report to describe them accurately.",
+                    "- When you create figures, code, or analysis notes, keep them inspectable and self-describing inside the workspace.",
+                    "- Make the final answer explicitly reference the key artifacts you produced and what each artifact contains.",
+                ]
+            )
         return "\n".join(prompt).strip()
 
 
