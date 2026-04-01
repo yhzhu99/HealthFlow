@@ -114,6 +114,8 @@ HealthFlow only supplies:
 - small workflow recommendations
 - documentation recipes for selected external CLIs
 
+When external CLIs are part of the supported workflow, prefer declaring them in this project's `pyproject.toml` and installing them into the shared repo `.venv`. Executor backends should use that same project environment rather than ad hoc global tool installs.
+
 Executor defaults are configured for normal text output. HealthFlow does not require external backends to finish in JSON. Structured event streams remain optional backend-specific telemetry modes.
 
 ## Quick Start
@@ -241,10 +243,10 @@ HealthFlow may recommend selected external CLIs when the task warrants them, but
 ToolUniverse CLI examples:
 
 ```bash
-tu list
-tu find "pathway analysis"
-tu info <tool-name>
-tu run <tool-name> --help
+uv run tu list
+uv run tu find "pathway analysis"
+uv run tu info <tool-name>
+uv run tu run <tool-name> --help
 ```
 
 ToolUniverse also supports a local `.tooluniverse/profile.yaml` workspace and can launch its own MCP server with `tu serve`, but HealthFlow does not manage that MCP surface.

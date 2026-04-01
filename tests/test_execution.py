@@ -1,11 +1,12 @@
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from healthflow.core.contracts import ExecutionPlan
-from healthflow.core.config import BackendCLIConfig, EnvironmentConfig
+from healthflow.core.config import BackendCLIConfig, EnvironmentConfig, default_executor_backends
 from healthflow.execution.base import ExecutionContext
 from healthflow.execution.cli_adapters import (
     CLISubprocessExecutor,
@@ -137,6 +138,23 @@ class ExecutionFactoryTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaisesRegex(ValueError, "ZENMUX_API_KEY"):
                 executor._build_environment(Path.cwd())
+
+    def test_default_backend_environment_includes_project_venv_bin(self):
+        for backend_name, backend_config in default_executor_backends().items():
+            resolved_config = backend_config
+            if backend_name == "pi" and backend_config.model is None:
+                resolved_config = backend_config.model_copy(update={"model": "openai/gpt-5.4"})
+            executor = create_executor_adapter(backend_name, resolved_config)
+            with patch.dict(
+                "os.environ",
+                {"HOME": "/tmp/demo", "PATH": "/usr/bin:/bin", "ZENMUX_API_KEY": "demo-key"},
+                clear=True,
+            ):
+                environment = executor._build_environment(Path.cwd())
+
+            path_entries = environment["PATH"].split(":")
+            self.assertEqual(path_entries[0], str(Path.cwd() / ".venv" / "bin"))
+            self.assertTrue(shutil.which("sh", path=environment["PATH"]))
 
     def test_pi_executor_writes_runtime_models_json(self):
         executor = PiExecutor(
