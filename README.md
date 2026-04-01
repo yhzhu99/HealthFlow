@@ -140,9 +140,10 @@ Executor defaults are configured for normal text output. HealthFlow does not req
 uv sync
 source .venv/bin/activate
 export ZENMUX_API_KEY="your_zenmux_key_here"
+export DEEPSEEK_API_KEY="your_deepseek_key_here"
 ```
 
-Then create `config.toml` with the reasoning models you want to expose to HealthFlow. Use `api_key_env` to keep secrets out of the file:
+The repo already ships a ready-to-edit [`config.toml`](/home/yhzhu/projects/HealthFlow/config.toml). Update that file with the reasoning models you want to expose to HealthFlow. If you prefer to write your own from scratch, use the same shape and keep secrets in `api_key_env`:
 
 ```toml
 [llm."deepseek/deepseek-v3.2"]
@@ -158,6 +159,13 @@ api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-reasoner"
 executor_model_name = "deepseek/deepseek-reasoner"
+
+[llm."openai/gpt-5.4"]
+api_key_env = "ZENMUX_API_KEY"
+base_url = "https://zenmux.ai/api/v1"
+model_name = "openai/gpt-5.4"
+input_cost_per_million_tokens = 2.50
+output_cost_per_million_tokens = 15.00
 
 [llm."google/gemini-3-flash-preview"]
 api_key_env = "ZENMUX_API_KEY"
@@ -234,9 +242,11 @@ To decouple the internal roles, set:
 ```toml
 [llm_roles]
 planner = "deepseek/deepseek-v3.2"
-evaluator = "openai/gpt-5.2"
+evaluator = "openai/gpt-5.4"
 reflector = "google/gemini-3-flash-preview"
 ```
+
+Any model named in `[llm_roles]` must also be declared under `[llm]`.
 
 Any unset role falls back to `--active-llm`.
 
@@ -332,7 +342,7 @@ Main config sections:
 - `[environment]`: lightweight runtime defaults such as preferred Python version and `uv` command prefixes
 - `[memory]`: runtime write policy only (`append`, `freeze`, or `reset_before_run`)
 - `[evaluation]`: evaluator success threshold
-- `[system]`: workspace, shell, and task-attempt settings (`max_attempts`)
+- `[system]`: workspace and task-attempt settings (`workspace_dir`, `max_attempts`)
 - `[logging]`: log level and log file
 
 By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.

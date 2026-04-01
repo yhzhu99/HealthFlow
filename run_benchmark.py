@@ -366,7 +366,7 @@ def run(
     active_llm: str = typer.Option(
         ...,
         "--active-llm",
-        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.2)",
+        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.4)",
     ),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)"),
 ):

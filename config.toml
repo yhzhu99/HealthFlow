@@ -50,6 +50,11 @@ model_name = "google/gemini-3-flash-preview"
 input_cost_per_million_tokens = 0.50
 output_cost_per_million_tokens = 3.00
 
+[llm_roles]
+planner = "deepseek/deepseek-v3.2"
+evaluator = "openai/gpt-5.4"
+reflector = "google/gemini-3-flash-preview"
+
 # --- Executor Configuration ---
 [executor]
 active_backend = "opencode"
@@ -108,7 +113,6 @@ run_prefix = "uv run"
 [system]
 max_attempts = 3
 workspace_dir = "workspace/tasks"
-shell = "/usr/bin/zsh"
 
 # --- Memory Configuration ---
 [memory]
