@@ -1,15 +1,16 @@
 # Benchmark Reproducibility
 
-Canonical benchmark data lives entirely under `data/`. There is no benchmark-level root `scripts/` directory: each dataset owns its own `data/<dataset>/scripts/` entrypoints, and shared reusable rebuild/evaluation code lives in `healthflow/benchmarks/`.
+Canonical benchmark rebuild logic lives under `data/`. There is no benchmark-level root `scripts/` directory: each dataset owns its own `data/<dataset>/scripts/` entrypoints, and shared reusable rebuild/evaluation code lives in `healthflow/benchmarks/`.
+Benchmark `raw/` and `processed/` directories are local-only artifacts and are intentionally gitignored.
 
 ## Canonical Layout
 
 - `data/rebuild_all.py`
-- `data/ehrflowbench/{raw,scripts,processed}`
-- `data/medagentboard/{raw,scripts,processed}`
-- `data/curebench/{raw,scripts,processed}`
-- `data/hle/{raw,scripts,processed}`
-- `data/medagentsbench/{raw,scripts,processed}`
+- `data/ehrflowbench/` with committed `README.md` and `scripts/`, plus local `raw/` and `processed/`
+- `data/medagentboard/` with committed `README.md` and `scripts/`, plus local `raw/` and `processed/`
+- `data/curebench/` with committed `README.md` and `scripts/`, plus local `raw/` and `processed/`
+- `data/hle/` with committed `README.md` and `scripts/`, plus local `raw/` and `processed/`
+- `data/medagentsbench/` with committed `README.md` and `scripts/`, plus local `raw/` and `processed/`
 
 Each `raw/` folder also contains a `source_manifest.json` that records the upstream dataset URLs, access notes, and the local files required for deterministic rebuilds.
 
@@ -23,6 +24,8 @@ Every canonical task row now contains only:
 
 ## Processed outputs
 
+After a local rebuild, expected processed outputs include:
+
 - `data/ehrflowbench/processed/eval.jsonl`: 100 rows
 - `data/ehrflowbench/processed/train.jsonl`: 10 rows
 - `data/medagentboard/processed/eval.jsonl`: 100 rows
@@ -33,7 +36,7 @@ Every canonical task row now contains only:
 
 ## Rebuild entrypoints
 
-- Rebuild all committed benchmarks: `python data/rebuild_all.py`
+- Rebuild all benchmark datasets locally: `python data/rebuild_all.py`
 - Rebuild a single benchmark: `python data/<dataset>/scripts/rebuild.py`
 - Run deterministic evaluation: `python data/<dataset>/scripts/evaluate.py --dataset-path <run_dir> --output-dir <eval_dir>`
 - Refresh the EHRFlowBench paper raw mirror before rebuilding: `python data/ehrflowbench/scripts/prepare_raw.py`
@@ -50,10 +53,10 @@ The upstream curation assets now live under:
 - `data/ehrflowbench/scripts/upstream/title_extract/`
 - `data/ehrflowbench/scripts/upstream/utils/`
 
-Paper linkage stays machine-verifiable through `data/ehrflowbench/processed/paper_map.csv`, and the benchmark build writes benchmark-local task manifests so each final task remains self-contained and traceable to its source paper.
+Paper linkage stays machine-verifiable through the locally rebuilt `data/ehrflowbench/processed/paper_map.csv`, and the benchmark build writes benchmark-local task manifests so each final task remains self-contained and traceable to its source paper.
 
-The optional raw markdown mirror at `data/ehrflowbench/raw/papers/markdowns/` is no longer required for canonical rebuilds. It can still be materialized on demand with `--include-markdowns` if someone wants a local audit copy of the extracted paper markdowns.
+The optional raw markdown mirror at `data/ehrflowbench/raw/papers/markdowns/` is no longer required for canonical rebuilds. It can still be materialized on demand with `--include-markdowns` if someone wants a local audit copy of the extracted paper markdowns. The upstream mirror under `data/ehrflowbench/scripts/upstream/extract_task/assets/` is also treated as a local-only cache and is not kept in git.
 
 ## Scoring
 
-Deterministic expected outputs now live in `processed/expected/<qid>/`. The evaluator compares generated JSON/CSV/text outputs against those processed-side artifacts and falls back to direct answer comparison for text-only benchmarks.
+Deterministic expected outputs live in the local rebuilt `processed/expected/<qid>/` directories. The evaluator compares generated JSON/CSV/text outputs against those processed-side artifacts and falls back to direct answer comparison for text-only benchmarks.
