@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -17,9 +18,12 @@ from .agents.reflector_agent import ReflectorAgent
 from .core.config import HealthFlowConfig
 from .core.contracts import EvaluationVerdict
 from .core.llm_provider import create_llm_provider
+from .ehr import detect_risk_findings, profile_workspace_data
 from .execution import ExecutionContext, create_executor_adapter
 from .experience.experience_manager import ExperienceManager
+from .experience.experience_models import Experience, RetrievalContext
 from .tools import ToolCatalog
+from .tools.broker import ToolBroker
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -54,6 +58,7 @@ class HealthFlowSystem:
         self.reflector = ReflectorAgent(provider_for("reflector"))
         self.executor = create_executor_adapter(config.active_executor_name, config.active_executor)
         self.tool_catalog = ToolCatalog.from_config(config.active_executor_name, config.tools)
+        self.tool_broker = ToolBroker()
 
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -140,15 +145,16 @@ class HealthFlowSystem:
         spinner: Optional[Spinner],
     ) -> Dict[str, Any]:
         if spinner and live:
-            spinner.text = "Retrieving memory and preparing the planner..."
+            spinner.text = "Profiling task state and preparing memory retrieval..."
 
-        retrieval_result = await self.experience_manager.retrieve_experiences(user_request)
-        recommended_experiences = retrieval_result.recommended_experiences
-        avoidance_experiences = retrieval_result.avoidance_experiences
-        self._write_json(
-            task_workspace / "memory_context.json",
-            retrieval_result.audit.model_dump(mode="json"),
-        )
+        data_profile = profile_workspace_data(task_workspace, user_request)
+        risk_findings = detect_risk_findings(user_request, data_profile)
+        planner_tools = self._planner_tool_options(data_profile)
+        task_state = {
+            "data_profile": asdict(data_profile),
+            "risk_findings": [asdict(item) for item in risk_findings],
+        }
+        self._write_json(task_workspace / "task_state.json", task_state)
 
         full_history: Dict[str, Any] = {
             "task_id": task_id,
@@ -159,11 +165,10 @@ class HealthFlowSystem:
             "reasoning_model": self.config.llm_config_for_role("planner").model_name,
             "llm_role_models": self._role_model_names(),
             "memory_write_policy": self.config.memory.write_policy,
-            "available_tools": self.tool_catalog.names(),
-            "memory_context_path": str(task_workspace / "memory_context.json"),
-            "memory_retrieval": retrieval_result.audit.model_dump(mode="json"),
-            "recommended_experiences": [exp.model_dump(mode="json") for exp in recommended_experiences],
-            "avoidance_experiences": [exp.model_dump(mode="json") for exp in avoidance_experiences],
+            "available_tools": planner_tools,
+            "task_state_path": str(task_workspace / "task_state.json"),
+            "data_profile": task_state["data_profile"],
+            "risk_findings": task_state["risk_findings"],
             "attempts": [],
         }
 
@@ -184,14 +189,35 @@ class HealthFlowSystem:
 
         for attempt_num in range(1, self.config.system.max_attempts + 1):
             previous_feedback = self._feedback_from_attempt(full_history["attempts"][-1]) if attempt_num > 1 else None
+            retrieval_context = self._build_retrieval_context(
+                data_profile=data_profile,
+                risk_findings=risk_findings,
+                prior_failure_modes=self._prior_failure_modes(full_history["attempts"]),
+            )
+            retrieval_result = await self.experience_manager.retrieve_experiences(
+                user_request,
+                retrieval_context=retrieval_context,
+            )
+            safeguard_experiences = retrieval_result.safeguard_experiences
+            workflow_experiences = retrieval_result.workflow_experiences
+            dataset_experiences = retrieval_result.dataset_experiences
+            execution_experiences = retrieval_result.execution_experiences
+            memory_context_path = task_workspace / f"memory_context_v{attempt_num}.json"
+            self._write_json(memory_context_path, retrieval_result.audit.model_dump(mode="json"))
+            self._write_json(task_workspace / "memory_context.json", retrieval_result.audit.model_dump(mode="json"))
+            full_history["memory_context_path"] = str(task_workspace / "memory_context.json")
+            full_history["memory_retrieval"] = retrieval_result.audit.model_dump(mode="json")
+
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Planning..."
 
             plan = await self.meta_agent.generate_plan(
                 user_request=user_request,
-                recommended_experiences=recommended_experiences,
-                avoidance_experiences=avoidance_experiences,
-                available_tools=self.tool_catalog.names(),
+                safeguard_experiences=safeguard_experiences,
+                workflow_experiences=workflow_experiences,
+                dataset_experiences=dataset_experiences,
+                execution_experiences=execution_experiences,
+                available_tools=planner_tools,
                 previous_feedback=previous_feedback,
             )
             planning_usage = self._capture_agent_usage(self.meta_agent)
@@ -203,8 +229,10 @@ class HealthFlowSystem:
                 user_request=user_request,
                 plan=plan,
                 available_tools=self.tool_catalog,
-                recommended_memory=self._format_memory_lines(recommended_experiences),
-                avoidance_memory=self._format_memory_lines(avoidance_experiences),
+                safeguard_memory=self._format_memory_lines(safeguard_experiences),
+                workflow_memory=self._format_memory_lines(workflow_experiences),
+                dataset_memory=self._format_memory_lines(dataset_experiences),
+                execution_memory=self._format_memory_lines(execution_experiences),
                 prior_feedback=previous_feedback,
             )
 
@@ -233,6 +261,14 @@ class HealthFlowSystem:
 
             attempt_history = {
                 "attempt": attempt_num,
+                "memory_context_path": str(memory_context_path),
+                "memory": {
+                    "retrieval": retrieval_result.audit.model_dump(mode="json"),
+                    "safeguards": [exp.model_dump(mode="json") for exp in safeguard_experiences],
+                    "workflows": [exp.model_dump(mode="json") for exp in workflow_experiences],
+                    "datasets": [exp.model_dump(mode="json") for exp in dataset_experiences],
+                    "execution": [exp.model_dump(mode="json") for exp in execution_experiences],
+                },
                 "plan": plan.model_dump(mode="json"),
                 "plan_markdown": plan_markdown,
                 "planning": planning_usage,
@@ -402,13 +438,13 @@ class HealthFlowSystem:
     def _format_memory_lines(self, experiences: list[Any]) -> list[str]:
         lines: list[str] = []
         for exp in experiences:
-            layer = exp.layer.value if hasattr(exp.layer, "value") else str(exp.layer)
-            validation_status = (
-                exp.validation_status.value
-                if hasattr(exp.validation_status, "value")
-                else str(exp.validation_status)
+            kind = exp.kind.value if hasattr(exp.kind, "value") else str(exp.kind)
+            source_outcome = (
+                exp.source_outcome.value
+                if hasattr(exp.source_outcome, "value")
+                else str(exp.source_outcome)
             )
-            lines.append(f"[{layer}/{validation_status}] {exp.category}: {exp.content}")
+            lines.append(f"[{kind}/{source_outcome}] {exp.category}: {exp.content}")
         return lines
 
     def _feedback_from_attempt(self, attempt: dict[str, Any]) -> str | None:
@@ -422,6 +458,50 @@ class HealthFlowSystem:
             parts.append("Repair instructions: " + "; ".join(repairs))
         return "\n".join(parts) if parts else None
 
+    def _prior_failure_modes(self, attempts: list[dict[str, Any]]) -> list[str]:
+        failure_modes: list[str] = []
+        for attempt in attempts:
+            evaluation = attempt.get("evaluation", {})
+            failure_type = evaluation.get("failure_type")
+            if failure_type and failure_type != "none":
+                failure_modes.append(str(failure_type))
+        return list(dict.fromkeys(failure_modes))
+
+    def _planner_tool_options(self, data_profile) -> list[str]:
+        return list(dict.fromkeys([*self.tool_catalog.names(), *self.tool_broker.select_bundle(data_profile.task_family, data_profile)]))
+
+    def _build_retrieval_context(
+        self,
+        data_profile,
+        risk_findings: list[Any],
+        prior_failure_modes: list[str],
+    ) -> RetrievalContext:
+        return RetrievalContext(
+            task_family=data_profile.task_family,
+            domain_focus=data_profile.domain_focus,
+            dataset_signature=data_profile.dataset_signature,
+            schema_tags=self._schema_tags_for_profile(data_profile),
+            risk_tags=[finding.category for finding in risk_findings],
+            prior_failure_modes=prior_failure_modes,
+        )
+
+    def _schema_tags_for_profile(self, data_profile) -> list[str]:
+        tags: list[str] = [f"modality:{item}" for item in data_profile.modalities]
+        if data_profile.domain_focus == "ehr":
+            tags.append("domain:ehr")
+        if data_profile.group_id_columns:
+            tags.append("group_id")
+        if data_profile.patient_id_columns:
+            tags.append("patient_id")
+        if data_profile.target_columns:
+            tags.append("target_column")
+        if data_profile.time_columns:
+            tags.append("time_column")
+        tags.extend(f"column:{item}" for item in data_profile.patient_id_columns[:3])
+        tags.extend(f"column:{item}" for item in data_profile.target_columns[:3])
+        tags.extend(f"column:{item}" for item in data_profile.time_columns[:3])
+        return list(dict.fromkeys(tags))
+
     def _summarize_retrieval_audit(self, audit: dict | Any) -> str:
         selected_entries = getattr(audit, "selected", None)
         if selected_entries is None and isinstance(audit, dict):
@@ -431,35 +511,23 @@ class HealthFlowSystem:
 
         lines = []
         for entry in selected_entries:
-            layer = entry.layer.value if hasattr(entry, "layer") else entry["layer"]
-            validation_status = (
-                entry.validation_status.value if hasattr(entry, "validation_status") else entry["validation_status"]
+            kind = entry.kind.value if hasattr(entry, "kind") else entry["kind"]
+            source_outcome = (
+                entry.source_outcome.value if hasattr(entry, "source_outcome") else entry["source_outcome"]
             )
             category = entry.category if hasattr(entry, "category") else entry["category"]
             content_preview = (
                 entry.content_preview if hasattr(entry, "content_preview") else entry["content_preview"]
             )
-            safety_critical = (
-                entry.safety_critical if hasattr(entry, "safety_critical") else entry.get("safety_critical", False)
-            )
-            verifier_supported = (
-                entry.verifier_supported if hasattr(entry, "verifier_supported") else entry.get("verifier_supported", False)
-            )
-            prefix = "Avoid" if layer == "failure" else "Use"
-            flags = []
-            if safety_critical:
-                flags.append("safety")
-            if verifier_supported:
-                flags.append("verifier")
-            flag_text = f" [{'|'.join(flags)}]" if flags else ""
+            prefix = "Safeguard" if kind == "safeguard" else "Use"
             lines.append(
-                f"- {prefix}: [{layer}/{validation_status}]{flag_text} {category} -> {content_preview}"
+                f"- {prefix}: [{kind}/{source_outcome}] {category} -> {content_preview}"
             )
-        safety_overrides = getattr(audit, "safety_overrides", None)
-        if safety_overrides is None and isinstance(audit, dict):
-            safety_overrides = audit.get("safety_overrides", [])
-        if safety_overrides:
-            lines.append(f"- Safety override count: {len(safety_overrides)} conflicting memories were suppressed.")
+        safeguard_overrides = getattr(audit, "safeguard_overrides", None)
+        if safeguard_overrides is None and isinstance(audit, dict):
+            safeguard_overrides = audit.get("safeguard_overrides", [])
+        if safeguard_overrides:
+            lines.append(f"- Safeguard override count: {len(safeguard_overrides)} conflicting memories were suppressed.")
         return "\n".join(lines)
 
     def _write_json(self, path: Path, payload: Any) -> None:

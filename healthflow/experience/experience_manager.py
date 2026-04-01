@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 from collections import defaultdict
@@ -9,9 +10,19 @@ from loguru import logger
 
 from ..core.llm_provider import LLMProvider
 from .experience_models import Experience
-from .experience_models import MemoryAuditEntry, MemoryLayer, MemoryRetrievalAudit, MemoryRetrievalResult
-from .experience_models import MemoryScoreBreakdown, RetrievalContext, ValidationStatus
-from .experience_models import ExperiencePolarity
+from .experience_models import MemoryAuditEntry, MemoryKind, MemoryRetrievalAudit, MemoryRetrievalResult
+from .experience_models import MemoryScoreBreakdown, RetrievalContext, SourceOutcome
+
+
+ARTIFACT_HEAVY_FAMILIES = {
+    "cohort_extraction",
+    "predictive_modeling",
+    "survival_analysis",
+    "time_series_modeling",
+    "report_generation",
+}
+EHR_MODELING_FAMILIES = {"predictive_modeling", "survival_analysis", "time_series_modeling"}
+HIGH_PRIORITY_RISK_TAGS = {"temporal_leakage", "target_leakage", "patient_linkage", "cohort_definition"}
 
 
 class ExperienceManager:
@@ -59,10 +70,10 @@ class ExperienceManager:
         )
         audit.selection_policy.extend(
             [
-                "Safety-critical and verifier-supported failure memories are selected first as guardrails.",
-                "At most one dataset-specific anchor memory is selected when an exact dataset match exists.",
-                "Verified strategy and artifact memories outrank unverified positive memories.",
-                "Safety-critical failure memories suppress conflicting non-failure memories.",
+                "Adaptive retrieval uses task family, dataset signature, schema tags, and EHR risk tags.",
+                "Safeguard memories are prioritized for elevated-risk EHR tasks and suppress conflicting workflow or execution memories.",
+                "At most one dataset anchor is selected for an exact dataset match.",
+                "Workflow memories fill most remaining capacity, with execution memories limited to artifact-heavy tasks.",
             ]
         )
         if not self.experience_path.exists() or self.experience_path.stat().st_size == 0:
@@ -73,10 +84,10 @@ class ExperienceManager:
             return MemoryRetrievalResult(selected_experiences=[], audit=audit)
 
         query_words = self._tokenize(query)
-        context_words = self._context_words(context)
+        failure_words = self._tokenize(" ".join(context.prior_failure_modes))
         scored_experiences: list[tuple[MemoryScoreBreakdown, Experience]] = []
         for exp in all_experiences:
-            score = self._score_experience(exp, query_words, context_words, context)
+            score = self._score_experience(exp, query_words, failure_words, context)
             if score.total_score > 0:
                 scored_experiences.append((score, exp))
 
@@ -84,59 +95,78 @@ class ExperienceManager:
             key=lambda item: (item[0].total_score, item[1].confidence, item[1].created_at),
             reverse=True,
         )
-        filtered_by_conflict = self._filter_conflicts(scored_experiences, audit)
-        grouped = self._group_by_layer(filtered_by_conflict)
+        deduped = self._filter_duplicates(scored_experiences, audit)
+        filtered_by_conflict = self._filter_same_kind_conflicts(deduped, audit)
 
         selected: list[Experience] = []
         selected_ids: set[int] = set()
-        blocked_conflict_groups: set[str] = set()
+        blocked_conflict_slots: set[str] = set()
 
-        failure_candidates = grouped.get(MemoryLayer.FAILURE.value, [])
-        failure_slots = min(capacity, self._priority_failure_capacity(context))
-        selected_failures = self._select_priority_failures(failure_candidates, failure_slots)
-        for score, exp, rationale in selected_failures:
+        safeguard_limit = min(capacity, self._safeguard_capacity(context))
+        selected_safeguards = self._select_kind_memories(
+            filtered_by_conflict,
+            kind=MemoryKind.SAFEGUARD,
+            selected_ids=selected_ids,
+            blocked_conflict_slots=blocked_conflict_slots,
+            limit=safeguard_limit,
+            audit=audit,
+            rationale="Selected as an EHR safeguard for the current task and risk state.",
+        )
+        for score, exp, rationale in selected_safeguards:
             self._record_selection(audit, selected, selected_ids, exp, score, rationale)
-            if exp.safety_critical and exp.conflict_group:
-                blocked_conflict_groups.add(exp.conflict_group)
+            if exp.conflict_slot:
+                blocked_conflict_slots.add(exp.conflict_slot)
 
         remaining_capacity = max(0, capacity - len(selected))
         if remaining_capacity:
-            dataset_anchor = self._select_dataset_anchor(
-                grouped.get(MemoryLayer.DATASET.value, []),
-                selected_ids,
-                context,
-            )
+            dataset_anchor = self._select_dataset_anchor(filtered_by_conflict, selected_ids, context)
             if dataset_anchor:
                 score, exp, rationale = dataset_anchor
                 self._record_selection(audit, selected, selected_ids, exp, score, rationale)
                 remaining_capacity -= 1
 
-        if remaining_capacity:
-            verified_positive = self._select_positive_memories(
+        execution_limit = 1 if remaining_capacity and self._allow_execution_lane(context) else 0
+        workflow_limit = max(0, remaining_capacity - execution_limit)
+        if workflow_limit:
+            selected_workflows = self._select_kind_memories(
                 filtered_by_conflict,
-                selected_ids,
-                blocked_conflict_groups,
-                remaining_capacity,
-                require_verified=True,
+                kind=MemoryKind.WORKFLOW,
+                selected_ids=selected_ids,
+                blocked_conflict_slots=blocked_conflict_slots,
+                limit=workflow_limit,
                 audit=audit,
+                rationale="Selected as a reusable workflow for the current task family.",
             )
-            for score, exp, rationale in verified_positive:
+            for score, exp, rationale in selected_workflows:
                 self._record_selection(audit, selected, selected_ids, exp, score, rationale)
-            remaining_capacity -= len(verified_positive)
+            remaining_capacity = max(0, capacity - len(selected))
+
+        if execution_limit and remaining_capacity:
+            selected_execution = self._select_kind_memories(
+                filtered_by_conflict,
+                kind=MemoryKind.EXECUTION,
+                selected_ids=selected_ids,
+                blocked_conflict_slots=blocked_conflict_slots,
+                limit=min(execution_limit, remaining_capacity),
+                audit=audit,
+                rationale="Selected as an execution pattern that can improve task completion.",
+            )
+            for score, exp, rationale in selected_execution:
+                self._record_selection(audit, selected, selected_ids, exp, score, rationale)
+            remaining_capacity = max(0, capacity - len(selected))
 
         if remaining_capacity:
-            fallback_positive = self._select_positive_memories(
+            overflow = self._select_overflow_memories(
                 filtered_by_conflict,
                 selected_ids,
-                blocked_conflict_groups,
-                remaining_capacity,
-                require_verified=False,
+                blocked_conflict_slots,
+                limit=remaining_capacity,
                 audit=audit,
             )
-            for score, exp, rationale in fallback_positive:
+            for score, exp, rationale in overflow:
                 self._record_selection(audit, selected, selected_ids, exp, score, rationale)
 
-        self._record_remaining_suppressions(filtered_by_conflict, selected_ids, blocked_conflict_groups, audit)
+        self._record_remaining_suppressions(filtered_by_conflict, selected_ids, blocked_conflict_slots, audit)
 
         logger.debug(
             "Retrieved {} memories for task_family='{}' dataset_signature='{}'",
@@ -144,13 +174,13 @@ class ExperienceManager:
             context.task_family,
             context.dataset_signature,
         )
-        avoidance = [exp for exp in selected if exp.layer == MemoryLayer.FAILURE or exp.polarity == ExperiencePolarity.AVOID]
-        recommended = [exp for exp in selected if exp not in avoidance]
-        ordered = [*avoidance, *recommended]
+        grouped = self._selected_by_kind(selected)
         return MemoryRetrievalResult(
-            recommended_experiences=recommended,
-            avoidance_experiences=avoidance,
-            selected_experiences=ordered,
+            safeguard_experiences=grouped[MemoryKind.SAFEGUARD],
+            workflow_experiences=grouped[MemoryKind.WORKFLOW],
+            dataset_experiences=grouped[MemoryKind.DATASET],
+            execution_experiences=grouped[MemoryKind.EXECUTION],
+            selected_experiences=selected,
             audit=audit,
         )
 
@@ -161,89 +191,80 @@ class ExperienceManager:
                 if not line.strip():
                     continue
                 try:
-                    exp = Experience(**json.loads(line))
-                    if exp.layer == MemoryLayer.FAILURE and exp.polarity != ExperiencePolarity.AVOID:
-                        exp.polarity = ExperiencePolarity.AVOID
-                    elif exp.layer != MemoryLayer.FAILURE and exp.polarity == ExperiencePolarity.AVOID:
-                        exp.polarity = ExperiencePolarity.RECOMMEND
-                    all_experiences.append(exp)
+                    all_experiences.append(Experience(**json.loads(line)))
                 except (json.JSONDecodeError, TypeError, ValueError) as exc:
                     logger.warning("Skipping corrupted line in experience.jsonl: {}", exc)
         return all_experiences
 
-    def _filter_conflicts(
+    def _filter_duplicates(
         self,
         scored_experiences: list[tuple[MemoryScoreBreakdown, Experience]],
         audit: MemoryRetrievalAudit,
     ) -> list[tuple[MemoryScoreBreakdown, Experience]]:
         filtered: list[tuple[MemoryScoreBreakdown, Experience]] = []
-        seen_conflicts: dict[str, Experience] = {}
+        seen_signatures: set[str] = set()
         for score, exp in scored_experiences:
-            if exp.conflict_group and exp.conflict_group in seen_conflicts:
-                existing = seen_conflicts[exp.conflict_group]
-                if self._allow_safety_override_pair(existing, exp):
-                    filtered.append((score, exp))
-                    continue
+            signature = self._dedupe_signature(exp)
+            if signature in seen_signatures:
+                audit.suppressed_duplicates.append(
+                    self._make_audit_entry(
+                        exp,
+                        score,
+                        disposition="suppressed_duplicate",
+                        rationale="Suppressed because an equivalent memory had already been ranked higher.",
+                    )
+                )
+                continue
+            seen_signatures.add(signature)
+            filtered.append((score, exp))
+        return filtered
+
+    def _filter_same_kind_conflicts(
+        self,
+        scored_experiences: list[tuple[MemoryScoreBreakdown, Experience]],
+        audit: MemoryRetrievalAudit,
+    ) -> list[tuple[MemoryScoreBreakdown, Experience]]:
+        filtered: list[tuple[MemoryScoreBreakdown, Experience]] = []
+        seen_conflicts: dict[tuple[str, str, str], Experience] = {}
+        for score, exp in scored_experiences:
+            if not exp.conflict_slot:
+                filtered.append((score, exp))
+                continue
+            key = (exp.kind.value, exp.conflict_slot, exp.applicability_scope)
+            if key in seen_conflicts:
                 audit.suppressed_conflicts.append(
                     self._make_audit_entry(
                         exp,
                         score,
                         disposition="suppressed_conflict",
-                        rationale=f"Suppressed because conflict group '{exp.conflict_group}' already had a higher-ranked memory.",
+                        rationale=(
+                            f"Suppressed because another {exp.kind.value} memory already occupied "
+                            f"conflict slot '{exp.conflict_slot}' for scope '{exp.applicability_scope}'."
+                        ),
                     )
                 )
                 continue
+            seen_conflicts[key] = exp
             filtered.append((score, exp))
-            if exp.conflict_group:
-                seen_conflicts[exp.conflict_group] = exp
         return filtered
 
-    def _group_by_layer(
-        self,
-        filtered_by_conflict: list[tuple[MemoryScoreBreakdown, Experience]],
-    ) -> dict[str, list[tuple[MemoryScoreBreakdown, Experience]]]:
-        grouped: dict[str, list[tuple[MemoryScoreBreakdown, Experience]]] = defaultdict(list)
-        for score, exp in filtered_by_conflict:
-            grouped[exp.layer.value].append((score, exp))
-        return grouped
-
     def _target_retrieval_capacity(self, context: RetrievalContext) -> int:
-        capacity = 3
-        if context.dataset_signature != "unknown":
-            capacity += 1
+        capacity = 4
         if context.domain_focus == "ehr":
             capacity += 1
-        if context.risk_findings:
-            capacity += 1
-        if len(context.verification_targets) >= 3:
+        if self._elevated_risk(context):
             capacity += 1
         return min(capacity, 6)
 
-    def _priority_failure_capacity(self, context: RetrievalContext) -> int:
-        if context.domain_focus == "ehr" or len(context.risk_findings) >= 2:
+    def _safeguard_capacity(self, context: RetrievalContext) -> int:
+        if context.domain_focus == "ehr" and (
+            context.task_family in EHR_MODELING_FAMILIES or self._elevated_risk(context)
+        ):
             return 2
-        return 1
+        return 1 if context.risk_tags else 0
 
-    def _select_priority_failures(
-        self,
-        candidates: list[tuple[MemoryScoreBreakdown, Experience]],
-        limit: int,
-    ) -> list[tuple[MemoryScoreBreakdown, Experience, str]]:
-        prioritized = [
-            (score, exp)
-            for score, exp in candidates
-            if exp.safety_critical or exp.verifier_supported or exp.applicability_scope == "safety_global"
-        ]
-        if not prioritized:
-            prioritized = candidates[:1] if candidates and limit > 0 else []
-        return [
-            (
-                score,
-                exp,
-                "Selected as a high-priority failure guardrail for the upcoming run.",
-            )
-            for score, exp in prioritized[:limit]
-        ]
+    def _allow_execution_lane(self, context: RetrievalContext) -> bool:
+        return context.task_family in ARTIFACT_HEAVY_FAMILIES
 
     def _select_dataset_anchor(
         self,
@@ -254,74 +275,88 @@ class ExperienceManager:
         if context.dataset_signature == "unknown":
             return None
         for score, exp in candidates:
-            if id(exp) in selected_ids:
+            if id(exp) in selected_ids or exp.kind != MemoryKind.DATASET:
                 continue
-            if exp.dataset_signature == context.dataset_signature or exp.applicability_scope == "dataset_exact":
-                return (
-                    score,
-                    exp,
-                    "Selected as the dataset-specific anchor memory for this run.",
-                )
+            if exp.dataset_signature == context.dataset_signature:
+                return score, exp, "Selected as the exact dataset anchor for this run."
         return None
 
-    def _select_positive_memories(
+    def _select_kind_memories(
         self,
-        filtered_by_conflict: list[tuple[MemoryScoreBreakdown, Experience]],
+        candidates: list[tuple[MemoryScoreBreakdown, Experience]],
+        kind: MemoryKind,
         selected_ids: set[int],
-        blocked_conflict_groups: set[str],
+        blocked_conflict_slots: set[str],
         limit: int,
-        require_verified: bool,
         audit: MemoryRetrievalAudit,
+        rationale: str,
     ) -> list[tuple[MemoryScoreBreakdown, Experience, str]]:
         selected: list[tuple[MemoryScoreBreakdown, Experience, str]] = []
-        for score, exp in filtered_by_conflict:
-            if exp.layer == MemoryLayer.FAILURE or id(exp) in selected_ids:
+        for score, exp in candidates:
+            if exp.kind != kind or id(exp) in selected_ids:
                 continue
-            if exp.conflict_group and exp.conflict_group in blocked_conflict_groups:
-                if not any(entry.source_task_id == exp.source_task_id for entry in audit.safety_overrides):
-                    audit.safety_overrides.append(
+            if kind in {MemoryKind.WORKFLOW, MemoryKind.EXECUTION} and exp.conflict_slot in blocked_conflict_slots:
+                if not any(entry.source_task_id == exp.source_task_id for entry in audit.safeguard_overrides):
+                    audit.safeguard_overrides.append(
                         self._make_audit_entry(
                             exp,
                             score,
-                            disposition="suppressed_safety_override",
-                            rationale=f"Suppressed because a safety-critical failure memory already occupies conflict group '{exp.conflict_group}'.",
+                            disposition="suppressed_safeguard_override",
+                            rationale=(
+                                f"Suppressed because a safeguard memory already occupied conflict slot "
+                                f"'{exp.conflict_slot}'."
+                            ),
                         )
                     )
                 continue
-            if require_verified and exp.validation_status != ValidationStatus.VERIFIED:
-                continue
-            if not require_verified and exp.validation_status == ValidationStatus.VERIFIED:
-                continue
-            if exp.validation_status == ValidationStatus.FAILED:
-                continue
-            rationale = (
-                f"Selected from verified {exp.layer.value} memory."
-                if require_verified
-                else f"Selected as unverified {exp.layer.value} fallback after higher-confidence memory was exhausted."
-            )
             selected.append((score, exp, rationale))
             if len(selected) >= limit:
                 break
         return selected
 
+    def _select_overflow_memories(
+        self,
+        candidates: list[tuple[MemoryScoreBreakdown, Experience]],
+        selected_ids: set[int],
+        blocked_conflict_slots: set[str],
+        limit: int,
+        audit: MemoryRetrievalAudit,
+    ) -> list[tuple[MemoryScoreBreakdown, Experience, str]]:
+        selected: list[tuple[MemoryScoreBreakdown, Experience, str]] = []
+        preferred_order = [MemoryKind.WORKFLOW, MemoryKind.EXECUTION, MemoryKind.SAFEGUARD]
+        for kind in preferred_order:
+            kind_selected = self._select_kind_memories(
+                candidates,
+                kind=kind,
+                selected_ids=selected_ids | {id(exp) for _, exp, _ in selected},
+                blocked_conflict_slots=blocked_conflict_slots,
+                limit=max(0, limit - len(selected)),
+                audit=audit,
+                rationale="Selected as an overflow memory after the primary lane budgets were exhausted.",
+            )
+            selected.extend(kind_selected)
+            if len(selected) >= limit:
+                break
+        return selected[:limit]
+
     def _record_remaining_suppressions(
         self,
         filtered_by_conflict: list[tuple[MemoryScoreBreakdown, Experience]],
         selected_ids: set[int],
-        blocked_conflict_groups: set[str],
+        blocked_conflict_slots: set[str],
         audit: MemoryRetrievalAudit,
     ) -> None:
         for score, exp in filtered_by_conflict:
             if id(exp) in selected_ids:
                 continue
-            if exp.conflict_group and exp.conflict_group in blocked_conflict_groups:
+            if exp.kind in {MemoryKind.WORKFLOW, MemoryKind.EXECUTION} and exp.conflict_slot in blocked_conflict_slots:
                 continue
             audit.suppressed.append(
                 self._make_audit_entry(
                     exp,
                     score,
                     disposition="suppressed",
-                    rationale="Not selected by the adaptive retrieval controller after higher-priority memories consumed the available capacity.",
+                    rationale="Not selected after higher-priority EHR memory lanes consumed the available capacity.",
                 )
             )
 
@@ -349,7 +384,7 @@ class ExperienceManager:
         self,
         exp: Experience,
         query_words: set[str],
-        context_words: set[str],
+        failure_words: set[str],
         context: RetrievalContext,
     ) -> MemoryScoreBreakdown:
         exp_words = set(
@@ -361,30 +396,37 @@ class ExperienceManager:
                         exp.category,
                         exp.task_family,
                         exp.dataset_signature,
+                        exp.conflict_slot or "",
                         " ".join(exp.tags),
+                        " ".join(exp.risk_tags),
+                        " ".join(exp.schema_tags),
                     ]
                 ).lower(),
             )
         )
+        schema_overlap = len(set(exp.schema_tags).intersection(context.schema_tags))
+        risk_overlap = len(set(exp.risk_tags).intersection(context.risk_tags))
         overlap_score = len(query_words.intersection(exp_words))
-        context_bonus = min(3, len(context_words.intersection(exp_words)))
         task_family_bonus = 4 if exp.task_family == context.task_family else 0
         dataset_bonus = 3 if context.dataset_signature != "unknown" and exp.dataset_signature == context.dataset_signature else 0
-        applicability_bonus = self._applicability_bonus(exp, context.task_family, context.dataset_signature)
+        applicability_bonus = self._applicability_bonus(exp, context)
+        schema_bonus = min(4, schema_overlap * 2)
+        risk_bonus = min(4, risk_overlap * 2)
+        failure_bonus = min(3, len(failure_words.intersection(exp_words)))
+        kind_bonus = self._kind_bonus(exp, context)
+        source_bonus = self._source_bonus(exp)
         confidence_bonus = round(exp.confidence, 2)
         recency_bonus = 1 if exp.created_at else 0
-        validation_bonus = self._validation_bonus(exp)
-        verifier_bonus = 2 if exp.verifier_supported else 0
-        safety_bonus = 5 if exp.safety_critical and exp.layer == MemoryLayer.FAILURE else (2 if exp.safety_critical else 0)
         total_score = (
             overlap_score
             + task_family_bonus
             + dataset_bonus
             + applicability_bonus
-            + context_bonus
-            + validation_bonus
-            + verifier_bonus
-            + safety_bonus
+            + schema_bonus
+            + risk_bonus
+            + failure_bonus
+            + kind_bonus
+            + source_bonus
             + confidence_bonus
             + recency_bonus
         )
@@ -393,58 +435,78 @@ class ExperienceManager:
             task_family_bonus=task_family_bonus,
             dataset_bonus=dataset_bonus,
             applicability_bonus=applicability_bonus,
-            context_bonus=context_bonus,
-            validation_bonus=validation_bonus,
-            verifier_bonus=verifier_bonus,
-            safety_bonus=safety_bonus,
+            schema_bonus=schema_bonus,
+            risk_bonus=risk_bonus,
+            failure_bonus=failure_bonus,
+            kind_bonus=kind_bonus,
+            source_bonus=source_bonus,
             confidence_bonus=confidence_bonus,
             recency_bonus=recency_bonus,
             total_score=round(total_score, 2),
         )
 
-    def _context_words(self, context: RetrievalContext) -> set[str]:
-        joined = " ".join(
-            [
-                context.task_family,
-                context.domain_focus,
-                " ".join(context.risk_findings),
-                " ".join(context.verification_targets),
-            ]
-        )
-        return self._tokenize(joined)
-
     def _tokenize(self, text: str) -> set[str]:
         return set(re.findall(r"\b\w+\b", text.lower()))
 
-    def _applicability_bonus(self, exp: Experience, task_family: str, dataset_signature: str) -> int:
+    def _applicability_bonus(self, exp: Experience, context: RetrievalContext) -> int:
         if exp.applicability_scope == "dataset_exact":
-            return 4 if dataset_signature != "unknown" and exp.dataset_signature == dataset_signature else -1
-        if exp.applicability_scope == "safety_global":
-            return 3
+            return 4 if context.dataset_signature != "unknown" and exp.dataset_signature == context.dataset_signature else -1
         if exp.applicability_scope == "task_family":
-            return 2 if exp.task_family == task_family else 0
+            return 2 if exp.task_family == context.task_family else 0
+        if exp.applicability_scope == "domain_ehr":
+            return 2 if context.domain_focus == "ehr" else 0
         if exp.applicability_scope == "workflow_generic":
             return 1
         return 0
 
-    def _allow_safety_override_pair(self, existing: Experience, candidate: Experience) -> bool:
-        return (
-            (existing.layer == MemoryLayer.FAILURE and existing.safety_critical and candidate.layer != MemoryLayer.FAILURE)
-            or (candidate.layer == MemoryLayer.FAILURE and candidate.safety_critical and existing.layer != MemoryLayer.FAILURE)
-        )
+    def _kind_bonus(self, exp: Experience, context: RetrievalContext) -> int:
+        if exp.kind == MemoryKind.SAFEGUARD:
+            return 3 if self._elevated_risk(context) or context.task_family in EHR_MODELING_FAMILIES else 1
+        if exp.kind == MemoryKind.WORKFLOW:
+            return 2
+        if exp.kind == MemoryKind.DATASET:
+            return 2 if exp.dataset_signature == context.dataset_signature else 1
+        if exp.kind == MemoryKind.EXECUTION:
+            return 1 if self._allow_execution_lane(context) else 0
+        return 0
 
-    def _validation_bonus(self, exp: Experience) -> int:
-        if exp.layer == MemoryLayer.FAILURE:
+    def _source_bonus(self, exp: Experience) -> int:
+        if exp.kind == MemoryKind.SAFEGUARD:
             return {
-                ValidationStatus.FAILED: 4,
-                ValidationStatus.VERIFIED: 2,
-                ValidationStatus.UNVERIFIED: 1,
-            }[exp.validation_status]
+                SourceOutcome.FAILED: 2,
+                SourceOutcome.RECOVERED: 1,
+                SourceOutcome.SUCCESS: 0,
+            }[exp.source_outcome]
         return {
-            ValidationStatus.VERIFIED: 4,
-            ValidationStatus.UNVERIFIED: 1,
-            ValidationStatus.FAILED: -2,
-        }[exp.validation_status]
+            SourceOutcome.SUCCESS: 2,
+            SourceOutcome.RECOVERED: 2,
+            SourceOutcome.FAILED: 0,
+        }[exp.source_outcome]
+
+    def _elevated_risk(self, context: RetrievalContext) -> bool:
+        if len(context.risk_tags) >= 2:
+            return True
+        return any(tag in HIGH_PRIORITY_RISK_TAGS for tag in context.risk_tags)
+
+    def _dedupe_signature(self, exp: Experience) -> str:
+        normalized = "|".join(
+            [
+                exp.kind.value,
+                exp.category.strip().lower(),
+                re.sub(r"\s+", " ", exp.content.strip().lower()),
+                exp.task_family.strip().lower(),
+                exp.dataset_signature.strip().lower(),
+                (exp.conflict_slot or "").strip().lower(),
+                exp.applicability_scope.strip().lower(),
+            ]
+        )
+        return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+
+    def _selected_by_kind(self, selected: list[Experience]) -> dict[MemoryKind, list[Experience]]:
+        grouped: dict[MemoryKind, list[Experience]] = defaultdict(list)
+        for exp in selected:
+            grouped[exp.kind].append(exp)
+        return grouped
 
     def _make_audit_entry(
         self,
@@ -455,14 +517,14 @@ class ExperienceManager:
     ) -> MemoryAuditEntry:
         return MemoryAuditEntry(
             source_task_id=exp.source_task_id,
-            layer=exp.layer,
-            validation_status=exp.validation_status,
+            kind=exp.kind,
+            source_outcome=exp.source_outcome,
             category=exp.category,
             content_preview=exp.content[:200],
-            conflict_group=exp.conflict_group,
+            conflict_slot=exp.conflict_slot,
             applicability_scope=exp.applicability_scope,
-            safety_critical=exp.safety_critical,
-            verifier_supported=exp.verifier_supported,
+            risk_tags=exp.risk_tags,
+            schema_tags=exp.schema_tags,
             score=score,
             disposition=disposition,
             rationale=rationale,
