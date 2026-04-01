@@ -78,6 +78,8 @@ class MemoryManagerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(retrieved[0].layer, MemoryLayer.FAILURE)
             self.assertTrue(any(item.layer == MemoryLayer.DATASET for item in retrieved))
             self.assertTrue(any(item.layer == MemoryLayer.STRATEGY for item in retrieved))
+            self.assertEqual(len(retrieval.avoidance_experiences), 1)
+            self.assertTrue(all(item.layer != MemoryLayer.FAILURE for item in retrieval.recommended_experiences))
             self.assertTrue(retrieval.audit.capacity >= 5)
             self.assertTrue(retrieval.audit.selection_policy)
             verified_positions = [
@@ -138,6 +140,8 @@ class MemoryManagerTests(unittest.IsolatedAsyncioTestCase):
             retrieved = retrieval.selected_experiences
             self.assertEqual(len([item for item in retrieved if item.layer == MemoryLayer.FAILURE]), 1)
             self.assertEqual(len([item for item in retrieved if item.layer == MemoryLayer.STRATEGY]), 0)
+            self.assertEqual(len(retrieval.avoidance_experiences), 1)
+            self.assertEqual(len(retrieval.recommended_experiences), 0)
             self.assertEqual(len(retrieval.audit.safety_overrides), 1)
             self.assertEqual(retrieval.audit.safety_overrides[0].disposition, "suppressed_safety_override")
 

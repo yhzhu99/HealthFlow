@@ -1,15 +1,15 @@
-# HealthFlow: General Analysis Orchestration with EHR-Aware Self-Evolving Memory
+# HealthFlow: A Self-Evolving MERF Runtime for CodeAct Analysis
 
 [![arXiv](https://img.shields.io/badge/arXiv-2508.02621-b31b1b.svg)](https://arxiv.org/abs/2508.02621)
 [![Project Website](https://img.shields.io/badge/Project%20Website-HealthFlow-0066cc.svg)](https://healthflow-agent.netlify.app)
 
-HealthFlow is a research framework for **general analysis orchestration with healthcare-aware specialization** built around external coding executors. This repository serves the HealthFlow paper's study of autonomous EHR analysis and self-evolving planning, but the runtime is intentionally **general-first** rather than hard-locked to EHR-only tasks. EHR-specific safeguards are layered in only when the request, data profile, or workflow artifacts justify them.
+HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, and long-term reflective memory. Benchmark reproducibility code, deterministic evaluators, and EHR-specific overlays still exist in the repository, but they are treated as outer-layer evaluation or specialization modules rather than core framework stages.
 
-- task-family profiling plus conditional domain-overlay detection
-- staged tool exposure instead of prompt dumping
-- hierarchical memory with explicit strategy vs failure separation
-- deterministic verifier gating before success is accepted
-- reproducible workspace contracts and run manifests
+- structured `Meta` planning with explicit positive and avoidance memory
+- `Executor` as a CodeAct runtime over pluggable tool surfaces
+- `Evaluator`-driven retry and failure diagnosis
+- `Reflector` writeback from both successful and failed trajectories
+- inspectable workspace artifacts and run telemetry
 
 HealthFlow compares external coding agents through a shared executor abstraction. The maintained built-in backends are `claude_code`, `codex`, `opencode`, and `pi`, with `opencode` as the default.
 
@@ -17,21 +17,21 @@ The current release surface is intentionally **backend and CLI only**. A fronten
 
 ## Core Runtime
 
-HealthFlow runs a lean **Profile -> Plan -> Execute -> Verify -> Reflect** loop.
+HealthFlow runs a lean **Meta -> Executor -> Evaluator -> Reflector** loop.
 
-1. **Profile**: inspect uploaded files, classify the analysis task family, detect domain signals, and summarize identifiers, targets, time columns, and workflow hints.
+1. **Meta**: retrieve relevant memory, separate recommended experience from avoidance memory, and emit a structured execution plan.
+2. **Executor**: interpret the plan as a CodeAct brief and act through code, commands, workspace artifacts, and configured tool surfaces.
+3. **Evaluator**: review the execution trace and produced artifacts, classify the outcome as `success`, `needs_retry`, or `failed`, and provide repair instructions for the next attempt.
+4. **Reflector**: synthesize reusable positive or negative memories from the full trajectory after the task session ends.
 
 The task-level self-correction budget is controlled by `system.max_attempts`, which counts total full attempts through the loop rather than "retries plus one".
-2. **Plan**: retrieve relevant memory, separating reusable strategy from failure-avoidance memory.
-3. **Execute**: run the selected backend inside a task workspace with soft deliverable guidance and auditable verification focus.
-4. **Verify**: apply deterministic artifact checks before success is allowed, with stricter EHR checks only when the profiled context warrants them.
-5. **Reflect**: write verified strategy/artifact memory from good runs and failure/verifier-rule memory from bad runs.
 
 ## What HealthFlow Contributes
 
-- **General-first runtime with conditional EHR overlays**: the same loop handles ordinary analysis tasks, while cohort semantics, patient-aware split cues, leakage checks, and temporal validation hints activate only when supported by the profiled context.
-- **Inspectable memory**: dataset, strategy, failure, and artifact memories are stored in JSONL and retrieved with layer budgets, validation status, and conflict suppression.
-- **Deterministic verifier**: success is gated by artifact checks such as split evidence, audit artifacts, metrics files, figures, and optional report structure, with cohort-specific checks reserved for cohort or EHR-style workflows.
+- **MERF core runtime**: the framework definition is the four-stage Meta, Executor, Evaluator, Reflector loop rather than an outer profiling or verification pipeline.
+- **CodeAct execution surface**: the executor is framed around explicit actions and can work over pluggable tool surfaces such as CLI or MCP-backed tools.
+- **Inspectable memory**: strategy, failure, dataset, and artifact memories are stored in JSONL, separated into recommendation vs avoidance guidance at retrieval time, and exposed through a saved retrieval audit.
+- **Evaluator-centered recovery**: retries are driven by structured failure diagnosis and repair instructions instead of a single scalar score alone.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
 - **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, executor usage, and stage-level estimated cost summaries.
 - **Role-specific internal models**: planner, evaluator, and reflector can be configured against different reasoning models to reduce single-model coupling.
@@ -51,21 +51,20 @@ Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 - `task_list_v*.md`
 - `full_history.json`
 - `memory_context.json`
-- `verification.json`
+- `evaluation.json`
 - `cost_analysis.json`
 - `run_manifest.json`
 - `run_result.json`
 
 These files are the main source of truth for rebuttal-oriented inspection.
 
-## Evaluator vs Verifier
+## Core Runtime vs Outer Layers
 
-- **Verifier**: deterministic, file- and artifact-based. It checks whether required evidence exists and whether obvious execution failures happened.
-- **Evaluator**: LLM-based quality scoring on top of the verifier output.
+- **Core runtime**: the MERF loop in `healthflow/system.py`.
+- **Evaluation layer**: deterministic benchmark evaluators, artifact comparators, and benchmark rebuild logic under `healthflow/benchmarks/` and `data/`.
+- **Domain specialization layer**: EHR-specific profiling, risk logic, and verification helpers under `healthflow/ehr/` and `healthflow/verification/`.
 
-HealthFlow only marks a run successful when the execution succeeds, the evaluator score clears the threshold, and the verifier gate passes when verifier gating is required.
-
-For deterministic benchmarks such as EHRFlowBench and MedAgentBoard, the intended primary metric is file-verified pass rate. The LLM evaluator is secondary metadata for run inspection and error analysis.
+The current codebase keeps the outer layers available, but the framework itself no longer depends on them in order to run.
 
 ## Memory Behavior
 
@@ -82,12 +81,13 @@ Retrieval is auditable:
 - failure memories keep their own retrieval budget
 - contradictory memories are tracked by `conflict_group`
 - safety-critical failure memories suppress conflicting strategy memories before execution
+- retrieved memories are split into recommendation vs avoidance guidance before they reach the planner
 - the retrieval audit is saved to `memory_context.json`
 
 Writeback behavior:
 
 - verified runs can produce `dataset`, `strategy`, and `artifact` memories
-- failed or verifier-rejected runs are normalized into `failure` / `verifier_rule` style memory
+- failed runs can still produce `failure` / `warning` style memory for future avoidance
 - both successful and failed runs can teach future tasks, unless the memory mode is frozen
 
 ## Supported Execution Backends
@@ -104,9 +104,9 @@ Executor-specific repository instruction files are intentionally avoided at the 
 
 ## External CLI Workflows
 
-HealthFlow does not hardcode compatibility for any specific domain package or external tool. Instead, it interacts with external systems through the same backend-agnostic execution layer used for all tasks.
+HealthFlow does not hardcode compatibility for any specific domain package or external tool. Instead, it interacts with external systems through the same CodeAct-style execution layer used for all tasks.
 
-When an EHR workflow is best handled by an external CLI, the agent can still invoke that CLI as part of its plan. HealthFlow itself remains responsible only for planning, memory, execution orchestration, and generic verification of the resulting analysis artifacts.
+The executor can advertise tool surfaces through a unified catalog. The planner may recommend preferred tools, while the executor is still allowed to adapt at runtime.
 
 ## Quick Start
 
@@ -158,6 +158,20 @@ reflector = "google/gemini-3-flash-preview"
 ```
 
 Any unset role falls back to `--active-llm`.
+
+Optional tool surfaces can be declared in `config.toml`:
+
+```toml
+[tools.python]
+surface = "cli"
+description = "Run Python scripts in the workspace."
+invocation_hint = "python <script>.py"
+
+[tools.local_mcp]
+surface = "mcp"
+description = "Domain-specific MCP connector exposed to the executor."
+invocation_hint = "connector-defined"
+```
 
 ### Single Task
 
@@ -215,12 +229,11 @@ Main config sections:
 - `[llm.*]`: reasoning model providers, with either `api_key` or `api_key_env`
 - `[llm_roles]`: optional planner/evaluator/reflector model overrides
 - `[executor]`: default backend and CLI backend definitions
+- `[tools.*]`: optional tool catalog entries exposed to the planner and executor, with `surface = "cli"` or `surface = "mcp"`
 - `[memory]`: runtime write policy only (`append`, `freeze`, or `reset_before_run`)
 - `[evaluation]`: evaluator success threshold
 - `[system]`: workspace, shell, and task-attempt settings (`max_attempts`)
 - `[logging]`: log level and log file
-
-EHR overlays, verification contracts, and retrieval allocation are internal system policy now. They are inferred from the request, profiled workspace inputs, and verifier contracts instead of being configured in `config.toml`.
 
 By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.
 
@@ -231,10 +244,10 @@ By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entr
 - `run_benchmark.py`: benchmark runner over task JSONL files
 - `healthflow/system.py`: orchestration loop
 - `healthflow/execution/`: executor layer
-- `healthflow/ehr/`: task-family profiling, domain overlays, and EHR-specific risk logic
-- `healthflow/verification/`: deterministic verifier
+- `healthflow/ehr/`: optional EHR specialization helpers kept outside the core loop
+- `healthflow/verification/`: optional deterministic evaluation helpers
 - `healthflow/experience/`: hierarchical memory and retrieval audit
-- `healthflow/tools/`: staged tool-bundle selection
+- `healthflow/tools/`: tool catalog and optional tool-surface metadata
 
 ## Citation
 
