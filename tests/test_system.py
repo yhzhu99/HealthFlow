@@ -14,6 +14,7 @@ from healthflow.core.config import (
     SystemConfig,
 )
 from healthflow.core.config import default_executor_backends
+from healthflow.core.direct_responses import DirectResponse
 from healthflow.execution.base import ExecutionResult
 from healthflow.experience.experience_models import Experience, MemoryKind, SourceOutcome
 from healthflow.system import HealthFlowSystem
@@ -173,6 +174,16 @@ class _UnexpectedCallReflector:
 class _UnexpectedCallExecutor:
     async def execute(self, context, working_dir: Path) -> ExecutionResult:
         raise AssertionError("Executor should not be called for direct-response prompts.")
+
+
+class _StubDirectResponseRouter:
+    def __init__(self, responses: dict[str, DirectResponse]):
+        self.responses = responses
+        self.calls: list[tuple[str, bool]] = []
+
+    async def maybe_build_direct_response(self, user_request: str, has_uploaded_files: bool = False) -> DirectResponse | None:
+        self.calls.append((user_request, has_uploaded_files))
+        return self.responses.get(user_request)
 
 
 class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
@@ -432,6 +443,16 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             system.evaluator = _UnexpectedCallEvaluator()
             system.reflector = _UnexpectedCallReflector()
             system.executor = _UnexpectedCallExecutor()
+            system.direct_response_router = _StubDirectResponseRouter(
+                {
+                    "hi, who are you?": DirectResponse(
+                        mode="direct_response",
+                        category="identity",
+                        answer="Hi! I'm HealthFlow, an AI assistant for this workspace.",
+                        reason="Classified as a lightweight identity prompt.",
+                    )
+                }
+            )
 
             result = await system.run_task("hi, who are you?")
 
@@ -444,6 +465,60 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(Path(result["memory_context_path"]).exists())
             history = json.loads((Path(result["workspace_path"]) / "full_history.json").read_text(encoding="utf-8"))
             self.assertEqual(history["attempts"], [])
+            self.assertEqual(history["response_mode"], "direct_response")
+
+    async def test_run_task_uses_direct_response_path_for_name_question(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = HealthFlowConfig(
+                active_llm_name="test-llm",
+                active_executor_name="claude_code",
+                llm_registry={
+                    "test-llm": LLMProviderConfig(
+                        api_key="key",
+                        base_url="https://example.com/v1",
+                        model_name="test-model",
+                    ),
+                },
+                llm=LLMProviderConfig(
+                    api_key="key",
+                    base_url="https://example.com/v1",
+                    model_name="test-model",
+                ),
+                llm_roles=LLMRoleConfig(),
+                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+                environment=EnvironmentConfig(),
+                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
+                memory=MemoryConfig(write_policy="append"),
+                evaluation=EvaluationConfig(success_threshold=0.8),
+                logging=LoggingConfig(),
+            )
+            experience_path = workspace_root / "memory" / "experience.jsonl"
+            system = HealthFlowSystem(config=config, experience_path=experience_path)
+            system.meta_agent = _UnexpectedCallMetaAgent()
+            system.evaluator = _UnexpectedCallEvaluator()
+            system.reflector = _UnexpectedCallReflector()
+            system.executor = _UnexpectedCallExecutor()
+            system.direct_response_router = _StubDirectResponseRouter(
+                {
+                    "what's your name?": DirectResponse(
+                        mode="direct_response",
+                        category="identity",
+                        answer="I'm HealthFlow.",
+                        reason="Classified as a lightweight identity prompt.",
+                    )
+                }
+            )
+
+            result = await system.run_task("what's your name?")
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["response_mode"], "direct_response")
+            self.assertIn("HealthFlow", result["answer"])
+            self.assertNotIn("MetaAgent", result["answer"])
+            history = json.loads((Path(result["workspace_path"]) / "full_history.json").read_text(encoding="utf-8"))
+            self.assertEqual(history["direct_response_category"], "identity")
             self.assertEqual(history["response_mode"], "direct_response")
 
 

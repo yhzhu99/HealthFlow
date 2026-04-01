@@ -18,7 +18,7 @@ from .agents.meta_agent import MetaAgent
 from .agents.reflector_agent import ReflectorAgent
 from .core.config import HealthFlowConfig
 from .core.contracts import EvaluationVerdict
-from .core.direct_responses import DirectResponse, maybe_build_direct_response
+from .core.direct_responses import DirectResponse, DirectResponseRouter
 from .core.llm_provider import create_llm_provider
 from .ehr import detect_risk_findings, profile_workspace_data
 from .execution import ExecutionCancelledError, ExecutionContext, WorkflowRecommendationBroker, create_executor_adapter
@@ -56,6 +56,7 @@ class HealthFlowSystem:
         self.meta_agent = MetaAgent(provider_for("planner"))
         self.evaluator = EvaluatorAgent(provider_for("evaluator"))
         self.reflector = ReflectorAgent(provider_for("reflector"))
+        self.direct_response_router = DirectResponseRouter(provider_for("planner"))
         self.executor = create_executor_adapter(config.active_executor_name, config.active_executor)
         self.workflow_broker = WorkflowRecommendationBroker()
 
@@ -157,7 +158,7 @@ class HealthFlowSystem:
         report_requested: bool,
         uploaded_files: Optional[Dict[str, bytes]] = None,
     ) -> Dict[str, Any]:
-        direct_response = maybe_build_direct_response(
+        direct_response = await self.direct_response_router.maybe_build_direct_response(
             user_request,
             has_uploaded_files=bool(uploaded_files),
         )
@@ -185,6 +186,8 @@ class HealthFlowSystem:
         user_request: str,
         direct_response: DirectResponse,
     ) -> Dict[str, Any]:
+        planning_usage = dict(direct_response.usage)
+        total_estimated_cost_usd = direct_response.estimated_cost_usd
         data_profile = profile_workspace_data(task_workspace, user_request)
         risk_findings = detect_risk_findings(user_request, data_profile)
         task_state = {
@@ -236,6 +239,9 @@ class HealthFlowSystem:
             "response_mode": direct_response.mode,
             "direct_response_category": direct_response.category,
             "direct_response_reason": direct_response.reason,
+            "direct_response_model": direct_response.model_name,
+            "direct_response_usage": planning_usage,
+            "direct_response_estimated_cost_usd": direct_response.estimated_cost_usd,
             "workflow_recommendations": [],
             "task_state_path": str(task_workspace / "task_state.json"),
             "data_profile": task_state["data_profile"],
@@ -250,13 +256,13 @@ class HealthFlowSystem:
             "attempts": [],
             "run_total": {
                 "attempts": 0,
-                "planning": {},
+                "planning": planning_usage,
                 "execution": {},
                 "evaluation": {},
                 "reflection": {},
-                "llm_estimated_cost_usd": None,
+                "llm_estimated_cost_usd": total_estimated_cost_usd,
                 "executor_estimated_cost_usd": None,
-                "total_estimated_cost_usd": None,
+                "total_estimated_cost_usd": total_estimated_cost_usd,
             },
         }
         self._write_json(task_workspace / "cost_analysis.json", empty_cost_analysis)
@@ -272,14 +278,14 @@ class HealthFlowSystem:
             "backend_version": None,
             "executor_metadata": {},
             "usage_summary": {
-                "planning": {},
+                "planning": planning_usage,
                 "execution": {},
                 "evaluation": {},
             },
             "cost_summary": {
-                "llm_estimated_cost_usd": None,
+                "llm_estimated_cost_usd": total_estimated_cost_usd,
                 "executor_estimated_cost_usd": None,
-                "total_estimated_cost_usd": None,
+                "total_estimated_cost_usd": total_estimated_cost_usd,
             },
             "cost_analysis": empty_cost_analysis,
             "log_path": None,

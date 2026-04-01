@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+from loguru import logger
+from pydantic import BaseModel, Field
+
+from .llm_provider import LLMMessage, LLMProvider, parse_json_content
 
 
 _WORD_RE = re.compile(r"[a-z0-9']+")
@@ -41,9 +47,52 @@ _DISQUALIFYING_TOKENS = {
     "write",
 }
 
-_GREETING_TOKENS = {"hello", "hey", "hi"}
-_THANKS_TOKENS = {"thanks", "thank", "thx"}
-_GOODBYE_TOKENS = {"bye", "goodbye", "farewell"}
+_DIRECT_RESPONSE_ANSWERS = {
+    "identity": (
+        "Hi! I'm HealthFlow, an AI assistant that can help with analysis, coding, "
+        "and structured task execution in this workspace."
+    ),
+    "capabilities": (
+        "I'm HealthFlow. I can help inspect code, reason about tasks, summarize findings, "
+        "and work through analysis or implementation requests in this workspace."
+    ),
+    "thanks": "You're welcome. I'm here if you need anything else.",
+    "goodbye": "Bye. Reach out again if you need help.",
+    "greeting": "Hi! I'm HealthFlow. How can I help?",
+}
+
+_ROUTER_SYSTEM_PROMPT = """
+You are a lightweight intent router for HealthFlow.
+
+Decide whether the user request should use HealthFlow's built-in direct-response path instead of the full planning and execution loop.
+
+Only set respond_directly=true for lightweight conversational prompts that require no workspace inspection, no code changes, no file operations, and no task execution.
+
+Allowed categories:
+- identity: the user is asking who you are, what you are, or what your name is.
+- capabilities: the user is asking what you can do.
+- greeting: greetings or salutations.
+- thanks: short acknowledgements or thanks.
+- goodbye: short closings.
+- none: anything task-oriented, ambiguous, or not covered above.
+
+Identity and capability questions must refer to the public assistant identity as HealthFlow, not to any internal planner, evaluator, reflector, or executor backend.
+
+Return only a single JSON object with this schema:
+{
+  "respond_directly": true or false,
+  "category": "none" | "identity" | "capabilities" | "greeting" | "thanks" | "goodbye",
+  "reason": "<brief classification reason>"
+}
+
+If you are unsure, choose respond_directly=false and category="none".
+""".strip()
+
+
+class DirectResponseDecision(BaseModel):
+    respond_directly: bool = Field(default=False)
+    category: Literal["none", "identity", "capabilities", "greeting", "thanks", "goodbye"] = "none"
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -52,80 +101,84 @@ class DirectResponse:
     category: str
     answer: str
     reason: str
+    usage: dict[str, Any] = field(default_factory=dict)
+    model_name: str | None = None
+    estimated_cost_usd: float | None = None
 
 
-def maybe_build_direct_response(user_request: str, has_uploaded_files: bool = False) -> DirectResponse | None:
+class DirectResponseRouter:
+    def __init__(self, llm_provider: LLMProvider):
+        self.llm_provider = llm_provider
+
+    async def maybe_build_direct_response(
+        self,
+        user_request: str,
+        has_uploaded_files: bool = False,
+    ) -> DirectResponse | None:
+        if not _is_direct_response_candidate(user_request, has_uploaded_files=has_uploaded_files):
+            return None
+
+        try:
+            decision, response = await self.llm_provider.generate_structured(
+                [
+                    LLMMessage(role="system", content=_ROUTER_SYSTEM_PROMPT),
+                    LLMMessage(
+                        role="user",
+                        content=(
+                            "Classify the following user request for HealthFlow's direct-response path.\n\n"
+                            f"User request:\n---\n{user_request}\n---"
+                        ),
+                    ),
+                ],
+                lambda content: DirectResponseDecision(**parse_json_content(content)),
+                temperature=0.0,
+                max_tokens=200,
+            )
+        except Exception as exc:
+            logger.warning("Direct-response routing failed; falling back to orchestration: {}", exc)
+            return None
+
+        if not decision.respond_directly or decision.category == "none":
+            return None
+
+        answer = _DIRECT_RESPONSE_ANSWERS.get(decision.category)
+        if not answer:
+            logger.warning(
+                "Direct-response router returned unsupported category '{}' for request: {}",
+                decision.category,
+                user_request,
+            )
+            return None
+
+        reason = decision.reason.strip() or f"Classified as a lightweight {decision.category} prompt."
+        return DirectResponse(
+            mode="direct_response",
+            category=decision.category,
+            answer=answer,
+            reason=reason,
+            usage=response.usage,
+            model_name=response.model_name,
+            estimated_cost_usd=response.estimated_cost_usd,
+        )
+
+
+def _is_direct_response_candidate(user_request: str, *, has_uploaded_files: bool) -> bool:
     if has_uploaded_files:
-        return None
+        return False
 
     normalized = _normalize(user_request)
     tokens = set(_WORD_RE.findall(normalized))
     if not tokens:
-        return None
+        return False
     if len(tokens) > 16 or len(normalized) > 120:
-        return None
+        return False
     if _PATHISH_RE.search(user_request):
-        return None
+        return False
     if tokens.intersection(_DISQUALIFYING_TOKENS):
-        return None
-
-    if _matches_identity(tokens, normalized):
-        return DirectResponse(
-            mode="direct_response",
-            category="identity",
-            answer=(
-                "Hi! I'm HealthFlow, an AI assistant that can help with analysis, coding, "
-                "and structured task execution in this workspace."
-            ),
-            reason="Matched a lightweight identity-style prompt.",
-        )
-    if _matches_capabilities(tokens, normalized):
-        return DirectResponse(
-            mode="direct_response",
-            category="capabilities",
-            answer=(
-                "I'm HealthFlow. I can help inspect code, reason about tasks, summarize findings, "
-                "and work through analysis or implementation requests in this workspace."
-            ),
-            reason="Matched a lightweight capabilities-style prompt.",
-        )
-    if tokens.intersection(_THANKS_TOKENS):
-        return DirectResponse(
-            mode="direct_response",
-            category="thanks",
-            answer="You're welcome. I'm here if you need anything else.",
-            reason="Matched a lightweight acknowledgement prompt.",
-        )
-    if tokens.intersection(_GOODBYE_TOKENS):
-        return DirectResponse(
-            mode="direct_response",
-            category="goodbye",
-            answer="Bye. Reach out again if you need help.",
-            reason="Matched a lightweight closing prompt.",
-        )
-    if tokens.intersection(_GREETING_TOKENS):
-        return DirectResponse(
-            mode="direct_response",
-            category="greeting",
-            answer="Hi! I'm HealthFlow. How can I help?",
-            reason="Matched a lightweight greeting prompt.",
-        )
-    return None
+        return False
+    return True
 
 
 def _normalize(user_request: str) -> str:
     lowered = user_request.lower().strip()
     return re.sub(r"\s+", " ", lowered)
-
-
-def _matches_identity(tokens: set[str], normalized: str) -> bool:
-    return (
-        "who are you" in normalized
-        or "what are you" in normalized
-        or ({"who", "you"} <= tokens and "are" in tokens)
-        or ({"what", "you"} <= tokens and "are" in tokens)
-    )
-
-
-def _matches_capabilities(tokens: set[str], normalized: str) -> bool:
-    return "what can you do" in normalized or {"what", "can", "you", "do"} <= tokens
