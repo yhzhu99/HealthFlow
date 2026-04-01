@@ -93,6 +93,7 @@ class ExecutionContext:
                 "- Only rely on CLI tools or services that are already available in your executor environment; verify availability before depending on them.",
                 "- Treat safeguard memories as high-priority guardrails when choosing and validating your approach.",
                 "- Record meaningful intermediate artifacts when they make the final result easier to inspect or reuse.",
+                "- Keep execution narration out of the final user-facing reply unless the task explicitly asks for process detail.",
                 "- End with a concise final answer that references any produced artifacts.",
             ]
         )

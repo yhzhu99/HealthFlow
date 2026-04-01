@@ -52,8 +52,9 @@ model_name = "model"
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
-            self.assertEqual(config.active_executor.args, ["run", "--variant", "high", "--thinking"])
+            self.assertEqual(config.active_executor.args, ["run", "--variant", "high", "--format", "json"])
             self.assertEqual(config.active_executor.prompt_mode, "append")
+            self.assertEqual(config.active_executor.output_mode, "json_events")
             self.assertEqual(config.active_executor.model, "model")
 
     def test_named_pi_backend_uses_specialized_executor(self):

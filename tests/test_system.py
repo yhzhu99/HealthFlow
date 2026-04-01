@@ -384,5 +384,55 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(history["response_mode"], "direct_response")
 
 
+class SystemAnswerExtractionTests(unittest.TestCase):
+    def test_extract_answer_prefers_substantive_reply_over_process_narration(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = HealthFlowConfig(
+                active_llm_name="test-llm",
+                active_executor_name="claude_code",
+                llm_registry={
+                    "test-llm": LLMProviderConfig(
+                        api_key="key",
+                        base_url="https://example.com/v1",
+                        model_name="test-model",
+                    ),
+                },
+                llm=LLMProviderConfig(
+                    api_key="key",
+                    base_url="https://example.com/v1",
+                    model_name="test-model",
+                ),
+                llm_roles=LLMRoleConfig(),
+                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+                environment=EnvironmentConfig(),
+                executor=ExecutorConfig(active_backend="claude_code", backends=default_executor_backends()),
+                memory=MemoryConfig(write_policy="append"),
+                evaluation=EvaluationConfig(success_threshold=8.0),
+                logging=LoggingConfig(),
+            )
+            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+            task_workspace = workspace_dir / "task"
+            task_workspace.mkdir(parents=True, exist_ok=True)
+            execution_log = "\n".join(
+                [
+                    "STDOUT: I'll start by inspecting the workspace to understand the current environment.",
+                    "STDOUT: Let me check what's in these files to understand the context better.",
+                    "STDOUT: ",
+                    "STDOUT: I am HealthFlow, an AI assistant that can help with analysis, coding, and structured task execution in this workspace.",
+                    "STDOUT: ",
+                    "STDOUT: How can I assist you today?",
+                ]
+            )
+
+            answer = system._extract_answer_from_workspace(task_workspace, execution_log, "hi, who are you?")
+
+            self.assertIn("I am HealthFlow", answer)
+            self.assertIn("How can I assist you today?", answer)
+            self.assertNotEqual(answer, "How can I assist you today?")
+
+
 if __name__ == "__main__":
     unittest.main()

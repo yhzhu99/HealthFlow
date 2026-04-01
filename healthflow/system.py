@@ -552,6 +552,11 @@ class HealthFlowSystem:
         if metrics_file:
             return metrics_file.read_text(encoding="utf-8", errors="ignore")[:2000]
 
+        stdout_segments = self._stdout_segments_from_log(execution_log)
+        best_stdout_answer = self._best_stdout_answer(stdout_segments)
+        if best_stdout_answer:
+            return best_stdout_answer
+
         lines = execution_log.split("\n")
         answer_indicators = [
             "final answer:",
@@ -566,7 +571,7 @@ class HealthFlowSystem:
         for i in range(len(lines) - 1, -1, -1):
             line_content = lines[i].replace("STDOUT: ", "").replace("STDERR: ", "").strip()
             if any(indicator in line_content.lower() for indicator in answer_indicators):
-                return line_content
+                return line_content[:2000]
 
         for i in range(len(lines) - 1, -1, -1):
             if lines[i].startswith("STDOUT: "):
@@ -578,6 +583,85 @@ class HealthFlowSystem:
             "Execution completed. Review the workspace artifacts for details. "
             f"The original request was: '{user_request}'"
         )
+
+    def _stdout_segments_from_log(self, execution_log: str) -> list[str]:
+        segments: list[str] = []
+        current_lines: list[str] = []
+        for line in execution_log.splitlines():
+            if line.startswith("STDOUT: "):
+                content = line.replace("STDOUT: ", "", 1)
+                if content.strip():
+                    current_lines.append(content)
+                elif current_lines:
+                    segments.append("\n".join(current_lines).strip())
+                    current_lines = []
+                continue
+            if current_lines:
+                segments.append("\n".join(current_lines).strip())
+                current_lines = []
+        if current_lines:
+            segments.append("\n".join(current_lines).strip())
+        return [segment for segment in segments if segment]
+
+    def _best_stdout_answer(self, stdout_segments: list[str]) -> str | None:
+        if not stdout_segments:
+            return None
+
+        scored_segments: list[tuple[int, int, str]] = []
+        for index, segment in enumerate(stdout_segments):
+            score = 0
+            if not self._looks_like_process_narration(segment):
+                score += 2
+            if self._looks_like_direct_answer(segment):
+                score += 2
+            if len(segment) >= 40:
+                score += 1
+            if index == len(stdout_segments) - 1:
+                score += 1
+            scored_segments.append((score, index, segment))
+
+        best_score, best_index, best_segment = max(scored_segments, key=lambda item: (item[0], item[1]))
+        if best_score <= 0:
+            return None
+
+        combined_segments = [best_segment]
+        for segment in stdout_segments[best_index + 1 :]:
+            if self._looks_like_process_narration(segment):
+                break
+            combined_segments.append(segment)
+        return "\n\n".join(combined_segments)[:2000]
+
+    def _looks_like_process_narration(self, text: str) -> bool:
+        normalized = " ".join(text.lower().split())
+        markers = (
+            "i'll start by",
+            "i will start by",
+            "i'll inspect",
+            "i will inspect",
+            "let me check",
+            "let me inspect",
+            "let me look",
+            "now i understand",
+            "based on the execution plan",
+            "to understand the context",
+            "i need to inspect",
+            "i'm going to inspect",
+        )
+        return normalized.startswith(markers)
+
+    def _looks_like_direct_answer(self, text: str) -> bool:
+        normalized = text.lower()
+        if normalized.startswith(("hello", "hi", "hey")):
+            return True
+        answer_markers = (
+            "i'm ",
+            "i am ",
+            "here to help",
+            "i can help",
+            "i can assist",
+            "healthflow",
+        )
+        return any(marker in normalized for marker in answer_markers)
 
     def _workspace_artifact_paths(self, task_workspace: Path) -> list[str]:
         artifact_paths: list[str] = []

@@ -133,11 +133,11 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
         ),
         "opencode": BackendCLIConfig(
             binary="opencode",
-            args=["run", "--variant", "high", "--thinking"],
+            args=["run", "--variant", "high", "--format", "json"],
             model_flag="-m",
             model_template="$provider/$model",
             provider="zenmux",
-            output_mode="text",
+            output_mode="json_events",
             prompt_mode="append",
         ),
         "pi": BackendCLIConfig(

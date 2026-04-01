@@ -74,6 +74,28 @@ class ExecutionFactoryTests(unittest.TestCase):
 
         self.assertEqual(command, ["opencode", "run", "-m", "zenmux/openai/gpt-5.4", "say hi"])
 
+    def test_appended_prompt_is_redacted_from_saved_command(self):
+        executor = OpenCodeExecutor(
+            "opencode",
+            BackendCLIConfig(
+                binary="opencode",
+                args=["run", "--format", "json"],
+                provider="zenmux",
+                model="openai/gpt-5.4",
+                model_flag="-m",
+                model_template="$provider/$model",
+                output_mode="json_events",
+            ),
+        )
+
+        command = executor._build_command("say hi")
+        redacted = executor._redacted_command(command, "say hi")
+
+        self.assertEqual(
+            redacted,
+            ["opencode", "run", "--format", "json", "-m", "zenmux/openai/gpt-5.4", "<prompt omitted>"],
+        )
+
     def test_codex_command_renders_provider_override_templates(self):
         executor = CodexExecutor(
             "codex",
@@ -208,6 +230,7 @@ class ExecutionFactoryTests(unittest.TestCase):
         self.assertIn("## EHR Safeguards", prompt)
         self.assertIn("## Workflow Recommendations", prompt)
         self.assertIn("## Workflow Memory", prompt)
+        self.assertIn("Keep execution narration out of the final user-facing reply", prompt)
 
     def test_shared_executor_prompt_adds_report_guidance_without_requiring_executor_report_file(self):
         context = ExecutionContext(

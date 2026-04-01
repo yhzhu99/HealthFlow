@@ -26,15 +26,17 @@ class CLISubprocessExecutor(ExecutorAdapter):
 
     async def execute(self, context: ExecutionContext, working_dir: Path) -> ExecutionResult:
         prompt_text = context.render_prompt()
+        prompt_file_path = self._write_prompt_file(working_dir, prompt_text)
         environment = self._build_environment(working_dir)
         command_args = self._build_command(prompt_text)
+        redacted_command_args = self._redacted_command(command_args, prompt_text)
         backend_version = await self._capture_backend_version(environment)
         log_file_path = working_dir / f"{self.backend_name}_execution.log"
         logger.info(
             "Executing backend '{}' in '{}': {}",
             self.backend_name,
             working_dir,
-            " ".join(command_args),
+            " ".join(redacted_command_args),
         )
 
         start_time = time.time()
@@ -76,9 +78,9 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 return_code=process.returncode,
                 log=log_content,
                 log_path=str(log_file_path),
-                prompt_path=None,
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
-                command=command_args,
+                command=redacted_command_args,
                 backend_version=backend_version,
                 executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
@@ -101,9 +103,9 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 return_code=-1,
                 log=f"HealthFlow Executor Error: {e}\n\n--- Captured Log Before Error ---\n{log_content}",
                 log_path=str(log_file_path),
-                prompt_path=None,
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
-                command=command_args,
+                command=redacted_command_args,
                 backend_version=backend_version,
                 executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
@@ -133,6 +135,20 @@ class CLISubprocessExecutor(ExecutorAdapter):
         if self.backend_config.prompt_mode == "append":
             command.append(prompt_text)
         return command
+
+    def _write_prompt_file(self, working_dir: Path, prompt_text: str) -> Path:
+        prompt_path = working_dir / f"{self.backend_name}_prompt.md"
+        prompt_path.write_text(prompt_text, encoding="utf-8")
+        return prompt_path
+
+    def _redacted_command(self, command_args: list[str], prompt_text: str) -> list[str]:
+        if self.backend_config.prompt_mode != "append" or not command_args:
+            return list(command_args)
+
+        redacted_command = list(command_args)
+        if redacted_command[-1] == prompt_text:
+            redacted_command[-1] = "<prompt omitted>"
+        return redacted_command
 
     def _build_environment(self, working_dir: Path) -> dict[str, str]:
         environment = os.environ.copy()
@@ -306,15 +322,17 @@ class OpenCodeExecutor(CLISubprocessExecutor):
             return await super().execute(context, working_dir)
 
         prompt_text = context.render_prompt()
+        prompt_file_path = self._write_prompt_file(working_dir, prompt_text)
         environment = self._build_environment(working_dir)
         command_args = self._build_command(prompt_text)
+        redacted_command_args = self._redacted_command(command_args, prompt_text)
         backend_version = await self._capture_backend_version(environment)
         log_file_path = working_dir / f"{self.backend_name}_execution.log"
         logger.info(
             "Executing backend '{}' in '{}': {}",
             self.backend_name,
             working_dir,
-            " ".join(command_args),
+            " ".join(redacted_command_args),
         )
 
         start_time = time.time()
@@ -374,9 +392,9 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 return_code=process.returncode,
                 log=log_content,
                 log_path=str(log_file_path),
-                prompt_path=None,
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
-                command=command_args,
+                command=redacted_command_args,
                 backend_version=backend_version,
                 executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
@@ -394,9 +412,9 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 return_code=-1,
                 log=f"HealthFlow Executor Error: {e}\n\n--- Captured Log Before Error ---\n{log_content}",
                 log_path=str(log_file_path),
-                prompt_path=None,
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
-                command=command_args,
+                command=redacted_command_args,
                 backend_version=backend_version,
                 executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
