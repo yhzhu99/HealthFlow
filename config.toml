@@ -5,6 +5,7 @@
 api_key_env = "ZENMUX_API_KEY"
 base_url = "https://zenmux.ai/api/v1"
 model_name = "minimax/minimax-m2.7"
+reasoning_effort = "high"
 input_cost_per_million_tokens = 0.31
 output_cost_per_million_tokens = 1.22
 
@@ -12,6 +13,7 @@ output_cost_per_million_tokens = 1.22
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-chat"
+reasoning_effort = "high"
 executor_model_name = "deepseek-chat"
 executor_provider = "deepseek"
 executor_provider_base_url = "https://api.deepseek.com/anthropic"
@@ -24,6 +26,7 @@ output_cost_per_million_tokens = 0.43
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-reasoner"
+reasoning_effort = "high"
 executor_model_name = "deepseek-reasoner"
 executor_provider = "deepseek"
 executor_provider_base_url = "https://api.deepseek.com/anthropic"
@@ -34,6 +37,7 @@ executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 api_key_env = "ZENMUX_API_KEY"
 base_url = "https://zenmux.ai/api/v1"
 model_name = "z-ai/glm-5"
+reasoning_effort = "high"
 input_cost_per_million_tokens = 0.56
 output_cost_per_million_tokens = 2.52
 
@@ -41,6 +45,7 @@ output_cost_per_million_tokens = 2.52
 api_key_env = "ZENMUX_API_KEY"
 base_url = "https://zenmux.ai/api/v1"
 model_name = "qwen/qwen3.5-flash"
+reasoning_effort = "high"
 input_cost_per_million_tokens = 0.10
 output_cost_per_million_tokens = 0.40
 
@@ -48,6 +53,7 @@ output_cost_per_million_tokens = 0.40
 api_key_env = "ZENMUX_API_KEY"
 base_url = "https://zenmux.ai/api/v1"
 model_name = "openai/gpt-5.4"
+reasoning_effort = "high"
 input_cost_per_million_tokens = 2.50
 output_cost_per_million_tokens = 15.00
 
@@ -55,6 +61,7 @@ output_cost_per_million_tokens = 15.00
 api_key_env = "ZENMUX_API_KEY"
 base_url = "https://zenmux.ai/api/v1"
 model_name = "google/gemini-3-flash-preview"
+reasoning_effort = "high"
 input_cost_per_million_tokens = 0.50
 output_cost_per_million_tokens = 3.00
 
