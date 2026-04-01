@@ -15,7 +15,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
-DEFAULT_MODEL_KEY = "openai/gpt-5.4:laozhang"
+DEFAULT_MODEL_KEY = "openai/gpt-5.4"
 DEFAULT_TASK_COUNT = 2
 DEFAULT_MAX_OUTPUT_TOKENS = 6000
 
