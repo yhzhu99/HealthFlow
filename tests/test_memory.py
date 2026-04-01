@@ -3,7 +3,14 @@ import unittest
 from pathlib import Path
 
 from healthflow.experience.experience_manager import ExperienceManager
-from healthflow.experience.experience_models import Experience, MemoryKind, RetrievalContext, SourceOutcome
+from healthflow.experience.experience_models import (
+    Experience,
+    MemoryKind,
+    MemoryUpdate,
+    MemoryUpdateAction,
+    RetrievalContext,
+    SourceOutcome,
+)
 
 
 class MemoryManagerTests(unittest.IsolatedAsyncioTestCase):
@@ -85,6 +92,7 @@ class MemoryManagerTests(unittest.IsolatedAsyncioTestCase):
             safeguard_index = next(index for index, item in enumerate(retrieved) if item.kind == MemoryKind.SAFEGUARD)
             workflow_index = next(index for index, item in enumerate(retrieved) if item.kind == MemoryKind.WORKFLOW)
             self.assertLess(safeguard_index, workflow_index)
+            self.assertGreaterEqual(retrieved[0].times_retrieved, 1)
 
     async def test_safeguard_memory_suppresses_conflicting_workflow(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -141,6 +149,98 @@ class MemoryManagerTests(unittest.IsolatedAsyncioTestCase):
                 retrieval.audit.safeguard_overrides[0].disposition,
                 "suppressed_safeguard_override",
             )
+
+    async def test_memory_updates_can_retire_prior_experience(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            memory_path = Path(tmpdir) / "experience.jsonl"
+            manager = ExperienceManager(memory_path)
+            experience = Experience(
+                kind=MemoryKind.WORKFLOW,
+                category="general_workflow",
+                content="Inspect the dataset and produce a concise answer.",
+                source_task_id="1",
+                task_family="general_analysis",
+                dataset_signature="general123",
+                source_outcome=SourceOutcome.SUCCESS,
+                confidence=0.8,
+            )
+            await manager.save_experiences([experience])
+
+            await manager.apply_memory_updates(
+                [
+                    MemoryUpdate(
+                        experience_id=experience.experience_id,
+                        action=MemoryUpdateAction.RETIRE,
+                        reason="A newer strategy replaced this workflow.",
+                    )
+                ]
+            )
+
+            retrieval = await manager.retrieve_experiences(
+                "analyze the uploaded dataset",
+                retrieval_context=RetrievalContext(
+                    task_family="general_analysis",
+                    domain_focus="general",
+                    dataset_signature="general123",
+                ),
+            )
+
+            self.assertEqual(retrieval.selected_experiences, [])
+
+    async def test_utility_bonus_prefers_validated_memory_over_penalized_memory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            memory_path = Path(tmpdir) / "experience.jsonl"
+            manager = ExperienceManager(memory_path)
+            helpful = Experience(
+                kind=MemoryKind.WORKFLOW,
+                category="qa_strategy",
+                content="Inspect the question, gather evidence, and answer directly.",
+                source_task_id="1",
+                task_family="general_analysis",
+                dataset_signature="general123",
+                source_outcome=SourceOutcome.SUCCESS,
+                confidence=0.7,
+                times_helped=3,
+                times_hurt=0,
+            )
+            harmful = Experience(
+                kind=MemoryKind.WORKFLOW,
+                category="qa_strategy_variant",
+                content="Inspect the question, gather evidence, and answer directly.",
+                source_task_id="2",
+                task_family="general_analysis",
+                dataset_signature="general123",
+                source_outcome=SourceOutcome.SUCCESS,
+                confidence=0.7,
+                times_helped=0,
+                times_hurt=3,
+                applicability_scope="workflow_generic",
+            )
+            await manager.save_experiences([helpful, harmful])
+
+            retrieval = await manager.retrieve_experiences(
+                "inspect the question and answer directly",
+                retrieval_context=RetrievalContext(
+                    task_family="general_analysis",
+                    domain_focus="general",
+                    dataset_signature="general123",
+                ),
+            )
+
+            self.assertGreaterEqual(len(retrieval.selected_experiences), 2)
+            self.assertEqual(retrieval.selected_experiences[0].experience_id, helpful.experience_id)
+            penalized_entry = next(
+                entry
+                for entry in retrieval.audit.selected
+                if entry.experience_id == harmful.experience_id
+            )
+            helpful_entry = next(
+                entry
+                for entry in retrieval.audit.selected
+                if entry.experience_id == helpful.experience_id
+            )
+            self.assertGreater(helpful_entry.score.utility_bonus, 0)
+            self.assertLess(penalized_entry.score.utility_bonus, 0)
 
 
 if __name__ == "__main__":

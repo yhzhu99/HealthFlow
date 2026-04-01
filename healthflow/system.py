@@ -326,11 +326,25 @@ class HealthFlowSystem:
         if should_write_memory:
             if spinner and live:
                 spinner.text = "Synthesizing memory..."
-            new_experiences = await self.reflector.synthesize_experience(
+            reflection_output = await self.reflector.synthesize_experience(
                 full_history,
                 final_verdict=final_verdict,
             )
             reflection_usage = self._capture_agent_usage(self.reflector)
+            if isinstance(reflection_output, list):
+                new_experiences = reflection_output
+                memory_updates = []
+            else:
+                new_experiences = reflection_output.experiences
+                memory_updates = reflection_output.memory_updates
+            if memory_updates:
+                applied_memory_update_ids = await self.experience_manager.apply_memory_updates(memory_updates)
+                if applied_memory_update_ids:
+                    full_history["memory_updates"] = [
+                        update.model_dump(mode="json")
+                        for update in memory_updates
+                        if update.experience_id in set(applied_memory_update_ids)
+                    ]
             if new_experiences:
                 await self.experience_manager.save_experiences(new_experiences)
                 full_history["new_experiences"] = [exp.model_dump(mode="json") for exp in new_experiences]
@@ -453,9 +467,15 @@ class HealthFlowSystem:
         evaluation = attempt.get("evaluation", {})
         feedback = evaluation.get("feedback")
         repairs = evaluation.get("repair_instructions", [])
+        violated_constraints = evaluation.get("violated_constraints", [])
+        repair_hypotheses = evaluation.get("repair_hypotheses", [])
         parts = [feedback] if feedback else []
+        if violated_constraints:
+            parts.append("Violated constraints: " + "; ".join(violated_constraints))
         if repairs:
             parts.append("Repair instructions: " + "; ".join(repairs))
+        if repair_hypotheses:
+            parts.append("Repair hypotheses: " + "; ".join(repair_hypotheses))
         return "\n".join(parts) if parts else None
 
     def _prior_failure_modes(self, attempts: list[dict[str, Any]]) -> list[str]:

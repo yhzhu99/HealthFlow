@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
@@ -11,7 +12,7 @@ from loguru import logger
 from ..core.llm_provider import LLMProvider
 from .experience_models import Experience
 from .experience_models import MemoryAuditEntry, MemoryKind, MemoryRetrievalAudit, MemoryRetrievalResult
-from .experience_models import MemoryScoreBreakdown, RetrievalContext, SourceOutcome
+from .experience_models import MemoryScoreBreakdown, MemoryUpdate, MemoryUpdateAction, RetrievalContext, SourceOutcome
 
 
 ARTIFACT_HEAVY_FAMILIES = {
@@ -43,16 +44,68 @@ class ExperienceManager:
         if not experiences:
             return
 
-        async with aiofiles.open(self.experience_path, mode="a", encoding="utf-8") as handle:
-            for exp in experiences:
-                await handle.write(exp.model_dump_json() + "\n")
+        existing_experiences = await self._load_all_experiences()
+        existing_signatures = {self._dedupe_signature(exp) for exp in existing_experiences}
+        appended_count = 0
+        superseded_ids = {
+            experience_id
+            for exp in experiences
+            for experience_id in exp.supersedes
+        }
 
-        logger.info("Saved {} new experiences to the knowledge base.", len(experiences))
+        if superseded_ids:
+            retired_count = self._retire_experiences_by_id(
+                existing_experiences,
+                superseded_ids,
+                reason="Superseded by a newer strategic memory synthesized from a later trajectory.",
+            )
+            if retired_count:
+                logger.info("Retired {} superseded memories before saving new strategic experiences.", retired_count)
+
+        for exp in experiences:
+            signature = self._dedupe_signature(exp)
+            if signature in existing_signatures:
+                continue
+            existing_experiences.append(exp)
+            existing_signatures.add(signature)
+            appended_count += 1
+
+        await self._persist_experiences(existing_experiences)
+        logger.info("Saved {} new experiences to the knowledge base.", appended_count)
 
     async def reset(self):
-        async with aiofiles.open(self.experience_path, mode="w", encoding="utf-8") as handle:
-            await handle.write("")
+        await self._persist_experiences([])
         logger.info("Reset experience memory at {}", self.experience_path)
+
+    async def apply_memory_updates(self, updates: List[MemoryUpdate]) -> list[str]:
+        if not updates:
+            return []
+
+        all_experiences = await self._load_all_experiences()
+        experiences_by_id = {exp.experience_id: exp for exp in all_experiences}
+        applied_ids: list[str] = []
+        now = datetime.now(timezone.utc)
+
+        for update in updates:
+            exp = experiences_by_id.get(update.experience_id)
+            if exp is None:
+                logger.debug("Skipping memory update for unknown experience_id='{}'", update.experience_id)
+                continue
+            exp.last_validated_at = now
+            if update.action == MemoryUpdateAction.VALIDATE:
+                exp.times_helped += 1
+            elif update.action == MemoryUpdateAction.PENALIZE:
+                exp.times_hurt += 1
+            elif update.action == MemoryUpdateAction.RETIRE:
+                exp.retired = True
+                exp.retired_reason = update.reason
+                exp.retired_at = now
+            applied_ids.append(exp.experience_id)
+
+        if applied_ids:
+            await self._persist_experiences(all_experiences)
+            logger.info("Applied {} memory lifecycle updates.", len(applied_ids))
+        return applied_ids
 
     async def retrieve_experiences(
         self,
@@ -80,13 +133,14 @@ class ExperienceManager:
             return MemoryRetrievalResult(selected_experiences=[], audit=audit)
 
         all_experiences = await self._load_all_experiences()
-        if not all_experiences:
+        active_experiences = [exp for exp in all_experiences if not exp.retired]
+        if not active_experiences:
             return MemoryRetrievalResult(selected_experiences=[], audit=audit)
 
         query_words = self._tokenize(query)
         failure_words = self._tokenize(" ".join(context.prior_failure_modes))
         scored_experiences: list[tuple[MemoryScoreBreakdown, Experience]] = []
-        for exp in all_experiences:
+        for exp in active_experiences:
             score = self._score_experience(exp, query_words, failure_words, context)
             if score.total_score > 0:
                 scored_experiences.append((score, exp))
@@ -167,6 +221,10 @@ class ExperienceManager:
                 self._record_selection(audit, selected, selected_ids, exp, score, rationale)
 
         self._record_remaining_suppressions(filtered_by_conflict, selected_ids, blocked_conflict_slots, audit)
+        if selected:
+            for exp in selected:
+                exp.times_retrieved += 1
+            await self._persist_experiences(all_experiences)
 
         logger.debug(
             "Retrieved {} memories for task_family='{}' dataset_signature='{}'",
@@ -195,6 +253,11 @@ class ExperienceManager:
                 except (json.JSONDecodeError, TypeError, ValueError) as exc:
                     logger.warning("Skipping corrupted line in experience.jsonl: {}", exc)
         return all_experiences
+
+    async def _persist_experiences(self, experiences: list[Experience]) -> None:
+        async with aiofiles.open(self.experience_path, mode="w", encoding="utf-8") as handle:
+            for exp in experiences:
+                await handle.write(exp.model_dump_json() + "\n")
 
     def _filter_duplicates(
         self,
@@ -416,7 +479,8 @@ class ExperienceManager:
         kind_bonus = self._kind_bonus(exp, context)
         source_bonus = self._source_bonus(exp)
         confidence_bonus = round(exp.confidence, 2)
-        recency_bonus = 1 if exp.created_at else 0
+        utility_bonus = self._utility_bonus(exp)
+        recency_bonus = 1 if exp.last_validated_at or exp.created_at else 0
         total_score = (
             overlap_score
             + task_family_bonus
@@ -428,6 +492,7 @@ class ExperienceManager:
             + kind_bonus
             + source_bonus
             + confidence_bonus
+            + utility_bonus
             + recency_bonus
         )
         return MemoryScoreBreakdown(
@@ -441,6 +506,7 @@ class ExperienceManager:
             kind_bonus=kind_bonus,
             source_bonus=source_bonus,
             confidence_bonus=confidence_bonus,
+            utility_bonus=utility_bonus,
             recency_bonus=recency_bonus,
             total_score=round(total_score, 2),
         )
@@ -488,6 +554,13 @@ class ExperienceManager:
             return True
         return any(tag in HIGH_PRIORITY_RISK_TAGS for tag in context.risk_tags)
 
+    def _utility_bonus(self, exp: Experience) -> float:
+        feedback_total = exp.times_helped + exp.times_hurt
+        if feedback_total == 0:
+            return 0.0
+        normalized_utility = (exp.times_helped - exp.times_hurt) / feedback_total
+        return round(max(min(normalized_utility * 2.5, 2.5), -2.5), 2)
+
     def _dedupe_signature(self, exp: Experience) -> str:
         normalized = "|".join(
             [
@@ -516,6 +589,7 @@ class ExperienceManager:
         rationale: str,
     ) -> MemoryAuditEntry:
         return MemoryAuditEntry(
+            experience_id=exp.experience_id,
             source_task_id=exp.source_task_id,
             kind=exp.kind,
             source_outcome=exp.source_outcome,
@@ -529,3 +603,21 @@ class ExperienceManager:
             disposition=disposition,
             rationale=rationale,
         )
+
+    def _retire_experiences_by_id(
+        self,
+        experiences: list[Experience],
+        experience_ids: set[str],
+        reason: str,
+    ) -> int:
+        now = datetime.now(timezone.utc)
+        retired_count = 0
+        for exp in experiences:
+            if exp.experience_id not in experience_ids or exp.retired:
+                continue
+            exp.retired = True
+            exp.retired_reason = reason
+            exp.retired_at = now
+            exp.last_validated_at = now
+            retired_count += 1
+        return retired_count
