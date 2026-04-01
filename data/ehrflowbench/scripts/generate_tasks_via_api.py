@@ -232,6 +232,76 @@ def encode_pdf_as_base64(pdf_path: Path) -> str:
     return f"data:application/pdf;base64,{encoded}"
 
 
+def response_debug_payload(
+    *,
+    response: Any,
+    llm_config: LLMConfig,
+    paper_paths: PaperPaths,
+    max_output_tokens: int,
+    reasoning_config: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "response_id": getattr(response, "id", None),
+        "model": llm_config.model_name,
+        "paper_id": paper_paths.paper_id,
+        "paper_dir": str(paper_paths.paper_dir),
+        "pdf_path": str(paper_paths.pdf_path),
+        "request": {
+            "max_output_tokens": max_output_tokens,
+            "reasoning": reasoning_config,
+        },
+        "status": getattr(response, "status", None),
+        "error": model_to_jsonable(getattr(response, "error", None)),
+        "incomplete_details": model_to_jsonable(getattr(response, "incomplete_details", None)),
+        "usage": model_to_jsonable(getattr(response, "usage", None)),
+        "output_text": getattr(response, "output_text", None),
+        "output": model_to_jsonable(getattr(response, "output", None)),
+    }
+
+
+def log_response_debug(
+    *,
+    response: Any,
+    llm_config: LLMConfig,
+    paper_paths: PaperPaths,
+    max_output_tokens: int,
+    reasoning_config: dict[str, Any],
+) -> None:
+    payload = response_debug_payload(
+        response=response,
+        llm_config=llm_config,
+        paper_paths=paper_paths,
+        max_output_tokens=max_output_tokens,
+        reasoning_config=reasoning_config,
+    )
+    print("response_debug_begin", file=sys.stderr)
+    print(json.dumps(payload, indent=2, ensure_ascii=False), file=sys.stderr)
+    print("response_debug_end", file=sys.stderr)
+
+
+def describe_response_state(response: Any) -> str:
+    status = getattr(response, "status", None) or "unknown"
+    incomplete_details = model_to_jsonable(getattr(response, "incomplete_details", None))
+    if isinstance(incomplete_details, dict) and incomplete_details.get("reason"):
+        return f"status={status}, incomplete_reason={incomplete_details['reason']}"
+    return f"status={status}"
+
+
+def should_retry_without_reasoning_max_tokens(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "reasoning.max_tokens" not in message:
+        return False
+
+    unsupported_markers = (
+        "unknown parameter",
+        "unsupported",
+        "not allowed",
+        "not supported",
+        "invalid",
+    )
+    return any(marker in message for marker in unsupported_markers)
+
+
 def call_generation_api(
     *,
     client: OpenAI,
@@ -240,33 +310,57 @@ def call_generation_api(
     paper_paths: PaperPaths,
     max_output_tokens: int,
 ) -> tuple[GeneratedTaskBundle, dict[str, Any]]:
-    response = client.responses.create(
-        model=llm_config.model_name,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": prompt_text},
-                    {
-                        "type": "input_file",
-                        "filename": paper_paths.pdf_path.name,
-                        "file_data": encode_pdf_as_base64(paper_paths.pdf_path),
-                    },
-                ],
-            }
-        ],
-        reasoning={
-            "effort": llm_config.reasoning_effort,
-            "max_tokens": DEFAULT_MAX_REASONING_TOKENS,
-        },
-        text_format=GeneratedTaskBundle,
-        max_output_tokens=max_output_tokens,
-        store=False,
-    )
+    request_input = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt_text},
+                {
+                    "type": "input_file",
+                    "filename": paper_paths.pdf_path.name,
+                    "file_data": encode_pdf_as_base64(paper_paths.pdf_path),
+                },
+            ],
+        }
+    ]
+    reasoning_config = {
+        "effort": llm_config.reasoning_effort,
+        "max_tokens": DEFAULT_MAX_REASONING_TOKENS,
+    }
+
+    try:
+        response = client.responses.parse(
+            model=llm_config.model_name,
+            input=request_input,
+            reasoning=reasoning_config,
+            text_format=GeneratedTaskBundle,
+            max_output_tokens=max_output_tokens,
+            store=False,
+        )
+    except Exception as exc:
+        if not should_retry_without_reasoning_max_tokens(exc):
+            raise
+        reasoning_config = {"effort": llm_config.reasoning_effort}
+        print("warning: provider rejected reasoning.max_tokens; retrying without it", file=sys.stderr)
+        response = client.responses.parse(
+            model=llm_config.model_name,
+            input=request_input,
+            reasoning=reasoning_config,
+            text_format=GeneratedTaskBundle,
+            max_output_tokens=max_output_tokens,
+            store=False,
+        )
 
     parsed = response.output_parsed
     if parsed is None:
-        raise ValueError("The model response did not contain a parsed payload")
+        log_response_debug(
+            response=response,
+            llm_config=llm_config,
+            paper_paths=paper_paths,
+            max_output_tokens=max_output_tokens,
+            reasoning_config=reasoning_config,
+        )
+        raise ValueError(f"The model response did not contain a parsed payload ({describe_response_state(response)})")
 
     metadata = {
         "response_id": response.id,
