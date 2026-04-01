@@ -129,6 +129,10 @@ def adapt_prompt(prompt_body: str, task_count: int) -> str:
         "\n\nAdditional API-run constraints:\n"
         f"- Generate exactly {task_count} tasks.\n"
         "- The uploaded PDF is the only paper file available to you in this request.\n"
+        "- The generated tasks must stay grounded in targets and variables that are directly available in the processed EHR tables.\n"
+        "- Do not assume diagnosis-category labels, symptom-dialogue annotations, medications, code systems, or event-token schemas exist unless they are plainly available in the processed inputs.\n"
+        "- When the paper is about diagnosis dialogue or other unavailable supervision, rewrite the task around stable targets that are commonly visible in the processed tables, such as `Outcome`, `LOS`, `Readmission`, or directly derived descriptive quantities.\n"
+        "- Prefer lightweight tabular or longitudinal analyses over sequence-generation or token-level setups unless the processed schema clearly supports them.\n"
         "- Return valid JSON that matches the required schema exactly.\n"
     )
     return prompt
