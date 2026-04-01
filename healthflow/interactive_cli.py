@@ -10,7 +10,9 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
@@ -205,6 +207,10 @@ class InteractiveShell:
             return None
         return text
 
+    @classmethod
+    def _is_command_mode(cls, text: str) -> bool:
+        return cls.command_completion_prefix(text) is not None
+
     def _handle_command(self, user_input: str) -> bool:
         parts = user_input.split()
         command = parts[0].lower()
@@ -235,7 +241,11 @@ class InteractiveShell:
 
     async def _run_task(self, user_input: str) -> dict[str, Any]:
         self._interrupt_armed_at = None
-        hint = "Press ESC twice to interrupt the current run." if self._escape_supported else "Use Ctrl+C in this terminal if you need to stop the shell."
+        hint = (
+            "Run started. Press ESC twice to interrupt."
+            if self._escape_supported
+            else "Run started. Use Ctrl+C in this terminal if you need to stop the shell."
+        )
         self.console.print(f"[dim]{hint}[/dim]")
         self._active_run_task = asyncio.create_task(self._task_runner(self._system, user_input))
         escape_task: asyncio.Task[None] | None = None
@@ -259,7 +269,7 @@ class InteractiveShell:
     async def _read_prompt(self) -> str:
         with patch_stdout():
             return await self._prompt_session.prompt_async(
-                "HealthFlow > ",
+                self._prompt_message(),
                 completer=self._completer,
                 complete_while_typing=True,
                 bottom_toolbar=self._bottom_toolbar,
@@ -271,29 +281,67 @@ class InteractiveShell:
         interrupt_hint = "ESC ESC interrupt" if self._escape_supported else "ESC ESC interrupt (TTY only)"
         body = "\n".join(
             [
-                "Type a task or a slash command.",
+                "[bold]Ready for the next task.[/bold]",
+                "[dim]Ask in plain language. Slash suggestions only appear when '/' is the first character.[/dim]",
                 "",
-                "Commands: /help  /clear  /new  /exit",
-                f"Keys: Tab complete  {interrupt_hint}",
+                "[bold]Quick keys[/bold]",
+                f"[cyan]Tab[/cyan] complete commands   [cyan]Enter[/cyan] send input   [cyan]{interrupt_hint}[/cyan]",
+                "",
+                "[bold]Commands[/bold]",
+                "[green]/help[/green]  [green]/clear[/green]  [green]/new[/green]  [green]/exit[/green]",
             ]
         )
         self.console.print(
             Panel(
                 body,
-                title="[bold green]HealthFlow Interactive Mode[/bold green]",
+                title="[bold green]HealthFlow Interactive[/bold green]",
                 subtitle=subtitle,
                 border_style="green",
+                expand=False,
             )
         )
 
     def _render_help(self) -> None:
-        command_lines = [f"[bold]{name}[/bold]  {description}" for name, description in self.COMMANDS.items()]
-        command_lines.append("[bold]exit[/bold] / [bold]quit[/bold]  Exit interactive mode.")
-        command_lines.append("Keyboard: `Tab` completes commands, `ESC ESC` interrupts the current run.")
-        self.console.print(Panel("\n".join(command_lines), title="[bold cyan]Interactive Commands[/bold cyan]", border_style="cyan"))
+        command_lines = [
+            "[bold]Slash commands[/bold]",
+            *[f"[green]{name}[/green]  {description}" for name, description in self.COMMANDS.items()],
+            "[green]exit[/green] / [green]quit[/green]  Exit interactive mode.",
+            "",
+            "[bold]Usage notes[/bold]",
+            "Slash suggestions only appear when '/' is typed in column 1.",
+            "Tab completes commands. ESC ESC interrupts the current run.",
+        ]
+        self.console.print(
+            Panel(
+                "\n".join(command_lines),
+                title="[bold cyan]Interactive Commands[/bold cyan]",
+                border_style="cyan",
+                expand=False,
+            )
+        )
 
     def _bottom_toolbar(self) -> str:
-        return "Type a task or /help. Tab completes commands."
+        return self._toolbar_text()
+
+    def _prompt_message(self) -> HTML:
+        return HTML(
+            "<b><style fg='ansigreen'>HealthFlow</style></b> "
+            f"<style fg='ansicyan'>S{self._session_index}</style> "
+            "<style fg='ansibrightblack'>>></style> "
+        )
+
+    def _toolbar_text(self, text: str | None = None) -> str:
+        current_text = text if text is not None else self._current_buffer_text()
+        if self._is_command_mode(current_text):
+            return "Command mode: Tab completes, Enter runs, /help shows command details."
+        interrupt_hint = "ESC ESC interrupts" if self._escape_supported else "Ctrl+C stops the shell"
+        return f"Enter sends the task. Type / in column 1 for commands. {interrupt_hint}."
+
+    def _current_buffer_text(self) -> str:
+        app = get_app_or_none()
+        if app is None:
+            return ""
+        return app.current_buffer.text
 
     def _default_prompt_session_factory(self) -> PromptSession[Any]:
         return PromptSession(history=InMemoryHistory())

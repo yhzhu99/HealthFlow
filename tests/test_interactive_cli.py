@@ -87,6 +87,17 @@ class InteractiveShellTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(should_exit)
 
+    async def test_prompt_uses_styled_session_label_and_contextual_toolbar(self):
+        await self.shell.run()
+
+        prompt_calls = self.shell._prompt_session.calls
+        self.assertEqual(len(prompt_calls), 1)
+        args, kwargs = prompt_calls[0]
+        self.assertIn("HealthFlow", repr(args[0]))
+        self.assertEqual(kwargs["reserve_space_for_menu"], 4)
+        self.assertIn("column 1", self.shell._toolbar_text(""))
+        self.assertIn("Command mode", self.shell._toolbar_text("/"))
+
     def test_command_completion_prefix_requires_strict_line_start_slash(self):
         self.assertEqual(InteractiveShell.command_completion_prefix("/"), "/")
         self.assertEqual(InteractiveShell.command_completion_prefix("/he"), "/he")

@@ -308,6 +308,7 @@ Interactive mode now supports a command-aware shell:
 - `/new`: start a fresh local session while preserving `workspace/memory/experience.jsonl`
 - `/exit`: exit interactive mode
 - `exit` / `quit`: aliases for `/exit`
+- Type `/` in column 1 to open slash-command suggestions
 - `Tab`: complete slash commands
 - `ESC ESC`: cancel the current run without leaving the shell
 
