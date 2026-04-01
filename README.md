@@ -150,7 +150,11 @@ The repo already ships a ready-to-edit [`config.toml`](/home/yhzhu/projects/Heal
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-chat"
-executor_model_name = "deepseek/deepseek-chat"
+executor_model_name = "deepseek-chat"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 input_cost_per_million_tokens = 0.28
 output_cost_per_million_tokens = 0.43
 
@@ -158,7 +162,11 @@ output_cost_per_million_tokens = 0.43
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-reasoner"
-executor_model_name = "deepseek/deepseek-reasoner"
+executor_model_name = "deepseek-reasoner"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 
 [llm."openai/gpt-5.4"]
 api_key_env = "ZENMUX_API_KEY"
@@ -181,8 +189,10 @@ If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_m
 
 By default, the active executor inherits the same `model_name` as the selected `--active-llm`, except for `codex`, which is pinned to `openai/gpt-5.4` in the repo defaults because that is the only Codex model/provider path currently verified in this setup. Override the executor-side model only if you explicitly want the planner/evaluator model and the backend model to diverge for an experiment.
 
+For official DeepSeek models, HealthFlow also inherits executor-specific routing fields. `opencode` uses its builtin `deepseek` provider directly, so no custom provider override is required if your DeepSeek credential is already configured in `opencode`. `pi` and `claude_code` inherit the same DeepSeek model but route through DeepSeek's Anthropic-compatible endpoint.
+
 The built-in executor defaults also enable reasoning-oriented modes out of the box:
-- `opencode`: `--variant high --thinking`
+- `opencode`: `--variant high --format json`
 - `codex`: `model_reasoning_effort="high"` and `model_reasoning_summary="detailed"`
 - `pi`: `--thinking high`
 - `claude_code`: `--effort high`
@@ -194,7 +204,7 @@ Example executor configuration with ZenMux-backed defaults:
 ```toml
 [executor.backends.opencode]
 binary = "opencode"
-args = ["run", "--variant", "high", "--thinking"]
+args = ["run", "--variant", "high", "--format", "json"]
 model_flag = "-m"
 model_template = "$provider/$model"
 provider = "zenmux"
@@ -223,8 +233,12 @@ provider_api_key_env = "ZENMUX_API_KEY"
 [executor.backends.claude_code]
 binary = "claude"
 args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "high"]
-env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KEY = "${ZENMUX_API_KEY}", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
+env = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
 model_flag = "--model"
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/anthropic"
+provider_api = "anthropic-messages"
+provider_api_key_env = "ZENMUX_API_KEY"
 ```
 
 HealthFlow also exposes a small execution-environment contract:
