@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import uuid
 from dataclasses import asdict
@@ -25,6 +26,56 @@ from .execution import ExecutionCancelledError, ExecutionContext, WorkflowRecomm
 from .experience.experience_manager import ExperienceManager
 from .experience.experience_models import RetrievalContext
 from .reporting import generate_task_report
+
+_STEP_FINISH_REASON_RE = re.compile(r"reason=([^\s]+)")
+_CONTENT_TOKEN_RE = re.compile(r"[a-z0-9']+")
+_ANSWER_INTRO_MARKERS = (
+    "final answer",
+    "here's the information you requested",
+    "here is the information you requested",
+    "here's the answer",
+    "here is the answer",
+    "corrected final answer",
+    "provide the corrected final answer",
+)
+_INLINE_ANSWER_PATTERNS = (
+    re.compile(r"(?i)\bfinal answer:\s*(.+)$"),
+    re.compile(r"(?i)\banswer:\s*(.+)$"),
+    re.compile(r"(?i)\bresult:\s*(.+)$"),
+    re.compile(r"(?i)\bconclusion:\s*(.+)$"),
+    re.compile(r"(?i)\boutput:\s*(.+)$"),
+    re.compile(r"(?i)\bsolution:\s*(.+)$"),
+    re.compile(r"(?i)\bthe answer is\s+(.+)$"),
+)
+_REQUEST_TOKEN_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "for",
+    "from",
+    "how",
+    "i",
+    "is",
+    "it",
+    "me",
+    "of",
+    "on",
+    "or",
+    "please",
+    "tell",
+    "the",
+    "to",
+    "we",
+    "what",
+    "whats",
+    "with",
+}
+_TOKEN_EQUIVALENTS = {
+    "hk": {"hk", "hong", "kong"},
+}
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -758,8 +809,8 @@ class HealthFlowSystem:
         if metrics_file:
             return metrics_file.read_text(encoding="utf-8", errors="ignore")[:2000]
 
-        stdout_segments = self._stdout_segments_from_log(execution_log)
-        best_stdout_answer = self._best_stdout_answer(stdout_segments)
+        stdout_blocks = self._stdout_blocks_from_log(execution_log)
+        best_stdout_answer = self._best_stdout_answer(stdout_blocks, user_request)
         if best_stdout_answer:
             return best_stdout_answer
 
@@ -790,52 +841,140 @@ class HealthFlowSystem:
             f"The original request was: '{user_request}'"
         )
 
-    def _stdout_segments_from_log(self, execution_log: str) -> list[str]:
-        segments: list[str] = []
+    def _stdout_blocks_from_log(self, execution_log: str) -> list[dict[str, Any]]:
+        blocks: list[dict[str, Any]] = []
         current_lines: list[str] = []
-        for line in execution_log.splitlines():
-            if line.startswith("STDOUT: "):
-                content = line.replace("STDOUT: ", "", 1)
-                if content.strip():
-                    current_lines.append(content)
-                elif current_lines:
-                    segments.append("\n".join(current_lines).strip())
-                    current_lines = []
-                continue
-            if current_lines:
-                segments.append("\n".join(current_lines).strip())
-                current_lines = []
-        if current_lines:
-            segments.append("\n".join(current_lines).strip())
-        return [segment for segment in segments if segment]
+        saw_step_events = False
 
-    def _best_stdout_answer(self, stdout_segments: list[str]) -> str | None:
-        if not stdout_segments:
+        def flush_current_block(step_reason: str | None = None) -> None:
+            if not current_lines:
+                return
+
+            text = "\n".join(current_lines).strip()
+            current_lines.clear()
+            if not text:
+                return
+
+            body, answer_marker_used = self._extract_answer_block_body(text)
+            blocks.append(
+                {
+                    "index": len(blocks),
+                    "text": text,
+                    "body": body,
+                    "step_reason": step_reason,
+                    "answer_marker_used": answer_marker_used,
+                }
+            )
+
+        for line in execution_log.splitlines():
+            if line.startswith("EVENT: step_start"):
+                saw_step_events = True
+                flush_current_block()
+                continue
+            if line.startswith("EVENT: step_finish"):
+                saw_step_events = True
+                flush_current_block(self._step_reason_from_log_line(line))
+                continue
+            if line.startswith("STDOUT: "):
+                current_lines.append(line.replace("STDOUT: ", "", 1))
+                continue
+            if not saw_step_events:
+                flush_current_block()
+
+        flush_current_block()
+        return blocks
+
+    def _best_stdout_answer(self, stdout_blocks: list[dict[str, Any]], user_request: str) -> str | None:
+        if not stdout_blocks:
             return None
 
-        scored_segments: list[tuple[int, int, str]] = []
-        for index, segment in enumerate(stdout_segments):
-            score = 0
-            if not self._looks_like_process_narration(segment):
-                score += 2
-            if self._looks_like_direct_answer(segment):
-                score += 2
-            if len(segment) >= 40:
-                score += 1
-            if index == len(stdout_segments) - 1:
-                score += 1
-            scored_segments.append((score, index, segment))
+        stop_blocks = [block for block in stdout_blocks if block.get("step_reason") == "stop"]
+        candidate_blocks = stop_blocks or stdout_blocks
+        request_tokens = self._content_tokens(user_request)
+        scored_blocks: list[tuple[float, int, str]] = []
 
-        best_score, best_index, best_segment = max(scored_segments, key=lambda item: (item[0], item[1]))
+        for index, block in enumerate(candidate_blocks):
+            body = str(block.get("body") or block.get("text") or "").strip()
+            if not body:
+                continue
+
+            score = 0.0
+            if block.get("step_reason") == "stop":
+                score += 6.0
+            if not self._looks_like_process_narration(body):
+                score += 2.0
+            if self._looks_like_direct_answer(body):
+                score += 2.0
+            if block.get("answer_marker_used"):
+                score += 3.0
+            if len(body) >= 40:
+                score += 1.0
+
+            overlap = len(self._content_tokens(body) & request_tokens)
+            score += overlap * 3.0
+            if request_tokens:
+                score += overlap / len(request_tokens)
+
+            scored_blocks.append((score, index, body[:2000]))
+
+        if not scored_blocks:
+            return None
+
+        best_score, _, best_body = max(scored_blocks, key=lambda item: (item[0], item[1]))
         if best_score <= 0:
             return None
+        return best_body
 
-        combined_segments = [best_segment]
-        for segment in stdout_segments[best_index + 1 :]:
-            if self._looks_like_process_narration(segment):
-                break
-            combined_segments.append(segment)
-        return "\n\n".join(combined_segments)[:2000]
+    def _extract_answer_block_body(self, text: str) -> tuple[str, bool]:
+        stripped_text = text.strip()
+        if not stripped_text:
+            return "", False
+
+        lines = stripped_text.splitlines()
+        marker_index: int | None = None
+        for index, line in enumerate(lines):
+            normalized = " ".join(line.lower().split())
+            if any(marker in normalized for marker in _ANSWER_INTRO_MARKERS):
+                marker_index = index
+
+        if marker_index is None:
+            return stripped_text[:2000], False
+
+        inline_answer = self._inline_answer_from_line(lines[marker_index])
+        trailing_text = "\n".join(lines[marker_index + 1 :]).strip()
+        if inline_answer and trailing_text:
+            return f"{inline_answer}\n{trailing_text}"[:2000], True
+        if inline_answer:
+            return inline_answer[:2000], True
+        if trailing_text:
+            return trailing_text[:2000], True
+        return stripped_text[:2000], False
+
+    def _inline_answer_from_line(self, line: str) -> str | None:
+        stripped_line = line.strip()
+        for pattern in _INLINE_ANSWER_PATTERNS:
+            match = pattern.search(stripped_line)
+            if match:
+                answer = match.group(1).strip()
+                if answer:
+                    return answer
+        return None
+
+    def _step_reason_from_log_line(self, line: str) -> str | None:
+        match = _STEP_FINISH_REASON_RE.search(line)
+        if match:
+            return match.group(1)
+        return None
+
+    def _content_tokens(self, text: str) -> set[str]:
+        tokens: set[str] = set()
+        for raw_token in _CONTENT_TOKEN_RE.findall(text.lower()):
+            token = raw_token.strip("'")
+            if len(token) < 2 or token in _REQUEST_TOKEN_STOPWORDS:
+                continue
+            tokens.add(token)
+            tokens.update(_TOKEN_EQUIVALENTS.get(token, {token}))
+        return tokens
 
     def _looks_like_process_narration(self, text: str) -> bool:
         normalized = " ".join(text.lower().split())
