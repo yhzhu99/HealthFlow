@@ -8,20 +8,30 @@ keywords = ["healthcare", "ai", "llm", "agents", "self-evolving", "medical", "ag
 
 dependencies = [
     "aiofiles>=24.1.0",
+    "catboost==1.2.10",
     "httpx>=0.28.1",
+    "joblib==1.5.3",
     "loguru>=0.7.3",
     "matplotlib>=3.10.1",
     "numpy>=2.2.4",
+    "oneehr",
     "openai>=1.97.1",
     "openpyxl>=3.1.5",
     "pandas>=2.3.0",
     "pyarrow>=19.0.1",
     "pydantic>=2.11.7",
+    "prompt_toolkit>=3.0.51",
     "rich>=14.1.0",
     "scikit-learn>=1.6.1",
+    "seaborn==0.13.2",
+    "shap==0.45.1",
     "tenacity>=9.1.2",
     "toml>=0.10.2",
+    "torch==2.11.0",
+    "tooluniverse==1.1.11",
+    "tqdm==4.67.3",
     "typer>=0.16.0",
+    "xgboost==3.2.0",
 ]
 
 [project.scripts]
@@ -38,3 +48,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["healthflow"]
+
+[tool.uv.sources]
+oneehr = { git = "https://github.com/MedX-PKU/OneEHR.git", rev = "28ae5b2561a3f9646c5ed807c3a455be9599577a" }

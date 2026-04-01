@@ -96,31 +96,31 @@ def detect_domain_focus(
     return ("ehr" if is_ehr else "general", signals)
 
 
-def default_tool_bundle(task_family: str, domain_focus: str = "general") -> list[str]:
-    family_tools = {
-        "cohort_extraction": ["python", "tabular inspection", "filtering logic audit"],
-        "descriptive_analysis": ["python", "summary tables", "plots"],
-        "predictive_modeling": ["python", "train/validation split audit", "saved metrics"],
-        "survival_analysis": ["python", "time-aware validation", "saved metrics"],
-        "time_series_modeling": ["python", "time-aware validation", "saved metrics"],
-        "phenotyping": ["python", "clustering/classification workflows"],
-        "causal_or_statistical_analysis": ["python", "statistical testing", "effect-size reporting"],
-        "visualization": ["python", "matplotlib/seaborn style plotting"],
-        "report_generation": ["markdown", "structured summaries", "saved report"],
-        "general_analysis": ["python", "bash", "saved artifacts"],
+def default_workflow_recommendations(task_family: str, domain_focus: str = "general") -> list[str]:
+    family_recommendations = {
+        "cohort_extraction": ["Use reproducible cohort logic", "Persist filtering criteria as an auditable artifact"],
+        "descriptive_analysis": ["Save summary tables or figures when they support the answer"],
+        "predictive_modeling": ["Save validation evidence and metrics artifacts"],
+        "survival_analysis": ["Document time origin, censoring, and validation choices"],
+        "time_series_modeling": ["Document chronology constraints and evaluation artifacts"],
+        "phenotyping": ["Persist clustering or phenotyping outputs in reusable artifacts"],
+        "causal_or_statistical_analysis": ["Record statistical assumptions, tests, and effect-size outputs"],
+        "visualization": ["Save figures and a concise interpretation artifact"],
+        "report_generation": ["Write a structured report artifact that answers the task directly"],
+        "general_analysis": ["Prefer reproducible workspace-local scripts and saved artifacts"],
     }
-    bundle = list(family_tools.get(task_family, family_tools["general_analysis"]))
+    recommendations = list(family_recommendations.get(task_family, family_recommendations["general_analysis"]))
     if domain_focus == "ehr" and task_family in {"predictive_modeling", "survival_analysis", "time_series_modeling"}:
-        bundle.extend(["patient-level split audit", "temporal leakage check", "external cli workflows"])
+        recommendations.extend(["Preserve patient-aware split evidence", "Check temporal leakage explicitly"])
     if domain_focus == "ehr" and task_family == "cohort_extraction":
-        bundle.append("cohort definition artifact")
-    return list(dict.fromkeys(bundle))
+        recommendations.append("Persist the cohort definition in a machine-readable artifact")
+    return list(dict.fromkeys(recommendations))
 
 
 def deliverable_guidance(task_family: str, domain_focus: str = "general") -> list[str]:
     guidance = {
         "cohort_extraction": [
-            "Persist the selection logic in a script, notebook, or auditable artifact when reproducibility matters.",
+            "Persist the selection logic in a script, notebook, or reproducible artifact when reproducibility matters.",
             "If the final output is a cohort/table, save the resulting subset and briefly explain the criteria you applied.",
         ],
         "predictive_modeling": [
@@ -130,7 +130,7 @@ def deliverable_guidance(task_family: str, domain_focus: str = "general") -> lis
         ],
         "survival_analysis": [
             "Save metrics and document the time origin, censoring, or event-horizon assumptions.",
-            "Keep the analysis auditable with scripts or concise notes describing temporal validation.",
+            "Keep the analysis reproducible with scripts or concise notes describing temporal validation.",
         ],
         "time_series_modeling": [
             "Save metrics and document how chronology or forecasting constraints were handled.",
@@ -148,7 +148,7 @@ def deliverable_guidance(task_family: str, domain_focus: str = "general") -> lis
         guidance.get(
             task_family,
             [
-                "Prefer auditable artifacts when they materially support the answer.",
+                "Prefer reproducible artifacts when they materially support the answer.",
                 "A concise final answer is acceptable when the task does not require saved files.",
             ],
         )
@@ -157,7 +157,7 @@ def deliverable_guidance(task_family: str, domain_focus: str = "general") -> lis
         if task_family in {"predictive_modeling", "survival_analysis", "time_series_modeling"}:
             suggestions.extend(
                 [
-                    "When relevant, save cohort, split, and leakage evidence so the EHR workflow can be audited.",
+                    "When relevant, save cohort, split, and leakage evidence so the EHR workflow can be inspected and reproduced.",
                     "Prefer patient-aware or time-aware validation artifacts over implicit assumptions.",
                 ]
             )

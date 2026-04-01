@@ -15,9 +15,9 @@ class ExecutionPlan(BaseModel):
         default_factory=list,
         description="Ordered high-level steps for the executor to follow.",
     )
-    preferred_tools: list[str] = Field(
+    recommended_workflows: list[str] = Field(
         default_factory=list,
-        description="Preferred tools or action surfaces suggested by the planner.",
+        description="Recommended execution workflows suggested by the planner.",
     )
     avoidances: list[str] = Field(
         default_factory=list,
@@ -45,8 +45,8 @@ class ExecutionPlan(BaseModel):
             "## Recommended Steps",
             *self._render_numbered(self.recommended_steps, "Inspect the environment and act directly."),
             "",
-            "## Preferred Tools",
-            *self._render_bullets(self.preferred_tools, "No preferred tools were specified."),
+            "## Recommended Workflows",
+            *self._render_bullets(self.recommended_workflows, "No workflow recommendations were specified."),
             "",
             "## Avoidances",
             *self._render_bullets(self.avoidances, "No explicit avoidances were listed."),
@@ -75,7 +75,7 @@ class EvaluationVerdict(BaseModel):
         ...,
         description="Top-level outcome classification for the attempt.",
     )
-    score: float = Field(..., ge=0.0, le=10.0, description="Overall quality score for the attempt.")
+    score: float = Field(..., ge=0.0, le=1.0, description="Overall quality score for the attempt on a 0-1 scale.")
     failure_type: str = Field(
         default="none",
         description="Structured failure category. Use 'none' on success.",
@@ -84,6 +84,14 @@ class EvaluationVerdict(BaseModel):
     repair_instructions: list[str] = Field(
         default_factory=list,
         description="Concrete steps for the planner/executor to address next.",
+    )
+    violated_constraints: list[str] = Field(
+        default_factory=list,
+        description="Structured constraints, assumptions, or contracts that the attempt violated.",
+    )
+    repair_hypotheses: list[str] = Field(
+        default_factory=list,
+        description="Candidate hypotheses about what strategic change is most likely to improve the next attempt.",
     )
     retry_recommended: bool = Field(
         default=False,

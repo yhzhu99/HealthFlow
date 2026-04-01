@@ -62,7 +62,23 @@ class SystemConfig(BaseModel):
         description="Maximum number of full task attempts in the self-correction loop.",
     )
     workspace_dir: str = Field("workspace/tasks", description="Directory for task artifacts.")
-    shell: str = Field("/usr/bin/zsh", description="Shell to use for subprocess execution.")
+
+
+class EnvironmentConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    python_version: str = Field("3.12", description="Preferred Python version for executor-side workflows.")
+    package_manager: str = Field("uv", description="Preferred package manager available in the execution environment.")
+    install_command: str = Field("uv add", description="Preferred dependency installation command when adding packages is necessary.")
+    run_prefix: str = Field("uv run", description="Preferred command prefix for Python entrypoints.")
+
+    def summary_lines(self) -> list[str]:
+        return [
+            f"Preferred Python version: {self.python_version}",
+            f"Package manager: {self.package_manager}",
+            f"Dependency install command: {self.install_command}",
+            f"Python command prefix: {self.run_prefix}",
+        ]
 
 
 def default_executor_backends() -> Dict[str, BackendCLIConfig]:
@@ -117,11 +133,11 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
         ),
         "opencode": BackendCLIConfig(
             binary="opencode",
-            args=["run", "--variant", "high", "--thinking"],
+            args=["run", "--variant", "high", "--format", "json"],
             model_flag="-m",
             model_template="$provider/$model",
             provider="zenmux",
-            output_mode="text",
+            output_mode="json_events",
             prompt_mode="append",
         ),
         "pi": BackendCLIConfig(
@@ -153,25 +169,6 @@ class ExecutorConfig(BaseModel):
         return self
 
 
-class ToolDefinitionConfig(BaseModel):
-    surface: Literal["cli", "mcp"] = "cli"
-    description: str = ""
-    invocation_hint: str = ""
-
-
-class ToolsConfig(BaseModel):
-    entries: Dict[str, ToolDefinitionConfig] = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_entries(cls, value):
-        if value is None:
-            return {"entries": {}}
-        if isinstance(value, dict) and "entries" not in value:
-            return {"entries": value}
-        return value
-
-
 class LLMRoleConfig(BaseModel):
     planner: str | None = Field(default=None, description="Optional model key for the planning agent.")
     evaluator: str | None = Field(default=None, description="Optional model key for the evaluator agent.")
@@ -184,7 +181,7 @@ class MemoryConfig(BaseModel):
 
 
 class EvaluationConfig(BaseModel):
-    success_threshold: float = Field(8.0, description="Score (out of 10) to consider a task successful.")
+    success_threshold: float = Field(0.8, description="Score (0-1) required to consider a task successful.")
 
 
 class LoggingConfig(BaseModel):
@@ -201,8 +198,8 @@ class HealthFlowConfig(BaseModel):
     llm: LLMProviderConfig
     llm_roles: LLMRoleConfig
     system: SystemConfig
+    environment: EnvironmentConfig
     executor: ExecutorConfig
-    tools: ToolsConfig
     memory: MemoryConfig
     evaluation: EvaluationConfig
     logging: LoggingConfig
@@ -240,11 +237,27 @@ def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> L
     return LLMProviderConfig(**resolved_config)
 
 def _validate_top_level_sections(config_data: dict) -> None:
-    allowed_sections = {"llm", "llm_roles", "system", "executor", "tools", "memory", "evaluation", "logging"}
+    if "tools" in config_data:
+        raise ValueError(
+            "Legacy tools configuration is no longer supported. "
+            "HealthFlow does not host MCP or CLI tool integrations; configure tools in the outer executor instead. "
+            "Use [environment] for lightweight runtime defaults."
+        )
+
+    allowed_sections = {"llm", "llm_roles", "system", "environment", "executor", "memory", "evaluation", "logging"}
     unexpected_sections = sorted(section for section in config_data if section not in allowed_sections)
     if unexpected_sections:
         raise ValueError(
             "Unsupported config sections: " + ", ".join(f"[{section}]" for section in unexpected_sections)
+        )
+
+
+def _validate_system_section(system_data: dict) -> None:
+    if "shell" in system_data:
+        raise ValueError(
+            "Config key 'system.shell' is no longer supported. "
+            "HealthFlow executes configured backends directly rather than through a configurable shell. "
+            "Remove 'shell' from the '[system]' section."
         )
 
 
@@ -263,6 +276,7 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
     try:
         config_data = toml.load(config_path)
         _validate_top_level_sections(config_data)
+        _validate_system_section(config_data.get("system", {}))
 
         if not active_llm:
             raise ValueError("'active_llm' parameter is required")
@@ -295,8 +309,8 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
             llm=llm_registry[active_llm],
             llm_roles=llm_roles,
             system=SystemConfig(**config_data.get("system", {})),
+            environment=EnvironmentConfig(**config_data.get("environment", {})),
             executor=executor_config,
-            tools=ToolsConfig(**config_data.get("tools", {})),
             memory=MemoryConfig(**config_data.get("memory", {})),
             evaluation=EvaluationConfig(**config_data.get("evaluation", {})),
             logging=LoggingConfig(**config_data.get("logging", {})),
@@ -313,10 +327,10 @@ def get_config(config_path: Path, active_llm: str, active_executor: str | None =
         raise ValueError(f"Error parsing configuration file '{config_path}': {e}") from e
 
 
-def setup_logging(config: HealthFlowConfig):
+def setup_logging(config: HealthFlowConfig, console_log_level: str | None = None):
     """Configures the Loguru logger based on the loaded configuration."""
     logger.remove()
-    logger.add(sys.stderr, level=config.logging.log_level.upper())
+    logger.add(sys.stderr, level=(console_log_level or "WARNING").upper())
     logger.add(
         config.logging.log_file,
         level=config.logging.log_level.upper(),

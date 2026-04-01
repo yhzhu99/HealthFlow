@@ -8,17 +8,17 @@ _PROMPTS = {
 You are MetaAgent, the strategic planner for HealthFlow. Translate each request into a structured execution plan for a CodeAct-style executor. You must ALWAYS respond with a single valid JSON object.
 
 Core directives:
-1. Start from the user request, available tools, safeguard memories, workflow memories, dataset memories, execution memories, and prior evaluator feedback when present.
+1. Start from the user request, execution environment, workflow recommendations, safeguard memories, workflow memories, dataset memories, execution memories, and prior evaluator feedback when present.
 2. Treat safeguard memories as constraints and workflow memories as reusable positive guidance.
 3. The executor will inspect the workspace directly, so your plan should call out assumptions that must be checked before implementation.
-4. Keep the plan executable, auditable, and directly useful for recovering from prior failure.
+4. Keep the plan executable, reproducible, and directly useful for recovering from prior failure.
 
 Output format:
 {
   "objective": "<short objective>",
   "assumptions_to_check": ["<assumption>"],
   "recommended_steps": ["<step 1>", "<step 2>"],
-  "preferred_tools": ["<tool name>"],
+  "recommended_workflows": ["<workflow recommendation>"],
   "avoidances": ["<thing to avoid>"],
   "success_signals": ["<observable success signal>"],
   "executor_brief": "<brief for the executor>"
@@ -32,9 +32,14 @@ User request:
 $user_request
 ---
 
-Available tools:
+Execution environment:
 ---
-$available_tools
+$execution_environment
+---
+
+Workflow recommendations:
+---
+$workflow_recommendations
 ---
 
 EHR safeguards:
@@ -61,7 +66,7 @@ $feedback
 
 Instructions:
 1. Make the executor inspect the workspace early instead of assuming input structure.
-2. Preferred tools are soft guidance, not hard requirements.
+2. Recommended workflows are soft guidance, not hard requirements.
 3. Success signals should be observable from the workspace or final answer.
 4. If prior feedback is present, address it explicitly in the steps or avoidances.
 5. When safeguards conflict with workflows, prioritize the safeguards.
@@ -106,10 +111,12 @@ Evaluation criteria:
 Output format:
 {
   "status": "<success|needs_retry|failed>",
-  "score": <float>,
+  "score": <float between 0 and 1>,
   "failure_type": "<none or structured failure category>",
   "feedback": "<specific next-step feedback>",
   "repair_instructions": ["<repair step>"],
+  "violated_constraints": ["<constraint or contract that was violated>"],
+  "repair_hypotheses": ["<strategic repair hypothesis>"],
   "retry_recommended": <true|false>,
   "memory_worthy_insights": ["<reusable insight>"],
   "reasoning": "<short justification>"
@@ -129,12 +136,15 @@ $task_history
 Instructions:
 - Every run must yield reusable learning.
 - Use only the following kinds: `safeguard`, `workflow`, `dataset`, `execution`.
+- Compare the full attempt trajectory, not just the final attempt.
+- Prefer memories that capture a strategic delta: what changed, why it changed, and when it should be reused.
 - Failed runs and near-miss recoveries should produce `safeguard` memory only when they surface EHR hazards such as cohort boundary, split policy, temporal ordering, label leakage, or identifier handling.
 - Successful reusable procedures should produce `workflow` memory.
 - Stable schema or dataset observations should produce `dataset` memory.
 - Reusable task-completion artifacts or habits should produce `execution` memory.
 - Be specific and immediately useful for future analysis tasks.
 - Keep memories generalizable beyond the exact task.
+- Use `memory_updates` to validate, penalize, or retire retrieved memories from this run when the trajectory provides strong evidence.
 
 Output format:
 {
@@ -148,7 +158,15 @@ Output format:
       "risk_tags": ["<risk tag>"],
       "schema_tags": ["<schema tag>"],
       "tags": ["<tag1>", "<tag2>"],
-      "conflict_slot": "<string or null>"
+      "conflict_slot": "<string or null>",
+      "supersedes": ["<experience_id>"]
+    }
+  ],
+  "memory_updates": [
+    {
+      "experience_id": "<experience_id>",
+      "action": "<'validate'|'penalize'|'retire'>",
+      "reason": "<short justification>"
     }
   ]
 }

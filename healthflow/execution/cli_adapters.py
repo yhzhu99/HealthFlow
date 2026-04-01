@@ -12,10 +12,11 @@ from typing import Any, List
 from loguru import logger
 
 from ..core.config import BackendCLIConfig
-from .base import ExecutionContext, ExecutionResult, ExecutorAdapter
+from .base import ExecutionCancelledError, ExecutionContext, ExecutionResult, ExecutorAdapter
 from .opencode_parser import parse_opencode_json_events
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class CLISubprocessExecutor(ExecutorAdapter):
@@ -25,15 +26,17 @@ class CLISubprocessExecutor(ExecutorAdapter):
 
     async def execute(self, context: ExecutionContext, working_dir: Path) -> ExecutionResult:
         prompt_text = context.render_prompt()
+        prompt_file_path = self._write_prompt_file(working_dir, prompt_text)
         environment = self._build_environment(working_dir)
         command_args = self._build_command(prompt_text)
+        redacted_command_args = self._redacted_command(command_args, prompt_text)
         backend_version = await self._capture_backend_version(environment)
         log_file_path = working_dir / f"{self.backend_name}_execution.log"
         logger.info(
             "Executing backend '{}' in '{}': {}",
             self.backend_name,
             working_dir,
-            " ".join(command_args),
+            " ".join(redacted_command_args),
         )
 
         start_time = time.time()
@@ -61,6 +64,21 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 timed_out = True
                 process.kill()
                 stdout_bytes, stderr_bytes = await process.communicate()
+            except asyncio.CancelledError:
+                duration_seconds = round(time.time() - start_time, 2)
+                cancelled_result = await self._build_cancelled_result(
+                    process=process,
+                    prompt_text=prompt_text,
+                    prompt_file_path=prompt_file_path,
+                    log_file_path=log_file_path,
+                    redacted_command_args=redacted_command_args,
+                    backend_version=backend_version,
+                    duration_seconds=duration_seconds,
+                )
+                raise ExecutionCancelledError(
+                    cancelled_result,
+                    cancelled_result.cancel_reason or "Execution cancelled by user.",
+                ) from None
 
             log_content = self._format_combined_log(
                 stdout_bytes.decode("utf-8", errors="replace"),
@@ -75,9 +93,9 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 return_code=process.returncode,
                 log=log_content,
                 log_path=str(log_file_path),
-                prompt_path=None,
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
-                command=command_args,
+                command=redacted_command_args,
                 backend_version=backend_version,
                 executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
@@ -100,9 +118,9 @@ class CLISubprocessExecutor(ExecutorAdapter):
                 return_code=-1,
                 log=f"HealthFlow Executor Error: {e}\n\n--- Captured Log Before Error ---\n{log_content}",
                 log_path=str(log_file_path),
-                prompt_path=None,
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
-                command=command_args,
+                command=redacted_command_args,
                 backend_version=backend_version,
                 executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
@@ -115,6 +133,56 @@ class CLISubprocessExecutor(ExecutorAdapter):
                     timed_out=timed_out,
                 ),
             )
+
+    async def _build_cancelled_result(
+        self,
+        *,
+        process: asyncio.subprocess.Process,
+        prompt_text: str,
+        prompt_file_path: Path,
+        log_file_path: Path,
+        redacted_command_args: list[str],
+        backend_version: str | None,
+        duration_seconds: float,
+    ) -> ExecutionResult:
+        stdout_bytes, stderr_bytes = await self._terminate_process(process)
+        log_content = self._format_combined_log(
+            stdout_bytes.decode("utf-8", errors="replace"),
+            stderr_bytes.decode("utf-8", errors="replace"),
+            cancelled=True,
+        )
+        log_file_path.write_text(log_content, encoding="utf-8")
+        return ExecutionResult(
+            success=False,
+            return_code=process.returncode if process.returncode is not None else -2,
+            log=log_content,
+            log_path=str(log_file_path),
+            prompt_path=str(prompt_file_path),
+            backend=self.backend_name,
+            command=redacted_command_args,
+            backend_version=backend_version,
+            executor_metadata=self._executor_metadata(),
+            duration_seconds=duration_seconds,
+            timed_out=False,
+            usage=self._default_usage(
+                prompt_text=prompt_text,
+                stdout_bytes=stdout_bytes,
+                stderr_bytes=stderr_bytes,
+                duration_seconds=duration_seconds,
+                timed_out=False,
+            ),
+            cancelled=True,
+            cancel_reason="Execution cancelled by user.",
+        )
+
+    async def _terminate_process(self, process: asyncio.subprocess.Process) -> tuple[bytes, bytes]:
+        if process.returncode is None:
+            process.terminate()
+            try:
+                return await asyncio.wait_for(process.communicate(), timeout=1)
+            except asyncio.TimeoutError:
+                process.kill()
+        return await process.communicate()
 
     def _build_command(self, prompt_text: str) -> List[str]:
         command = [self.backend_config.binary, *self.backend_config.args]
@@ -133,11 +201,40 @@ class CLISubprocessExecutor(ExecutorAdapter):
             command.append(prompt_text)
         return command
 
+    def _write_prompt_file(self, working_dir: Path, prompt_text: str) -> Path:
+        prompt_path = working_dir / f"{self.backend_name}_prompt.md"
+        prompt_path.write_text(prompt_text, encoding="utf-8")
+        return prompt_path
+
+    def _redacted_command(self, command_args: list[str], prompt_text: str) -> list[str]:
+        if self.backend_config.prompt_mode != "append" or not command_args:
+            return list(command_args)
+
+        redacted_command = list(command_args)
+        if redacted_command[-1] == prompt_text:
+            redacted_command[-1] = "<prompt omitted>"
+        return redacted_command
+
     def _build_environment(self, working_dir: Path) -> dict[str, str]:
         environment = os.environ.copy()
         for key, value in self.backend_config.env.items():
             environment[key] = self._expand_environment_value(key, value, environment)
+        environment = self._ensure_project_venv_bin_on_path(environment)
         return self._prepare_environment(environment, working_dir)
+
+    def _ensure_project_venv_bin_on_path(self, environment: dict[str, str]) -> dict[str, str]:
+        venv_bin = _PROJECT_ROOT / ".venv" / "bin"
+        if not venv_bin.exists():
+            return environment
+
+        path_entries = environment.get("PATH", "").split(os.pathsep) if environment.get("PATH") else []
+        venv_bin_str = str(venv_bin)
+        if venv_bin_str in path_entries:
+            return environment
+
+        updated_environment = dict(environment)
+        updated_environment["PATH"] = os.pathsep.join([venv_bin_str, *path_entries]) if path_entries else venv_bin_str
+        return updated_environment
 
     def _prepare_environment(self, environment: dict[str, str], working_dir: Path) -> dict[str, str]:
         return environment
@@ -195,12 +292,14 @@ class CLISubprocessExecutor(ExecutorAdapter):
             "version_args": list(self.backend_config.version_args),
         }
 
-    def _format_combined_log(self, stdout: str, stderr: str, timed_out: bool = False) -> str:
+    def _format_combined_log(self, stdout: str, stderr: str, timed_out: bool = False, cancelled: bool = False) -> str:
         lines: list[str] = []
         if timed_out:
             lines.append(
                 f"STDERR: Process timed out after {self.backend_config.timeout_seconds} seconds.\n"
             )
+        if cancelled:
+            lines.append("STDERR: Process cancelled by user.\n")
         lines.extend(self._prefix_stream(stdout, "STDOUT: "))
         lines.extend(self._prefix_stream(stderr, "STDERR: "))
         return "".join(lines)
@@ -290,15 +389,17 @@ class OpenCodeExecutor(CLISubprocessExecutor):
             return await super().execute(context, working_dir)
 
         prompt_text = context.render_prompt()
+        prompt_file_path = self._write_prompt_file(working_dir, prompt_text)
         environment = self._build_environment(working_dir)
         command_args = self._build_command(prompt_text)
+        redacted_command_args = self._redacted_command(command_args, prompt_text)
         backend_version = await self._capture_backend_version(environment)
         log_file_path = working_dir / f"{self.backend_name}_execution.log"
         logger.info(
             "Executing backend '{}' in '{}': {}",
             self.backend_name,
             working_dir,
-            " ".join(command_args),
+            " ".join(redacted_command_args),
         )
 
         start_time = time.time()
@@ -326,6 +427,21 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 timed_out = True
                 process.kill()
                 stdout_bytes, stderr_bytes = await process.communicate()
+            except asyncio.CancelledError:
+                duration_seconds = round(time.time() - start_time, 2)
+                cancelled_result = await self._build_cancelled_result(
+                    process=process,
+                    prompt_text=prompt_text,
+                    prompt_file_path=prompt_file_path,
+                    log_file_path=log_file_path,
+                    redacted_command_args=redacted_command_args,
+                    backend_version=backend_version,
+                    duration_seconds=duration_seconds,
+                )
+                raise ExecutionCancelledError(
+                    cancelled_result,
+                    cancelled_result.cancel_reason or "Execution cancelled by user.",
+                ) from None
 
             duration_seconds = round(time.time() - start_time, 2)
             stdout_text = stdout_bytes.decode("utf-8", errors="replace")
@@ -358,9 +474,9 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 return_code=process.returncode,
                 log=log_content,
                 log_path=str(log_file_path),
-                prompt_path=None,
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
-                command=command_args,
+                command=redacted_command_args,
                 backend_version=backend_version,
                 executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
@@ -378,9 +494,9 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 return_code=-1,
                 log=f"HealthFlow Executor Error: {e}\n\n--- Captured Log Before Error ---\n{log_content}",
                 log_path=str(log_file_path),
-                prompt_path=None,
+                prompt_path=str(prompt_file_path),
                 backend=self.backend_name,
-                command=command_args,
+                command=redacted_command_args,
                 backend_version=backend_version,
                 executor_metadata=self._executor_metadata(),
                 duration_seconds=duration_seconds,
@@ -394,16 +510,74 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 ),
             )
 
+    async def _build_cancelled_result(
+        self,
+        *,
+        process: asyncio.subprocess.Process,
+        prompt_text: str,
+        prompt_file_path: Path,
+        log_file_path: Path,
+        redacted_command_args: list[str],
+        backend_version: str | None,
+        duration_seconds: float,
+    ) -> ExecutionResult:
+        stdout_bytes, stderr_bytes = await self._terminate_process(process)
+        stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+        stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+        parsed = parse_opencode_json_events(stdout_text)
+        usage = self._default_usage(
+            prompt_text=prompt_text,
+            stdout_bytes=stdout_bytes,
+            stderr_bytes=stderr_bytes,
+            duration_seconds=duration_seconds,
+            timed_out=False,
+        )
+        telemetry = parsed.telemetry if parsed.telemetry.get("event_count") else {}
+        if telemetry:
+            configured_model = self._configured_model_hint(redacted_command_args)
+            if configured_model and not telemetry.get("models"):
+                telemetry["models"] = [configured_model]
+            usage.update(parsed.usage)
+
+        log_content = self._render_opencode_log(
+            parsed_log=parsed.log,
+            stdout_text=stdout_text,
+            stderr_text=stderr_text,
+            timed_out=False,
+            cancelled=True,
+        )
+        log_file_path.write_text(log_content, encoding="utf-8")
+        return ExecutionResult(
+            success=False,
+            return_code=process.returncode if process.returncode is not None else -2,
+            log=log_content,
+            log_path=str(log_file_path),
+            prompt_path=str(prompt_file_path),
+            backend=self.backend_name,
+            command=redacted_command_args,
+            backend_version=backend_version,
+            executor_metadata=self._executor_metadata(),
+            duration_seconds=duration_seconds,
+            timed_out=False,
+            usage=usage,
+            telemetry=telemetry,
+            cancelled=True,
+            cancel_reason="Execution cancelled by user.",
+        )
+
     def _render_opencode_log(
         self,
         parsed_log: str,
         stdout_text: str,
         stderr_text: str,
         timed_out: bool,
+        cancelled: bool = False,
     ) -> str:
         lines: list[str] = []
         if timed_out:
             lines.append(f"STDERR: Process timed out after {self.backend_config.timeout_seconds} seconds.\n")
+        if cancelled:
+            lines.append("STDERR: Process cancelled by user.\n")
         if parsed_log:
             lines.extend(self._prefix_stream(parsed_log, ""))
         elif stdout_text:

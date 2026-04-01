@@ -32,6 +32,8 @@ model_name = "model"
             self.assertIn("pi", config.executor.backends)
             self.assertEqual(config.system.max_attempts, 3)
             self.assertEqual(config.system.workspace_dir, "workspace/tasks")
+            self.assertEqual(config.environment.python_version, "3.12")
+            self.assertEqual(config.environment.package_manager, "uv")
             self.assertEqual(config.memory.write_policy, "append")
 
     def test_default_backend_uses_opencode_executor(self):
@@ -50,8 +52,9 @@ model_name = "model"
             executor = create_executor_adapter(config.active_executor_name, config.active_executor)
             self.assertIsInstance(executor, CLISubprocessExecutor)
             self.assertNotIsInstance(executor, ClaudeCodeExecutor)
-            self.assertEqual(config.active_executor.args, ["run", "--variant", "high", "--thinking"])
+            self.assertEqual(config.active_executor.args, ["run", "--variant", "high", "--format", "json"])
             self.assertEqual(config.active_executor.prompt_mode, "append")
+            self.assertEqual(config.active_executor.output_mode, "json_events")
             self.assertEqual(config.active_executor.model, "model")
 
     def test_named_pi_backend_uses_specialized_executor(self):
@@ -183,6 +186,24 @@ evaluator = "judge"
             self.assertEqual(config.llm_config_for_role("planner").model_name, "planner-model")
             self.assertEqual(config.llm_config_for_role("evaluator").model_name, "judge-model")
 
+    def test_unknown_llm_role_target_raises_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.default]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "planner-model"
+
+[llm_roles]
+reflector = "missing-model"
+""".strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, r"llm_roles\.reflector='missing-model'"):
+                get_config(config_path, "default")
+
     def test_executor_inherits_executor_model_name_when_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
@@ -200,7 +221,7 @@ executor_model_name = "deepseek/deepseek-chat"
 
             self.assertEqual(config.active_executor.model, "deepseek/deepseek-chat")
 
-    def test_tool_entries_can_be_loaded_for_cli_and_mcp_surfaces(self):
+    def test_environment_defaults_can_be_overridden(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.toml"
             config_path.write_text(
@@ -210,22 +231,37 @@ api_key = "key"
 base_url = "https://example.com/v1"
 model_name = "model"
 
-[tools.python]
-surface = "cli"
-description = "Workspace python runner"
-invocation_hint = "python script.py"
-
-[tools.local_mcp]
-surface = "mcp"
-description = "Local MCP bridge"
-invocation_hint = "connector-defined"
+[environment]
+python_version = "3.12.2"
+package_manager = "uv"
+install_command = "uv add --dev"
+run_prefix = "uv run"
 """.strip(),
                 encoding="utf-8",
             )
             config = get_config(config_path, "test")
-            self.assertEqual(config.tools.entries["python"].surface, "cli")
-            self.assertEqual(config.tools.entries["local_mcp"].surface, "mcp")
-            self.assertEqual(config.tools.entries["local_mcp"].invocation_hint, "connector-defined")
+            self.assertEqual(config.environment.python_version, "3.12.2")
+            self.assertEqual(config.environment.install_command, "uv add --dev")
+
+    def test_legacy_tools_config_raises_migration_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            legacy_config = "\n".join(
+                [
+                    "[llm.test]",
+                    'api_key = "key"',
+                    'base_url = "https://example.com/v1"',
+                    'model_name = "model"',
+                    "",
+                    "[too" "ls.legacy_bridge]",
+                    'surface = "' + "m" + "cp" + '"',
+                    'description = "Legacy bridge"',
+                    'invocation_hint = "connector-defined"',
+                ]
+            )
+            config_path.write_text(legacy_config, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"Legacy tools configuration"):
+                get_config(config_path, "test")
 
     def test_llm_api_key_can_be_loaded_from_env_variable(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -282,6 +318,41 @@ model_name = "model"
                     "ZENMUX_API_KEY",
                 ):
                     get_config(config_path, "test")
+
+    def test_repo_config_example_parses_with_env_backed_models_and_llm_roles(self):
+        config_path = Path(__file__).resolve().parents[1] / "config.toml"
+        with patch.dict(
+            "os.environ",
+            {
+                "ZENMUX_API_KEY": "zenmux-key",
+                "DEEPSEEK_API_KEY": "deepseek-key",
+            },
+            clear=False,
+        ):
+            config = get_config(config_path, "deepseek/deepseek-v3.2")
+
+        self.assertEqual(config.active_llm_name, "deepseek/deepseek-v3.2")
+        self.assertEqual(config.llm_config_for_role("planner").model_name, "deepseek-chat")
+        self.assertEqual(config.llm_config_for_role("evaluator").model_name, "openai/gpt-5.4")
+        self.assertEqual(config.llm_config_for_role("reflector").model_name, "google/gemini-3-flash-preview")
+
+    def test_system_shell_raises_migration_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+
+[system]
+shell = "/usr/bin/zsh"
+""".strip(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, r"system\.shell"):
+                get_config(config_path, "test")
 
     def test_unknown_memory_keys_raise_clear_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:

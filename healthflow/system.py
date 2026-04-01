@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import time
 import uuid
 from dataclasses import asdict
@@ -17,13 +19,63 @@ from .agents.meta_agent import MetaAgent
 from .agents.reflector_agent import ReflectorAgent
 from .core.config import HealthFlowConfig
 from .core.contracts import EvaluationVerdict
+from .core.direct_responses import DirectResponse, DirectResponseRouter
 from .core.llm_provider import create_llm_provider
 from .ehr import detect_risk_findings, profile_workspace_data
-from .execution import ExecutionContext, create_executor_adapter
+from .execution import ExecutionCancelledError, ExecutionContext, WorkflowRecommendationBroker, create_executor_adapter
 from .experience.experience_manager import ExperienceManager
-from .experience.experience_models import Experience, RetrievalContext
-from .tools import ToolCatalog
-from .tools.broker import ToolBroker
+from .experience.experience_models import RetrievalContext
+from .reporting import generate_task_report
+
+_STEP_FINISH_REASON_RE = re.compile(r"reason=([^\s]+)")
+_CONTENT_TOKEN_RE = re.compile(r"[a-z0-9']+")
+_ANSWER_INTRO_MARKERS = (
+    "final answer",
+    "here's the information you requested",
+    "here is the information you requested",
+    "here's the answer",
+    "here is the answer",
+    "corrected final answer",
+    "provide the corrected final answer",
+)
+_INLINE_ANSWER_PATTERNS = (
+    re.compile(r"(?i)\bfinal answer:\s*(.+)$"),
+    re.compile(r"(?i)\banswer:\s*(.+)$"),
+    re.compile(r"(?i)\bresult:\s*(.+)$"),
+    re.compile(r"(?i)\bconclusion:\s*(.+)$"),
+    re.compile(r"(?i)\boutput:\s*(.+)$"),
+    re.compile(r"(?i)\bsolution:\s*(.+)$"),
+    re.compile(r"(?i)\bthe answer is\s+(.+)$"),
+)
+_REQUEST_TOKEN_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "for",
+    "from",
+    "how",
+    "i",
+    "is",
+    "it",
+    "me",
+    "of",
+    "on",
+    "or",
+    "please",
+    "tell",
+    "the",
+    "to",
+    "we",
+    "what",
+    "whats",
+    "with",
+}
+_TOKEN_EQUIVALENTS = {
+    "hk": {"hk", "hong", "kong"},
+}
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -50,15 +102,14 @@ class HealthFlowSystem:
                 provider_cache[provider_key] = create_llm_provider(role_config)
             return provider_cache[provider_key]
 
-        self.llm_provider = provider_for("planner")
-        self.experience_manager = ExperienceManager(experience_path, self.llm_provider)
+        self.experience_manager = ExperienceManager(experience_path)
 
         self.meta_agent = MetaAgent(provider_for("planner"))
         self.evaluator = EvaluatorAgent(provider_for("evaluator"))
         self.reflector = ReflectorAgent(provider_for("reflector"))
+        self.direct_response_router = DirectResponseRouter(provider_for("planner"))
         self.executor = create_executor_adapter(config.active_executor_name, config.active_executor)
-        self.tool_catalog = ToolCatalog.from_config(config.active_executor_name, config.tools)
-        self.tool_broker = ToolBroker()
+        self.workflow_broker = WorkflowRecommendationBroker()
 
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -69,6 +120,7 @@ class HealthFlowSystem:
         live: Optional[Live] = None,
         spinner: Optional[Spinner] = None,
         uploaded_files: Optional[Dict[str, bytes]] = None,
+        report_requested: bool = False,
     ) -> dict:
         task_id = str(uuid.uuid4())
         task_workspace = self.workspace_dir / task_id
@@ -86,13 +138,32 @@ class HealthFlowSystem:
                     handle.write(content)
 
         start_time = time.time()
-        result = await self._run_unified_flow(
-            task_id,
-            task_workspace,
-            user_request,
-            live,
-            spinner,
-        )
+        try:
+            result = await self._run_task_flow(
+                task_id,
+                task_workspace,
+                user_request,
+                live,
+                spinner,
+                report_requested,
+                uploaded_files=uploaded_files,
+            )
+        except ExecutionCancelledError as exc:
+            logger.warning("[{}] Task cancelled during execution.", task_id)
+            result = self._build_cancelled_task_result(
+                task_id=task_id,
+                task_workspace=task_workspace,
+                user_request=user_request,
+                execution_result=exc.result,
+                cancel_reason=exc.cancel_reason,
+            )
+        except asyncio.CancelledError:
+            logger.warning("[{}] Task cancelled before completion.", task_id)
+            result = self._build_cancelled_task_result(
+                task_id=task_id,
+                task_workspace=task_workspace,
+                user_request=user_request,
+            )
         execution_time = round(time.time() - start_time, 2)
         result["execution_time"] = execution_time
         result["workspace_path"] = str(task_workspace)
@@ -102,39 +173,180 @@ class HealthFlowSystem:
         result["reasoning_model"] = self.config.llm_config_for_role("planner").model_name
         result["llm_role_models"] = self._role_model_names()
         result["memory_write_policy"] = self.config.memory.write_policy
+        result["execution_environment"] = self.config.environment.model_dump(mode="json")
         result["run_result_path"] = str(task_workspace / "run_result.json")
         result["run_manifest_path"] = str(task_workspace / "run_manifest.json")
         result["cost_analysis_path"] = str(task_workspace / "cost_analysis.json")
-        self._write_json(
-            task_workspace / "run_result.json",
-            result,
-        )
-        self._write_json(
-            task_workspace / "run_manifest.json",
-            {
-                "task_id": task_id,
-                "user_request": user_request,
-                "workspace_path": str(task_workspace),
-                "backend": self.config.active_executor_name,
-                "executor_model": self.config.active_executor.model,
-                "executor_provider": self.config.active_executor.provider,
-                "reasoning_model": self.config.llm_config_for_role("planner").model_name,
-                "llm_role_models": result.get("llm_role_models"),
-                "memory_write_policy": self.config.memory.write_policy,
-                "backend_version": result.get("backend_version"),
-                "executor_metadata": result.get("executor_metadata"),
-                "usage_summary": result.get("usage_summary"),
-                "cost_summary": result.get("cost_summary"),
-                "cost_analysis_path": result.get("cost_analysis_path"),
-                "execution_time": execution_time,
-                "evaluation_status": result.get("evaluation_status"),
-                "success": result.get("success", False),
-                "log_path": result.get("log_path"),
-                "prompt_path": result.get("prompt_path"),
-                "evaluation_path": result.get("evaluation_path"),
-            },
-        )
+        result["report_requested"] = report_requested
+        result["report_generated"] = False
+        result["report_path"] = None
+        result["report_error"] = None
+        result["response_mode"] = result.get("response_mode", "orchestrated")
+        result["cancelled"] = result.get("cancelled", False)
+        result["cancel_reason"] = result.get("cancel_reason")
+        self._write_run_metadata_artifacts(task_workspace, task_id, user_request, execution_time, result)
+
+        if report_requested and not result.get("cancelled", False):
+            try:
+                report_path = generate_task_report(task_workspace)
+                result["report_generated"] = True
+                result["report_path"] = str(report_path)
+            except Exception as exc:
+                logger.exception("[{}] Failed to generate report.md: {}", task_id, exc)
+                result["report_generated"] = False
+                result["report_path"] = None
+                result["report_error"] = str(exc)
+            self._write_run_metadata_artifacts(task_workspace, task_id, user_request, execution_time, result)
         return result
+
+    async def _run_task_flow(
+        self,
+        task_id: str,
+        task_workspace: Path,
+        user_request: str,
+        live: Optional[Live],
+        spinner: Optional[Spinner],
+        report_requested: bool,
+        uploaded_files: Optional[Dict[str, bytes]] = None,
+    ) -> Dict[str, Any]:
+        direct_response = await self.direct_response_router.maybe_build_direct_response(
+            user_request,
+            has_uploaded_files=bool(uploaded_files),
+        )
+        if direct_response is not None:
+            return await self._run_direct_response_flow(
+                task_id=task_id,
+                task_workspace=task_workspace,
+                user_request=user_request,
+                direct_response=direct_response,
+            )
+
+        return await self._run_unified_flow(
+            task_id,
+            task_workspace,
+            user_request,
+            live,
+            spinner,
+            report_requested,
+        )
+
+    async def _run_direct_response_flow(
+        self,
+        task_id: str,
+        task_workspace: Path,
+        user_request: str,
+        direct_response: DirectResponse,
+    ) -> Dict[str, Any]:
+        planning_usage = dict(direct_response.usage)
+        total_estimated_cost_usd = direct_response.estimated_cost_usd
+        data_profile = profile_workspace_data(task_workspace, user_request)
+        risk_findings = detect_risk_findings(user_request, data_profile)
+        task_state = {
+            "data_profile": asdict(data_profile),
+            "risk_findings": [asdict(item) for item in risk_findings],
+        }
+        self._write_json(task_workspace / "task_state.json", task_state)
+
+        memory_context = {
+            "query": user_request,
+            "task_family": data_profile.task_family,
+            "domain_focus": data_profile.domain_focus,
+            "dataset_signature": data_profile.dataset_signature,
+            "capacity": 0,
+            "selection_policy": ["Memory retrieval was skipped because the request used the direct-response path."],
+            "selected": [],
+            "safeguard_overrides": [],
+            "suppressed_duplicates": [],
+            "suppressed_conflicts": [],
+            "suppressed": [],
+            "skipped": True,
+            "skip_reason": direct_response.reason,
+        }
+        self._write_json(task_workspace / "memory_context.json", memory_context)
+
+        evaluation = {
+            "status": "success",
+            "score": 1.0,
+            "failure_type": "none",
+            "feedback": "Returned a built-in direct response for a lightweight conversational prompt.",
+            "repair_instructions": [],
+            "violated_constraints": [],
+            "repair_hypotheses": [],
+            "retry_recommended": False,
+            "memory_worthy_insights": [],
+            "reasoning": direct_response.reason,
+        }
+        self._write_json(task_workspace / "evaluation.json", evaluation)
+
+        full_history = {
+            "task_id": task_id,
+            "user_request": user_request,
+            "backend": self.config.active_executor_name,
+            "executor_model": self.config.active_executor.model,
+            "executor_provider": self.config.active_executor.provider,
+            "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+            "llm_role_models": self._role_model_names(),
+            "memory_write_policy": self.config.memory.write_policy,
+            "response_mode": direct_response.mode,
+            "direct_response_category": direct_response.category,
+            "direct_response_reason": direct_response.reason,
+            "direct_response_model": direct_response.model_name,
+            "direct_response_usage": planning_usage,
+            "direct_response_estimated_cost_usd": direct_response.estimated_cost_usd,
+            "workflow_recommendations": [],
+            "task_state_path": str(task_workspace / "task_state.json"),
+            "data_profile": task_state["data_profile"],
+            "risk_findings": task_state["risk_findings"],
+            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "memory_retrieval": memory_context,
+            "attempts": [],
+        }
+        self._write_json(task_workspace / "full_history.json", full_history)
+
+        empty_cost_analysis = {
+            "attempts": [],
+            "run_total": {
+                "attempts": 0,
+                "planning": planning_usage,
+                "execution": {},
+                "evaluation": {},
+                "reflection": {},
+                "llm_estimated_cost_usd": total_estimated_cost_usd,
+                "executor_estimated_cost_usd": None,
+                "total_estimated_cost_usd": total_estimated_cost_usd,
+            },
+        }
+        self._write_json(task_workspace / "cost_analysis.json", empty_cost_analysis)
+
+        return {
+            "success": True,
+            "final_summary": "Returned a built-in direct response for a lightweight conversational prompt.",
+            "answer": direct_response.answer,
+            "evaluation_status": "success",
+            "evaluation_score": 1.0,
+            "memory_write_policy": self.config.memory.write_policy,
+            "workflow_recommendations": [],
+            "backend_version": None,
+            "executor_metadata": {},
+            "usage_summary": {
+                "planning": planning_usage,
+                "execution": {},
+                "evaluation": {},
+            },
+            "cost_summary": {
+                "llm_estimated_cost_usd": total_estimated_cost_usd,
+                "executor_estimated_cost_usd": None,
+                "total_estimated_cost_usd": total_estimated_cost_usd,
+            },
+            "cost_analysis": empty_cost_analysis,
+            "log_path": None,
+            "prompt_path": None,
+            "evaluation_path": str(task_workspace / "evaluation.json"),
+            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "response_mode": direct_response.mode,
+            "cancelled": False,
+            "cancel_reason": None,
+        }
 
     async def _run_unified_flow(
         self,
@@ -143,13 +355,14 @@ class HealthFlowSystem:
         user_request: str,
         live: Optional[Live],
         spinner: Optional[Spinner],
+        report_requested: bool,
     ) -> Dict[str, Any]:
         if spinner and live:
             spinner.text = "Profiling task state and preparing memory retrieval..."
 
         data_profile = profile_workspace_data(task_workspace, user_request)
         risk_findings = detect_risk_findings(user_request, data_profile)
-        planner_tools = self._planner_tool_options(data_profile)
+        workflow_recommendations = self._workflow_recommendations(user_request, data_profile)
         task_state = {
             "data_profile": asdict(data_profile),
             "risk_findings": [asdict(item) for item in risk_findings],
@@ -165,7 +378,9 @@ class HealthFlowSystem:
             "reasoning_model": self.config.llm_config_for_role("planner").model_name,
             "llm_role_models": self._role_model_names(),
             "memory_write_policy": self.config.memory.write_policy,
-            "available_tools": planner_tools,
+            "report_requested": report_requested,
+            "execution_environment": self.config.environment.model_dump(mode="json"),
+            "workflow_recommendations": workflow_recommendations,
             "task_state_path": str(task_workspace / "task_state.json"),
             "data_profile": task_state["data_profile"],
             "risk_findings": task_state["risk_findings"],
@@ -217,7 +432,8 @@ class HealthFlowSystem:
                 workflow_experiences=workflow_experiences,
                 dataset_experiences=dataset_experiences,
                 execution_experiences=execution_experiences,
-                available_tools=planner_tools,
+                execution_environment=self.config.environment.summary_lines(),
+                workflow_recommendations=workflow_recommendations,
                 previous_feedback=previous_feedback,
             )
             planning_usage = self._capture_agent_usage(self.meta_agent)
@@ -228,7 +444,9 @@ class HealthFlowSystem:
             execution_context = ExecutionContext(
                 user_request=user_request,
                 plan=plan,
-                available_tools=self.tool_catalog,
+                execution_environment=self.config.environment,
+                workflow_recommendations=workflow_recommendations,
+                report_requested=report_requested,
                 safeguard_memory=self._format_memory_lines(safeguard_experiences),
                 workflow_memory=self._format_memory_lines(workflow_experiences),
                 dataset_memory=self._format_memory_lines(dataset_experiences),
@@ -322,15 +540,32 @@ class HealthFlowSystem:
             if not verdict.retry_recommended:
                 break
 
-        should_write_memory = self.config.memory.write_policy != "freeze"
+        should_write_memory = (
+            self.config.memory.write_policy != "freeze"
+            and self._should_synthesize_memory(full_history)
+        )
         if should_write_memory:
             if spinner and live:
                 spinner.text = "Synthesizing memory..."
-            new_experiences = await self.reflector.synthesize_experience(
+            reflection_output = await self.reflector.synthesize_experience(
                 full_history,
                 final_verdict=final_verdict,
             )
             reflection_usage = self._capture_agent_usage(self.reflector)
+            if isinstance(reflection_output, list):
+                new_experiences = reflection_output
+                memory_updates = []
+            else:
+                new_experiences = reflection_output.experiences
+                memory_updates = reflection_output.memory_updates
+            if memory_updates:
+                applied_memory_update_ids = await self.experience_manager.apply_memory_updates(memory_updates)
+                if applied_memory_update_ids:
+                    full_history["memory_updates"] = [
+                        update.model_dump(mode="json")
+                        for update in memory_updates
+                        if update.experience_id in set(applied_memory_update_ids)
+                    ]
             if new_experiences:
                 await self.experience_manager.save_experiences(new_experiences)
                 full_history["new_experiences"] = [exp.model_dump(mode="json") for exp in new_experiences]
@@ -357,6 +592,7 @@ class HealthFlowSystem:
             "evaluation_status": final_verdict.status,
             "evaluation_score": final_verdict.score,
             "memory_write_policy": self.config.memory.write_policy,
+            "workflow_recommendations": workflow_recommendations,
             "backend_version": last_execution.get("backend_version"),
             "executor_metadata": last_execution.get("executor_metadata"),
             "usage_summary": usage_summary,
@@ -366,26 +602,202 @@ class HealthFlowSystem:
             "prompt_path": full_history["attempts"][-1]["execution"]["prompt_path"] if full_history["attempts"] else None,
             "evaluation_path": str(task_workspace / "evaluation.json"),
             "memory_context_path": str(task_workspace / "memory_context.json"),
+            "response_mode": "orchestrated",
+            "cancelled": False,
+            "cancel_reason": None,
+        }
+
+    def _build_cancelled_task_result(
+        self,
+        *,
+        task_id: str,
+        task_workspace: Path,
+        user_request: str,
+        execution_result=None,
+        cancel_reason: str = "Task cancelled by user.",
+    ) -> dict[str, Any]:
+        generated_answer = (
+            self._extract_answer_from_workspace(task_workspace, execution_result.log, user_request)
+            if execution_result is not None
+            else "Task cancelled before completion."
+        )
+        evaluation = self._cancelled_evaluation_payload(cancel_reason)
+        self._write_json(task_workspace / "evaluation.json", evaluation)
+
+        memory_context_path = task_workspace / "memory_context.json"
+        if not memory_context_path.exists():
+            self._write_json(memory_context_path, self._minimal_memory_context(user_request, cancel_reason))
+
+        full_history_path = task_workspace / "full_history.json"
+        if not full_history_path.exists():
+            full_history: dict[str, Any] = {
+                "task_id": task_id,
+                "user_request": user_request,
+                "backend": self.config.active_executor_name,
+                "executor_model": self.config.active_executor.model,
+                "executor_provider": self.config.active_executor.provider,
+                "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+                "llm_role_models": self._role_model_names(),
+                "memory_write_policy": self.config.memory.write_policy,
+                "workflow_recommendations": [],
+                "memory_context_path": str(memory_context_path),
+                "memory_retrieval": self._minimal_memory_context(user_request, cancel_reason),
+                "attempts": [],
+                "cancelled": True,
+                "cancel_reason": cancel_reason,
+            }
+            if execution_result is not None:
+                full_history["attempts"].append(
+                    self._cancelled_attempt_history(
+                        execution_result=execution_result,
+                        task_workspace=task_workspace,
+                        generated_answer=generated_answer,
+                        user_request=user_request,
+                    )
+                )
+            self._write_json(full_history_path, full_history)
+
+        usage_summary = {
+            "planning": {},
+            "evaluation": {},
+            "execution": self._aggregate_execution_records(
+                [{"execution": self._execution_record_from_result(execution_result)}]
+            )
+            if execution_result is not None
+            else {},
+        }
+        cost_summary = self._summarize_run_costs(usage_summary)
+        cost_analysis = {
+            "attempts": [],
+            "run_total": {
+                "attempts": 1 if execution_result is not None else 0,
+                "planning": {},
+                "execution": usage_summary["execution"],
+                "evaluation": {},
+                "reflection": {},
+                "llm_estimated_cost_usd": cost_summary["llm_estimated_cost_usd"],
+                "executor_estimated_cost_usd": cost_summary["executor_estimated_cost_usd"],
+                "total_estimated_cost_usd": cost_summary["total_estimated_cost_usd"],
+            },
+        }
+        self._write_json(task_workspace / "cost_analysis.json", cost_analysis)
+
+        return {
+            "success": False,
+            "final_summary": cancel_reason,
+            "answer": generated_answer,
+            "evaluation_status": "cancelled",
+            "evaluation_score": 0.0,
+            "memory_write_policy": self.config.memory.write_policy,
+            "workflow_recommendations": [],
+            "backend_version": execution_result.backend_version if execution_result is not None else None,
+            "executor_metadata": execution_result.executor_metadata if execution_result is not None else {},
+            "usage_summary": usage_summary,
+            "cost_summary": cost_summary,
+            "cost_analysis": cost_analysis,
+            "log_path": execution_result.log_path if execution_result is not None else None,
+            "prompt_path": execution_result.prompt_path if execution_result is not None else None,
+            "evaluation_path": str(task_workspace / "evaluation.json"),
+            "memory_context_path": str(memory_context_path),
+            "response_mode": "orchestrated",
+            "cancelled": True,
+            "cancel_reason": cancel_reason,
+        }
+
+    def _cancelled_attempt_history(
+        self,
+        *,
+        execution_result,
+        task_workspace: Path,
+        generated_answer: str,
+        user_request: str,
+    ) -> dict[str, Any]:
+        execution_record = self._execution_record_from_result(execution_result)
+        workspace_artifacts = self._workspace_artifact_paths(task_workspace)
+        return {
+            "attempt": 1,
+            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "memory": {
+                "retrieval": self._minimal_memory_context(
+                    user_request,
+                    execution_result.cancel_reason or "Execution cancelled by user.",
+                ),
+                "safeguards": [],
+                "workflows": [],
+                "datasets": [],
+                "execution": [],
+            },
+            "plan": {},
+            "plan_markdown": "",
+            "planning": {},
+            "execution": execution_record,
+            "artifacts": {
+                "workspace_paths": workspace_artifacts,
+                "generated_answer": generated_answer,
+            },
+            "gate": {
+                "execution_ok": False,
+                "evaluation_threshold_ok": False,
+                "verdict_success": False,
+                "retry_recommended": False,
+            },
+            "evaluation": self._cancelled_evaluation_payload(execution_result.cancel_reason or "Execution cancelled by user."),
+            "evaluation_meta": {},
+        }
+
+    def _execution_record_from_result(self, execution_result) -> dict[str, Any]:
+        if execution_result is None:
+            return {}
+        return {
+            "success": execution_result.success,
+            "return_code": execution_result.return_code,
+            "log": execution_result.log,
+            "log_path": execution_result.log_path,
+            "prompt_path": execution_result.prompt_path,
+            "backend": execution_result.backend,
+            "backend_version": execution_result.backend_version,
+            "executor_metadata": execution_result.executor_metadata,
+            "command": execution_result.command,
+            "duration_seconds": execution_result.duration_seconds,
+            "timed_out": execution_result.timed_out,
+            "usage": execution_result.usage,
+            "telemetry": execution_result.telemetry,
+            "cancelled": execution_result.cancelled,
+            "cancel_reason": execution_result.cancel_reason,
+        }
+
+    def _cancelled_evaluation_payload(self, cancel_reason: str) -> dict[str, Any]:
+        return {
+            "status": "cancelled",
+            "score": 0.0,
+            "failure_type": "cancelled_by_user",
+            "feedback": cancel_reason,
+            "repair_instructions": [],
+            "violated_constraints": [],
+            "repair_hypotheses": [],
+            "retry_recommended": False,
+            "memory_worthy_insights": [],
+            "reasoning": cancel_reason,
+        }
+
+    def _minimal_memory_context(self, query: str, cancel_reason: str) -> dict[str, Any]:
+        return {
+            "query": query,
+            "task_family": "unknown",
+            "domain_focus": "unknown",
+            "dataset_signature": "unknown",
+            "capacity": 0,
+            "selection_policy": ["Memory retrieval did not complete before cancellation."],
+            "selected": [],
+            "safeguard_overrides": [],
+            "suppressed_duplicates": [],
+            "suppressed_conflicts": [],
+            "suppressed": [],
+            "skipped": True,
+            "skip_reason": cancel_reason,
         }
 
     def _normalize_evaluation_verdict(self, verdict: EvaluationVerdict) -> EvaluationVerdict:
-        threshold = self.config.evaluation.success_threshold
-        if verdict.status == "success" and verdict.score < threshold:
-            logger.warning(
-                "Evaluator returned success with below-threshold score {}. Lifting the score to {} for consistency.",
-                verdict.score,
-                threshold,
-            )
-            return verdict.model_copy(update={"score": threshold})
-        if verdict.status != "success" and verdict.score >= threshold:
-            adjusted_score = max(threshold - 0.1, 0.0)
-            logger.warning(
-                "Evaluator returned non-success status '{}' with above-threshold score {}. Lowering the score to {} for consistency.",
-                verdict.status,
-                verdict.score,
-                adjusted_score,
-            )
-            return verdict.model_copy(update={"score": adjusted_score})
         return verdict
 
     def _extract_answer_from_workspace(self, task_workspace: Path, execution_log: str, user_request: str) -> str:
@@ -396,6 +808,11 @@ class HealthFlowSystem:
         metrics_file = next(iter(sorted(task_workspace.glob("metrics.*"))), None)
         if metrics_file:
             return metrics_file.read_text(encoding="utf-8", errors="ignore")[:2000]
+
+        stdout_blocks = self._stdout_blocks_from_log(execution_log)
+        best_stdout_answer = self._best_stdout_answer(stdout_blocks, user_request)
+        if best_stdout_answer:
+            return best_stdout_answer
 
         lines = execution_log.split("\n")
         answer_indicators = [
@@ -411,7 +828,7 @@ class HealthFlowSystem:
         for i in range(len(lines) - 1, -1, -1):
             line_content = lines[i].replace("STDOUT: ", "").replace("STDERR: ", "").strip()
             if any(indicator in line_content.lower() for indicator in answer_indicators):
-                return line_content
+                return line_content[:2000]
 
         for i in range(len(lines) - 1, -1, -1):
             if lines[i].startswith("STDOUT: "):
@@ -424,6 +841,173 @@ class HealthFlowSystem:
             f"The original request was: '{user_request}'"
         )
 
+    def _stdout_blocks_from_log(self, execution_log: str) -> list[dict[str, Any]]:
+        blocks: list[dict[str, Any]] = []
+        current_lines: list[str] = []
+        saw_step_events = False
+
+        def flush_current_block(step_reason: str | None = None) -> None:
+            if not current_lines:
+                return
+
+            text = "\n".join(current_lines).strip()
+            current_lines.clear()
+            if not text:
+                return
+
+            body, answer_marker_used = self._extract_answer_block_body(text)
+            blocks.append(
+                {
+                    "index": len(blocks),
+                    "text": text,
+                    "body": body,
+                    "step_reason": step_reason,
+                    "answer_marker_used": answer_marker_used,
+                }
+            )
+
+        for line in execution_log.splitlines():
+            if line.startswith("EVENT: step_start"):
+                saw_step_events = True
+                flush_current_block()
+                continue
+            if line.startswith("EVENT: step_finish"):
+                saw_step_events = True
+                flush_current_block(self._step_reason_from_log_line(line))
+                continue
+            if line.startswith("STDOUT: "):
+                current_lines.append(line.replace("STDOUT: ", "", 1))
+                continue
+            if not saw_step_events:
+                flush_current_block()
+
+        flush_current_block()
+        return blocks
+
+    def _best_stdout_answer(self, stdout_blocks: list[dict[str, Any]], user_request: str) -> str | None:
+        if not stdout_blocks:
+            return None
+
+        stop_blocks = [block for block in stdout_blocks if block.get("step_reason") == "stop"]
+        candidate_blocks = stop_blocks or stdout_blocks
+        request_tokens = self._content_tokens(user_request)
+        scored_blocks: list[tuple[float, int, str]] = []
+
+        for index, block in enumerate(candidate_blocks):
+            body = str(block.get("body") or block.get("text") or "").strip()
+            if not body:
+                continue
+
+            score = 0.0
+            if block.get("step_reason") == "stop":
+                score += 6.0
+            if not self._looks_like_process_narration(body):
+                score += 2.0
+            if self._looks_like_direct_answer(body):
+                score += 2.0
+            if block.get("answer_marker_used"):
+                score += 3.0
+            if len(body) >= 40:
+                score += 1.0
+
+            overlap = len(self._content_tokens(body) & request_tokens)
+            score += overlap * 3.0
+            if request_tokens:
+                score += overlap / len(request_tokens)
+
+            scored_blocks.append((score, index, body[:2000]))
+
+        if not scored_blocks:
+            return None
+
+        best_score, _, best_body = max(scored_blocks, key=lambda item: (item[0], item[1]))
+        if best_score <= 0:
+            return None
+        return best_body
+
+    def _extract_answer_block_body(self, text: str) -> tuple[str, bool]:
+        stripped_text = text.strip()
+        if not stripped_text:
+            return "", False
+
+        lines = stripped_text.splitlines()
+        marker_index: int | None = None
+        for index, line in enumerate(lines):
+            normalized = " ".join(line.lower().split())
+            if any(marker in normalized for marker in _ANSWER_INTRO_MARKERS):
+                marker_index = index
+
+        if marker_index is None:
+            return stripped_text[:2000], False
+
+        inline_answer = self._inline_answer_from_line(lines[marker_index])
+        trailing_text = "\n".join(lines[marker_index + 1 :]).strip()
+        if inline_answer and trailing_text:
+            return f"{inline_answer}\n{trailing_text}"[:2000], True
+        if inline_answer:
+            return inline_answer[:2000], True
+        if trailing_text:
+            return trailing_text[:2000], True
+        return stripped_text[:2000], False
+
+    def _inline_answer_from_line(self, line: str) -> str | None:
+        stripped_line = line.strip()
+        for pattern in _INLINE_ANSWER_PATTERNS:
+            match = pattern.search(stripped_line)
+            if match:
+                answer = match.group(1).strip()
+                if answer:
+                    return answer
+        return None
+
+    def _step_reason_from_log_line(self, line: str) -> str | None:
+        match = _STEP_FINISH_REASON_RE.search(line)
+        if match:
+            return match.group(1)
+        return None
+
+    def _content_tokens(self, text: str) -> set[str]:
+        tokens: set[str] = set()
+        for raw_token in _CONTENT_TOKEN_RE.findall(text.lower()):
+            token = raw_token.strip("'")
+            if len(token) < 2 or token in _REQUEST_TOKEN_STOPWORDS:
+                continue
+            tokens.add(token)
+            tokens.update(_TOKEN_EQUIVALENTS.get(token, {token}))
+        return tokens
+
+    def _looks_like_process_narration(self, text: str) -> bool:
+        normalized = " ".join(text.lower().split())
+        markers = (
+            "i'll start by",
+            "i will start by",
+            "i'll inspect",
+            "i will inspect",
+            "let me check",
+            "let me inspect",
+            "let me look",
+            "now i understand",
+            "based on the execution plan",
+            "to understand the context",
+            "i need to inspect",
+            "i'm going to inspect",
+        )
+        return normalized.startswith(markers)
+
+    def _looks_like_direct_answer(self, text: str) -> bool:
+        normalized = text.lower()
+        if normalized.startswith(("hello", "hi", "hey")):
+            return True
+        answer_markers = (
+            "i'm ",
+            "i am ",
+            "here to help",
+            "i can help",
+            "i can assist",
+            "healthflow",
+        )
+        return any(marker in normalized for marker in answer_markers)
+
     def _workspace_artifact_paths(self, task_workspace: Path) -> list[str]:
         artifact_paths: list[str] = []
         for path in sorted(task_workspace.rglob("*")):
@@ -434,6 +1018,46 @@ class HealthFlowSystem:
             except ValueError:
                 artifact_paths.append(str(path))
         return artifact_paths
+
+    def _should_synthesize_memory(self, full_history: dict[str, Any]) -> bool:
+        attempts = full_history.get("attempts", [])
+        if not attempts:
+            return False
+
+        data_profile = full_history.get("data_profile", {})
+        if data_profile.get("domain_focus") == "ehr":
+            return True
+        if data_profile.get("task_family") != "general_analysis":
+            return True
+        if len(attempts) > 1:
+            return True
+
+        workspace_paths = attempts[-1].get("artifacts", {}).get("workspace_paths", [])
+        non_runtime_paths = [path for path in workspace_paths if not self._is_runtime_artifact_path(path)]
+        if non_runtime_paths:
+            return True
+
+        return len(str(full_history.get("user_request", "")).split()) > 20
+
+    def _is_runtime_artifact_path(self, relative_path: str) -> bool:
+        runtime_prefixes = (".healthflow_pi_agent/",)
+        runtime_suffixes = ("_execution.log", "_prompt.md")
+        runtime_names = {
+            "task_state.json",
+            "memory_context.json",
+            "evaluation.json",
+            "cost_analysis.json",
+            "run_manifest.json",
+            "run_result.json",
+            "full_history.json",
+        }
+        if relative_path.startswith(runtime_prefixes):
+            return True
+        if relative_path in runtime_names:
+            return True
+        if relative_path.startswith("task_list_v") or relative_path.startswith("memory_context_v"):
+            return True
+        return relative_path.endswith(runtime_suffixes)
 
     def _format_memory_lines(self, experiences: list[Any]) -> list[str]:
         lines: list[str] = []
@@ -453,9 +1077,15 @@ class HealthFlowSystem:
         evaluation = attempt.get("evaluation", {})
         feedback = evaluation.get("feedback")
         repairs = evaluation.get("repair_instructions", [])
+        violated_constraints = evaluation.get("violated_constraints", [])
+        repair_hypotheses = evaluation.get("repair_hypotheses", [])
         parts = [feedback] if feedback else []
+        if violated_constraints:
+            parts.append("Violated constraints: " + "; ".join(violated_constraints))
         if repairs:
             parts.append("Repair instructions: " + "; ".join(repairs))
+        if repair_hypotheses:
+            parts.append("Repair hypotheses: " + "; ".join(repair_hypotheses))
         return "\n".join(parts) if parts else None
 
     def _prior_failure_modes(self, attempts: list[dict[str, Any]]) -> list[str]:
@@ -467,8 +1097,8 @@ class HealthFlowSystem:
                 failure_modes.append(str(failure_type))
         return list(dict.fromkeys(failure_modes))
 
-    def _planner_tool_options(self, data_profile) -> list[str]:
-        return list(dict.fromkeys([*self.tool_catalog.names(), *self.tool_broker.select_bundle(data_profile.task_family, data_profile)]))
+    def _workflow_recommendations(self, user_request: str, data_profile) -> list[str]:
+        return self.workflow_broker.recommend(user_request, data_profile)
 
     def _build_retrieval_context(
         self,
@@ -502,37 +1132,53 @@ class HealthFlowSystem:
         tags.extend(f"column:{item}" for item in data_profile.time_columns[:3])
         return list(dict.fromkeys(tags))
 
-    def _summarize_retrieval_audit(self, audit: dict | Any) -> str:
-        selected_entries = getattr(audit, "selected", None)
-        if selected_entries is None and isinstance(audit, dict):
-            selected_entries = audit.get("selected", [])
-        if not selected_entries:
-            return "- No prior memory was retrieved for this task."
-
-        lines = []
-        for entry in selected_entries:
-            kind = entry.kind.value if hasattr(entry, "kind") else entry["kind"]
-            source_outcome = (
-                entry.source_outcome.value if hasattr(entry, "source_outcome") else entry["source_outcome"]
-            )
-            category = entry.category if hasattr(entry, "category") else entry["category"]
-            content_preview = (
-                entry.content_preview if hasattr(entry, "content_preview") else entry["content_preview"]
-            )
-            prefix = "Safeguard" if kind == "safeguard" else "Use"
-            lines.append(
-                f"- {prefix}: [{kind}/{source_outcome}] {category} -> {content_preview}"
-            )
-        safeguard_overrides = getattr(audit, "safeguard_overrides", None)
-        if safeguard_overrides is None and isinstance(audit, dict):
-            safeguard_overrides = audit.get("safeguard_overrides", [])
-        if safeguard_overrides:
-            lines.append(f"- Safeguard override count: {len(safeguard_overrides)} conflicting memories were suppressed.")
-        return "\n".join(lines)
-
     def _write_json(self, path: Path, payload: Any) -> None:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, cls=DateTimeEncoder)
+
+    def _write_run_metadata_artifacts(
+        self,
+        task_workspace: Path,
+        task_id: str,
+        user_request: str,
+        execution_time: float,
+        result: dict[str, Any],
+    ) -> None:
+        self._write_json(task_workspace / "run_result.json", result)
+        self._write_json(
+            task_workspace / "run_manifest.json",
+            {
+                "task_id": task_id,
+                "user_request": user_request,
+                "workspace_path": str(task_workspace),
+                "backend": self.config.active_executor_name,
+                "executor_model": self.config.active_executor.model,
+                "executor_provider": self.config.active_executor.provider,
+                "reasoning_model": self.config.llm_config_for_role("planner").model_name,
+                "llm_role_models": result.get("llm_role_models"),
+                "memory_write_policy": self.config.memory.write_policy,
+                "execution_environment": result.get("execution_environment"),
+                "workflow_recommendations": result.get("workflow_recommendations"),
+                "backend_version": result.get("backend_version"),
+                "executor_metadata": result.get("executor_metadata"),
+                "usage_summary": result.get("usage_summary"),
+                "cost_summary": result.get("cost_summary"),
+                "cost_analysis_path": result.get("cost_analysis_path"),
+                "execution_time": execution_time,
+                "evaluation_status": result.get("evaluation_status"),
+                "success": result.get("success", False),
+                "log_path": result.get("log_path"),
+                "prompt_path": result.get("prompt_path"),
+                "evaluation_path": result.get("evaluation_path"),
+                "report_requested": result.get("report_requested", False),
+                "report_generated": result.get("report_generated", False),
+                "report_path": result.get("report_path"),
+                "report_error": result.get("report_error"),
+                "response_mode": result.get("response_mode"),
+                "cancelled": result.get("cancelled", False),
+                "cancel_reason": result.get("cancel_reason"),
+            },
+        )
 
     def _role_model_names(self) -> dict[str, str]:
         return {

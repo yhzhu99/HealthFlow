@@ -50,6 +50,11 @@ model_name = "google/gemini-3-flash-preview"
 input_cost_per_million_tokens = 0.50
 output_cost_per_million_tokens = 3.00
 
+[llm_roles]
+planner = "deepseek/deepseek-v3.2"
+evaluator = "openai/gpt-5.4"
+reflector = "google/gemini-3-flash-preview"
+
 # --- Executor Configuration ---
 [executor]
 active_backend = "opencode"
@@ -77,11 +82,11 @@ timeout_seconds = 1800
 
 [executor.backends.opencode]
 binary = "opencode"
-args = ["run", "--variant", "high", "--thinking"]
+args = ["run", "--variant", "high", "--format", "json"]
 model_flag = "-m"
 model_template = "$provider/$model"
 provider = "zenmux"
-output_mode = "text"
+output_mode = "json_events"
 prompt_mode = "append"
 timeout_seconds = 1800
 
@@ -97,19 +102,25 @@ provider_api_key_env = "ZENMUX_API_KEY"
 prompt_mode = "append"
 timeout_seconds = 1800
 
+# --- Execution Environment Contract ---
+[environment]
+python_version = "3.12"
+package_manager = "uv"
+install_command = "uv add"
+run_prefix = "uv run"
+
 # --- System Configuration ---
 [system]
 max_attempts = 3
 workspace_dir = "workspace/tasks"
-shell = "/usr/bin/zsh"
 
 # --- Memory Configuration ---
 [memory]
-write_policy = "freeze" # append | freeze | reset_before_run
+write_policy = "append" # append | freeze | reset_before_run
 
 # --- Evaluation Configuration ---
 [evaluation]
-success_threshold = 8.0
+success_threshold = 0.8
 
 # --- Logging Configuration ---
 [logging]

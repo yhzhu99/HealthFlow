@@ -26,7 +26,8 @@ class MetaAgent:
         workflow_experiences: List[Experience],
         dataset_experiences: List[Experience],
         execution_experiences: List[Experience],
-        available_tools: List[str],
+        execution_environment: List[str],
+        workflow_recommendations: List[str],
         previous_feedback: Optional[str] = None,
     ) -> ExecutionPlan:
         """
@@ -65,7 +66,9 @@ class MetaAgent:
             workflow_experiences=workflow_str,
             dataset_experiences=dataset_str,
             execution_experiences=execution_str,
-            available_tools="\n".join(f"- {item}" for item in available_tools) or "- Minimum required tooling only",
+            execution_environment="\n".join(f"- {item}" for item in execution_environment) or "- Use the default executor environment.",
+            workflow_recommendations="\n".join(f"- {item}" for item in workflow_recommendations)
+            or "- Prefer the most direct reproducible workflow available in the executor environment.",
             feedback=feedback_str,
         )
 
@@ -103,10 +106,10 @@ class MetaAgent:
                     "Choose the most direct reproducible implementation path.",
                     "Produce the requested artifacts and a concise final answer.",
                 ],
-                preferred_tools=available_tools[:3],
+                recommended_workflows=workflow_recommendations[:3],
                 avoidances=["Do not ignore relevant safeguards or previous feedback."],
                 success_signals=["The requested result is present in the workspace and summarized in the final answer."],
-                executor_brief="The planner fallback triggered. Execute conservatively and keep the attempt auditable.",
+                executor_brief="The planner fallback triggered. Execute conservatively and keep the attempt reproducible.",
             )
 
     def _render_memory_block(self, experiences: List[Experience], prefix: str, fallback: str) -> str:

@@ -28,6 +28,8 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+BENCHMARK_MEMORY_WRITE_POLICY = "freeze"
+BENCHMARK_MEMORY_POLICY_SOURCE = "benchmark_forced_freeze"
 
 
 def load_dataset(dataset_path: Path) -> List[Dict[str, Any]]:
@@ -162,6 +164,16 @@ def aggregate_cost_totals(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _force_benchmark_memory_policy(config):
+    return config.model_copy(
+        update={
+            "memory": config.memory.model_copy(
+                update={"write_policy": BENCHMARK_MEMORY_WRITE_POLICY}
+            )
+        }
+    )
+
+
 def _initialize_system(
     config_path: Path,
     experience_path: Path,
@@ -169,7 +181,7 @@ def _initialize_system(
     active_executor: str | None,
 ) -> HealthFlowSystem:
     try:
-        config = get_config(config_path, active_llm, active_executor)
+        config = _force_benchmark_memory_policy(get_config(config_path, active_llm, active_executor))
         setup_logging(config)
         return HealthFlowSystem(config=config, experience_path=experience_path)
     except (ValueError, FileNotFoundError) as exc:
@@ -190,7 +202,7 @@ async def run_benchmark_async(
             f"[bold cyan]HealthFlow Benchmarking[/bold cyan]\n\n"
             f"Dataset: {dataset_path}\n"
             f"Name: {dataset_name}\n"
-            f"Memory write policy: from config",
+            f"Memory write policy: {BENCHMARK_MEMORY_WRITE_POLICY} (forced by benchmark runner)",
             border_style="cyan",
         )
     )
@@ -237,6 +249,8 @@ async def run_benchmark_async(
                     "backend": system.config.active_executor_name,
                     "reasoning_model": system.config.llm_config_for_role("planner").model_name,
                     "memory_write_policy": system.config.memory.write_policy,
+                    "memory_write_policy_forced": True,
+                    "memory_write_policy_source": BENCHMARK_MEMORY_POLICY_SOURCE,
                     "evaluation_status": "failed",
                     "evaluation_score": 0.0,
                     "execution_time": 0.0,
@@ -244,6 +258,10 @@ async def run_benchmark_async(
                     "evaluation_path": None,
                     "memory_context_path": None,
                     "run_result_path": None,
+                    "report_requested": False,
+                    "report_generated": False,
+                    "report_path": None,
+                    "report_error": None,
                     "error": str(exc),
                 }
 
@@ -262,6 +280,8 @@ async def run_benchmark_async(
                 "executor_metadata": result.get("executor_metadata"),
                 "reasoning_model": result.get("reasoning_model"),
                 "memory_write_policy": result.get("memory_write_policy"),
+                "memory_write_policy_forced": True,
+                "memory_write_policy_source": BENCHMARK_MEMORY_POLICY_SOURCE,
                 "usage_summary": result.get("usage_summary"),
                 "cost_summary": result.get("cost_summary"),
                 "cost_analysis": result.get("cost_analysis"),
@@ -275,6 +295,10 @@ async def run_benchmark_async(
                 "cost_analysis_path": result.get("cost_analysis_path"),
                 "run_result_path": result.get("run_result_path"),
                 "run_manifest_path": result.get("run_manifest_path"),
+                "report_requested": result.get("report_requested", False),
+                "report_generated": result.get("report_generated", False),
+                "report_path": result.get("report_path"),
+                "report_error": result.get("report_error"),
                 "final_summary": result.get("final_summary"),
                 "output_directory": str(output_dir),
             }
@@ -307,6 +331,8 @@ async def run_benchmark_async(
         "backend": system.config.active_executor_name,
         "reasoning_model": system.config.llm_config_for_role("planner").model_name,
         "memory_write_policy": system.config.memory.write_policy,
+        "memory_write_policy_forced": True,
+        "memory_write_policy_source": BENCHMARK_MEMORY_POLICY_SOURCE,
         "total_llm_estimated_cost_usd": cost_totals["total_llm_estimated_cost_usd"],
         "total_executor_estimated_cost_usd": cost_totals["total_executor_estimated_cost_usd"],
         "total_estimated_cost_usd": cost_totals["total_estimated_cost_usd"],
@@ -347,7 +373,7 @@ def run(
     active_llm: str = typer.Option(
         ...,
         "--active-llm",
-        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.2)",
+        help="The active LLM key from config.toml (e.g., deepseek/deepseek-v3.2, openai/gpt-5.4)",
     ),
     active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)"),
 ):

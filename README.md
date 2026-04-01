@@ -3,10 +3,10 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2508.02621-b31b1b.svg)](https://arxiv.org/abs/2508.02621)
 [![Project Website](https://img.shields.io/badge/Project%20Website-HealthFlow-0066cc.svg)](https://healthflow-agent.netlify.app)
 
-HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task reporting, and long-term reflective memory. Dataset preparation and benchmark evaluation workflows can still live in the repository under `data/`, but they are intentionally decoupled from the `healthflow/` runtime package.
+HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task runtime artifacts, and long-term reflective memory. Dataset preparation and benchmark evaluation workflows can still live in the repository under `data/`, but they are intentionally decoupled from the `healthflow/` runtime package.
 
 - structured `Meta` planning with EHR-adaptive memory retrieval
-- `Executor` as a CodeAct runtime over pluggable tool surfaces
+- `Executor` as a CodeAct runtime over external executor backends
 - `Evaluator`-driven retry and failure diagnosis
 - `Reflector` writeback from both successful and failed trajectories
 - inspectable workspace artifacts and run telemetry
@@ -20,7 +20,7 @@ The current release surface is intentionally **backend and CLI only**. A fronten
 HealthFlow runs a lean **Meta -> Executor -> Evaluator -> Reflector** loop.
 
 1. **Meta**: retrieve relevant safeguard, workflow, dataset, and execution memories, then emit a structured execution plan.
-2. **Executor**: interpret the plan as a CodeAct brief and act through code, commands, workspace artifacts, and configured tool surfaces.
+2. **Executor**: interpret the plan as a CodeAct brief and act through code, commands, and workspace artifacts using whatever tools are already configured in the outer executor.
 3. **Evaluator**: review the execution trace and produced artifacts, classify the outcome as `success`, `needs_retry`, or `failed`, and provide repair instructions for the next attempt.
 4. **Reflector**: synthesize reusable safeguard, workflow, dataset, or execution memories from the full trajectory after the task session ends.
 
@@ -29,7 +29,7 @@ The task-level self-correction budget is controlled by `system.max_attempts`, wh
 ## What HealthFlow Contributes
 
 - **MERF core runtime**: the framework definition is the four-stage Meta, Executor, Evaluator, Reflector loop rather than an outer benchmark-evaluation pipeline.
-- **CodeAct execution surface**: the executor is framed around explicit actions and can work over pluggable tool surfaces such as CLI or MCP-backed tools.
+- **Lean execution contract**: HealthFlow defines workspace rules, execution-environment defaults, and workflow recommendations without becoming a tool-hosting framework.
 - **Inspectable memory**: safeguard, workflow, dataset, and execution memories are stored in JSONL, routed through adaptive retrieval lanes, and exposed through a saved retrieval audit.
 - **Evaluator-centered recovery**: retries are driven by structured failure diagnosis and repair instructions instead of a single scalar score alone.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
@@ -56,12 +56,16 @@ Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 - `run_manifest.json`
 - `run_result.json`
 
+When `healthflow run ... --report` is enabled, the same workspace also writes:
+
+- `report.md`
+
 These files are the main source of truth for rebuttal-oriented inspection.
+`report.md` is a standard HealthFlow-generated markdown report that summarizes the run, links produced artifacts with relative paths, embeds a small number of images inline, and keeps runtime JSON/log files in a separate audit section.
 
 ## Runtime Boundary
 
 - **Core runtime**: the MERF loop in `healthflow/system.py`.
-- **Task-level reporting**: optional post-run report generation helpers under `healthflow/reporting/`.
 - **Domain specialization**: EHR-specific helpers under `healthflow/ehr/`.
 - **Dataset prep and benchmark evaluation**: repository-level workflows under `data/`, intentionally decoupled from `healthflow/`.
 
@@ -76,7 +80,7 @@ HealthFlow uses four memory classes:
 - `dataset`
 - `execution`
 
-Retrieval is auditable:
+Retrieval is inspectable:
 
 - retrieval is conditioned on task family, dataset signature, schema tags, and EHR risk tags
 - safeguard memories are prioritized for elevated-risk EHR tasks
@@ -106,11 +110,19 @@ Executor-specific repository instruction files are intentionally avoided at the 
 
 ## External CLI Workflows
 
-HealthFlow does not hardcode compatibility for any specific domain package or external tool. Instead, it interacts with external systems through the same CodeAct-style execution layer used for all tasks.
+HealthFlow does not implement an internal MCP registry, plugin framework, or large CLI catalog. Tool availability belongs to the outer executor layer such as Claude Code, OpenCode, Pi, or Codex.
 
-The executor can advertise tool surfaces through a unified catalog. The planner may recommend preferred tools, while the executor is still allowed to adapt at runtime.
+HealthFlow only supplies:
+
+- a lightweight execution-environment contract
+- small workflow recommendations
+- documentation recipes for selected external CLIs
+
+When external CLIs are part of the supported workflow, prefer declaring them in this project's `pyproject.toml` and installing them into the shared repo `.venv`. Executor backends should use that same project environment rather than ad hoc global tool installs.
 
 Executor defaults are configured for normal text output. HealthFlow does not require external backends to finish in JSON. Structured event streams remain optional backend-specific telemetry modes.
+
+`run_benchmark.py` always forces `memory.write_policy = "freeze"` so benchmark evaluation remains decoupled from the framework's self-evolving writeback behavior.
 
 ## Quick Start
 
@@ -128,9 +140,10 @@ Executor defaults are configured for normal text output. HealthFlow does not req
 uv sync
 source .venv/bin/activate
 export ZENMUX_API_KEY="your_zenmux_key_here"
+export DEEPSEEK_API_KEY="your_deepseek_key_here"
 ```
 
-Then create `config.toml` with the reasoning models you want to expose to HealthFlow. Use `api_key_env` to keep secrets out of the file:
+The repo already ships a ready-to-edit [`config.toml`](/home/yhzhu/projects/HealthFlow/config.toml). Update that file with the reasoning models you want to expose to HealthFlow. If you prefer to write your own from scratch, use the same shape and keep secrets in `api_key_env`:
 
 ```toml
 [llm."deepseek/deepseek-v3.2"]
@@ -146,6 +159,13 @@ api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-reasoner"
 executor_model_name = "deepseek/deepseek-reasoner"
+
+[llm."openai/gpt-5.4"]
+api_key_env = "ZENMUX_API_KEY"
+base_url = "https://zenmux.ai/api/v1"
+model_name = "openai/gpt-5.4"
+input_cost_per_million_tokens = 2.50
+output_cost_per_million_tokens = 15.00
 
 [llm."google/gemini-3-flash-preview"]
 api_key_env = "ZENMUX_API_KEY"
@@ -207,30 +227,58 @@ env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KE
 model_flag = "--model"
 ```
 
+HealthFlow also exposes a small execution-environment contract:
+
+```toml
+[environment]
+python_version = "3.12"
+package_manager = "uv"
+install_command = "uv add"
+run_prefix = "uv run"
+```
+
 To decouple the internal roles, set:
 
 ```toml
 [llm_roles]
 planner = "deepseek/deepseek-v3.2"
-evaluator = "openai/gpt-5.2"
+evaluator = "openai/gpt-5.4"
 reflector = "google/gemini-3-flash-preview"
 ```
 
+Any model named in `[llm_roles]` must also be declared under `[llm]`.
+
 Any unset role falls back to `--active-llm`.
 
-Optional tool surfaces can be declared in `config.toml`:
+Legacy tool-registration sections are intentionally unsupported. If you previously configured CLI or MCP tools inside HealthFlow, move that setup into the outer executor and keep only the environment defaults above in HealthFlow.
 
-```toml
-[tools.python]
-surface = "cli"
-description = "Run Python scripts in the workspace."
-invocation_hint = "python <script>.py"
+### External CLI Recipes
 
-[tools.local_mcp]
-surface = "mcp"
-description = "Domain-specific MCP connector exposed to the executor."
-invocation_hint = "connector-defined"
+HealthFlow may recommend selected external CLIs when the task warrants them, but it does not install, register, or invoke them directly.
+
+ToolUniverse CLI examples:
+
+```bash
+uv run tu list
+uv run tu find "pathway analysis"
+uv run tu info <tool-name>
+uv run tu run <tool-name> --help
 ```
+
+ToolUniverse also supports a local `.tooluniverse/profile.yaml` workspace and can launch its own MCP server with `tu serve`, but HealthFlow does not manage that MCP surface.
+
+OneEHR CLI examples:
+
+```bash
+uv run oneehr preprocess --help
+uv run oneehr train --help
+uv run oneehr test --help
+uv run oneehr analyze --help
+uv run oneehr plot --help
+uv run oneehr convert --help
+```
+
+The OneEHR workflow is only surfaced as a recommendation for EHR modeling tasks, and only when the executor environment already provides the CLI.
 
 ### Single Task
 
@@ -238,10 +286,12 @@ invocation_hint = "connector-defined"
 python run_healthflow.py run \
   "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
   --active-llm 'deepseek/deepseek-v3.2' \
-  --active-executor opencode
+  --active-executor opencode \
+  --report
 ```
 
 The same CLI can also run EHR-focused prompts used in the paper and arbitrary external-CLI-driven workflows.
+When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single markdown artifact before exporting it to PDF or other formats.
 
 ### Interactive Mode
 
@@ -250,6 +300,17 @@ python run_healthflow.py interactive \
   --active-llm 'deepseek/deepseek-v3.2' \
   --active-executor opencode
 ```
+
+Interactive mode now supports a command-aware shell:
+
+- `/help`: show commands and keyboard hints
+- `/clear`: clear the terminal and redraw the session banner
+- `/new`: start a fresh local session while preserving `workspace/memory/experience.jsonl`
+- `/exit`: exit interactive mode
+- `exit` / `quit`: aliases for `/exit`
+- Type `/` in column 1 to open slash-command suggestions
+- `Tab`: complete slash commands
+- `ESC ESC`: cancel the current run without leaving the shell
 
 ### Training
 
@@ -289,10 +350,10 @@ Main config sections:
 - `[llm.*]`: reasoning model providers, with either `api_key` or `api_key_env`
 - `[llm_roles]`: optional planner/evaluator/reflector model overrides
 - `[executor]`: default backend and CLI backend definitions
-- `[tools.*]`: optional tool catalog entries exposed to the planner and executor, with `surface = "cli"` or `surface = "mcp"`
+- `[environment]`: lightweight runtime defaults such as preferred Python version and `uv` command prefixes
 - `[memory]`: runtime write policy only (`append`, `freeze`, or `reset_before_run`)
 - `[evaluation]`: evaluator success threshold
-- `[system]`: workspace, shell, and task-attempt settings (`max_attempts`)
+- `[system]`: workspace and task-attempt settings (`workspace_dir`, `max_attempts`)
 - `[logging]`: log level and log file
 
 By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.
@@ -305,9 +366,7 @@ By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entr
 - `healthflow/system.py`: orchestration loop
 - `healthflow/execution/`: executor layer
 - `healthflow/ehr/`: optional EHR specialization helpers kept outside the core loop
-- `healthflow/reporting/`: post-run report generation helpers
 - `healthflow/experience/`: EHR-adaptive memory and retrieval audit
-- `healthflow/tools/`: tool catalog and optional tool-surface metadata
 
 ## Citation
 
