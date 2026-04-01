@@ -3,7 +3,7 @@ from .profiling import profile_workspace_data
 from .risk import detect_risk_findings
 from .tasking import (
     classify_task_family,
-    default_tool_bundle,
+    default_workflow_recommendations,
     deliverable_guidance,
     detect_domain_focus,
 )
@@ -15,7 +15,7 @@ __all__ = [
     "profile_workspace_data",
     "detect_risk_findings",
     "classify_task_family",
-    "default_tool_bundle",
+    "default_workflow_recommendations",
     "deliverable_guidance",
     "detect_domain_focus",
 ]

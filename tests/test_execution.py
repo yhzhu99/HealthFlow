@@ -1,12 +1,12 @@
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from healthflow.core.contracts import ExecutionPlan
-from healthflow.core.config import ToolsConfig
-from healthflow.core.config import BackendCLIConfig
+from healthflow.core.config import BackendCLIConfig, EnvironmentConfig, default_executor_backends
 from healthflow.execution.base import ExecutionContext
 from healthflow.execution.cli_adapters import (
     CLISubprocessExecutor,
@@ -17,7 +17,6 @@ from healthflow.execution.cli_adapters import (
 )
 from healthflow.execution.factory import create_executor_adapter
 from healthflow.execution.opencode_parser import parse_opencode_json_events
-from healthflow.tools import ToolCatalog
 
 
 class ExecutionFactoryTests(unittest.TestCase):
@@ -140,6 +139,23 @@ class ExecutionFactoryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ZENMUX_API_KEY"):
                 executor._build_environment(Path.cwd())
 
+    def test_default_backend_environment_includes_project_venv_bin(self):
+        for backend_name, backend_config in default_executor_backends().items():
+            resolved_config = backend_config
+            if backend_name == "pi" and backend_config.model is None:
+                resolved_config = backend_config.model_copy(update={"model": "openai/gpt-5.4"})
+            executor = create_executor_adapter(backend_name, resolved_config)
+            with patch.dict(
+                "os.environ",
+                {"HOME": "/tmp/demo", "PATH": "/usr/bin:/bin", "ZENMUX_API_KEY": "demo-key"},
+                clear=True,
+            ):
+                environment = executor._build_environment(Path.cwd())
+
+            path_entries = environment["PATH"].split(":")
+            self.assertEqual(path_entries[0], str(Path.cwd() / ".venv" / "bin"))
+            self.assertTrue(shutil.which("sh", path=environment["PATH"]))
+
     def test_pi_executor_writes_runtime_models_json(self):
         executor = PiExecutor(
             "pi",
@@ -175,20 +191,23 @@ class ExecutionFactoryTests(unittest.TestCase):
                 objective="Build a cohort table.",
                 assumptions_to_check=["Confirm what files are available in the workspace."],
                 recommended_steps=["Inspect the workspace.", "Create the cohort artifact.", "Summarize the result."],
-                preferred_tools=["python", "shell"],
+                recommended_workflows=["Use reproducible Python scripts.", "Persist a cohort artifact."],
                 avoidances=["Do not write outside the workspace."],
                 success_signals=["A cohort artifact exists in the workspace."],
                 executor_brief="Prefer a small reproducible script if the logic is non-trivial.",
             ),
-            available_tools=ToolCatalog.from_config("codex", ToolsConfig()),
+            execution_environment=EnvironmentConfig(),
+            workflow_recommendations=["Prefer workspace-local Python entrypoints via `uv run`."],
         )
         prompt = context.render_prompt()
         self.assertIn("Do not rely on repository-level executor-specific instruction files", prompt)
         self.assertIn("Save every artifact inside the current workspace", prompt)
         self.assertIn("CodeAct-style executor", prompt)
-        self.assertIn("## Available Tools", prompt)
+        self.assertIn("## Execution Environment", prompt)
+        self.assertIn("HealthFlow does not manage MCP servers", prompt)
         self.assertIn("## EHR Safeguards", prompt)
-        self.assertIn("## Recommended Workflows", prompt)
+        self.assertIn("## Workflow Recommendations", prompt)
+        self.assertIn("## Workflow Memory", prompt)
 
     def test_shared_executor_prompt_adds_report_guidance_without_requiring_executor_report_file(self):
         context = ExecutionContext(
@@ -197,12 +216,13 @@ class ExecutionFactoryTests(unittest.TestCase):
                 objective="Build a cohort table.",
                 assumptions_to_check=["Confirm what files are available in the workspace."],
                 recommended_steps=["Inspect the workspace.", "Create the cohort artifact.", "Summarize the result."],
-                preferred_tools=["python", "shell"],
+                recommended_workflows=["Prefer reproducible Python scripts."],
                 avoidances=["Do not write outside the workspace."],
                 success_signals=["A cohort artifact exists in the workspace."],
                 executor_brief="Prefer a small reproducible script if the logic is non-trivial.",
             ),
-            available_tools=ToolCatalog.from_config("codex", ToolsConfig()),
+            execution_environment=EnvironmentConfig(),
+            workflow_recommendations=["Prefer workspace-local Python entrypoints via `uv run`."],
             report_requested=True,
         )
 

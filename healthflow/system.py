@@ -19,12 +19,10 @@ from .core.config import HealthFlowConfig
 from .core.contracts import EvaluationVerdict
 from .core.llm_provider import create_llm_provider
 from .ehr import detect_risk_findings, profile_workspace_data
-from .execution import ExecutionContext, create_executor_adapter
+from .execution import ExecutionContext, WorkflowRecommendationBroker, create_executor_adapter
 from .experience.experience_manager import ExperienceManager
 from .experience.experience_models import Experience, RetrievalContext
 from .reporting import generate_task_report
-from .tools import ToolCatalog
-from .tools.broker import ToolBroker
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -57,8 +55,7 @@ class HealthFlowSystem:
         self.evaluator = EvaluatorAgent(provider_for("evaluator"))
         self.reflector = ReflectorAgent(provider_for("reflector"))
         self.executor = create_executor_adapter(config.active_executor_name, config.active_executor)
-        self.tool_catalog = ToolCatalog.from_config(config.active_executor_name, config.tools)
-        self.tool_broker = ToolBroker()
+        self.workflow_broker = WorkflowRecommendationBroker()
 
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +101,7 @@ class HealthFlowSystem:
         result["reasoning_model"] = self.config.llm_config_for_role("planner").model_name
         result["llm_role_models"] = self._role_model_names()
         result["memory_write_policy"] = self.config.memory.write_policy
+        result["execution_environment"] = self.config.environment.model_dump(mode="json")
         result["run_result_path"] = str(task_workspace / "run_result.json")
         result["run_manifest_path"] = str(task_workspace / "run_manifest.json")
         result["cost_analysis_path"] = str(task_workspace / "cost_analysis.json")
@@ -140,7 +138,7 @@ class HealthFlowSystem:
 
         data_profile = profile_workspace_data(task_workspace, user_request)
         risk_findings = detect_risk_findings(user_request, data_profile)
-        planner_tools = self._planner_tool_options(data_profile)
+        workflow_recommendations = self._workflow_recommendations(user_request, data_profile)
         task_state = {
             "data_profile": asdict(data_profile),
             "risk_findings": [asdict(item) for item in risk_findings],
@@ -157,7 +155,8 @@ class HealthFlowSystem:
             "llm_role_models": self._role_model_names(),
             "memory_write_policy": self.config.memory.write_policy,
             "report_requested": report_requested,
-            "available_tools": planner_tools,
+            "execution_environment": self.config.environment.model_dump(mode="json"),
+            "workflow_recommendations": workflow_recommendations,
             "task_state_path": str(task_workspace / "task_state.json"),
             "data_profile": task_state["data_profile"],
             "risk_findings": task_state["risk_findings"],
@@ -209,7 +208,8 @@ class HealthFlowSystem:
                 workflow_experiences=workflow_experiences,
                 dataset_experiences=dataset_experiences,
                 execution_experiences=execution_experiences,
-                available_tools=planner_tools,
+                execution_environment=self.config.environment.summary_lines(),
+                workflow_recommendations=workflow_recommendations,
                 previous_feedback=previous_feedback,
             )
             planning_usage = self._capture_agent_usage(self.meta_agent)
@@ -220,7 +220,8 @@ class HealthFlowSystem:
             execution_context = ExecutionContext(
                 user_request=user_request,
                 plan=plan,
-                available_tools=self.tool_catalog,
+                execution_environment=self.config.environment,
+                workflow_recommendations=workflow_recommendations,
                 report_requested=report_requested,
                 safeguard_memory=self._format_memory_lines(safeguard_experiences),
                 workflow_memory=self._format_memory_lines(workflow_experiences),
@@ -364,6 +365,7 @@ class HealthFlowSystem:
             "evaluation_status": final_verdict.status,
             "evaluation_score": final_verdict.score,
             "memory_write_policy": self.config.memory.write_policy,
+            "workflow_recommendations": workflow_recommendations,
             "backend_version": last_execution.get("backend_version"),
             "executor_metadata": last_execution.get("executor_metadata"),
             "usage_summary": usage_summary,
@@ -480,8 +482,8 @@ class HealthFlowSystem:
                 failure_modes.append(str(failure_type))
         return list(dict.fromkeys(failure_modes))
 
-    def _planner_tool_options(self, data_profile) -> list[str]:
-        return list(dict.fromkeys([*self.tool_catalog.names(), *self.tool_broker.select_bundle(data_profile.task_family, data_profile)]))
+    def _workflow_recommendations(self, user_request: str, data_profile) -> list[str]:
+        return self.workflow_broker.recommend(user_request, data_profile)
 
     def _build_retrieval_context(
         self,
@@ -540,6 +542,8 @@ class HealthFlowSystem:
                 "reasoning_model": self.config.llm_config_for_role("planner").model_name,
                 "llm_role_models": result.get("llm_role_models"),
                 "memory_write_policy": self.config.memory.write_policy,
+                "execution_environment": result.get("execution_environment"),
+                "workflow_recommendations": result.get("workflow_recommendations"),
                 "backend_version": result.get("backend_version"),
                 "executor_metadata": result.get("executor_metadata"),
                 "usage_summary": result.get("usage_summary"),

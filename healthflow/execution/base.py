@@ -5,15 +5,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..core.config import EnvironmentConfig
 from ..core.contracts import ExecutionPlan
-from ..tools import ToolCatalog
 
 
 @dataclass
 class ExecutionContext:
     user_request: str
     plan: ExecutionPlan
-    available_tools: ToolCatalog
+    execution_environment: EnvironmentConfig
+    workflow_recommendations: List[str] = field(default_factory=list)
     report_requested: bool = False
     safeguard_memory: List[str] = field(default_factory=list)
     workflow_memory: List[str] = field(default_factory=list)
@@ -26,7 +27,7 @@ class ExecutionContext:
             "\n".join(f"- {item}" for item in self.safeguard_memory)
             or "- No safeguard memory was retrieved for this task."
         )
-        workflow_block = (
+        retrieved_workflow_block = (
             "\n".join(f"- {item}" for item in self.workflow_memory)
             or "- No workflow memory was retrieved for this task."
         )
@@ -38,7 +39,13 @@ class ExecutionContext:
             "\n".join(f"- {item}" for item in self.execution_memory)
             or "- No execution memory was retrieved for this task."
         )
-        tool_block = "\n".join(self.available_tools.prompt_lines()) or "- No tools were advertised for this run."
+        environment_block = "\n".join(
+            f"- {item}" for item in self.execution_environment.summary_lines()
+        ) or "- Use the default executor environment."
+        workflow_recommendation_block = (
+            "\n".join(f"- {item}" for item in self.workflow_recommendations)
+            or "- No workflow recommendations were provided for this run."
+        )
 
         prompt = [
             "# HealthFlow Executor Brief",
@@ -47,18 +54,22 @@ class ExecutionContext:
             "Operate as a CodeAct-style executor: think in explicit actions, choose the next best action, run it, inspect the result, and continue.",
             "Work inside the current workspace and keep your process reproducible and inspectable.",
             "Do not rely on repository-level executor-specific instruction files; use only the shared instructions in this prompt.",
+            "HealthFlow does not manage MCP servers, plugin registries, or local CLI tool catalogs.",
             "",
             "## Original Task",
             self.user_request.strip(),
             "",
-            "## Available Tools",
-            tool_block,
+            "## Execution Environment",
+            environment_block,
+            "",
+            "## Workflow Recommendations",
+            workflow_recommendation_block,
             "",
             "## EHR Safeguards",
             safeguard_block,
             "",
-            "## Recommended Workflows",
-            workflow_block,
+            "## Workflow Memory",
+            retrieved_workflow_block,
             "",
             "## Dataset Anchors",
             dataset_block,
@@ -77,8 +88,9 @@ class ExecutionContext:
                 "## Execution Rules",
                 "- Inspect the workspace and any task inputs before committing to an implementation path.",
                 "- Save every artifact inside the current workspace. Do not write files outside it.",
-                "- Prefer Python, reproducible CLI workflows, and explicit tool calls when possible.",
-                "- Use the planner's preferred tools when they fit, but adapt if execution reality requires a better path.",
+                "- Prefer reproducible Python and CLI workflows, usually through the configured run prefix when it fits.",
+                "- Use the planner's recommended workflows when they fit, but adapt if execution reality requires a better path.",
+                "- Only rely on CLI tools or services that are already available in your executor environment; verify availability before depending on them.",
                 "- Treat safeguard memories as high-priority guardrails when choosing and validating your approach.",
                 "- Record meaningful intermediate artifacts when they make the final result easier to inspect or reuse.",
                 "- End with a concise final answer that references any produced artifacts.",

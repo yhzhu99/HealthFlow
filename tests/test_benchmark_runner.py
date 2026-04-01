@@ -2,6 +2,7 @@ import unittest
 
 from healthflow.core.config import (
     EvaluationConfig,
+    EnvironmentConfig,
     ExecutorConfig,
     HealthFlowConfig,
     LLMProviderConfig,
@@ -9,7 +10,6 @@ from healthflow.core.config import (
     LoggingConfig,
     MemoryConfig,
     SystemConfig,
-    ToolsConfig,
     default_executor_backends,
 )
 from run_benchmark import (
@@ -39,8 +39,8 @@ class BenchmarkRunnerTests(unittest.TestCase):
             ),
             llm_roles=LLMRoleConfig(),
             system=SystemConfig(),
+            environment=EnvironmentConfig(),
             executor=ExecutorConfig(active_backend="opencode", backends=default_executor_backends()),
-            tools=ToolsConfig(),
             memory=MemoryConfig(write_policy="append"),
             evaluation=EvaluationConfig(),
             logging=LoggingConfig(),

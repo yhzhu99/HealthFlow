@@ -16,6 +16,7 @@ from .base import ExecutionContext, ExecutionResult, ExecutorAdapter
 from .opencode_parser import parse_opencode_json_events
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class CLISubprocessExecutor(ExecutorAdapter):
@@ -137,7 +138,22 @@ class CLISubprocessExecutor(ExecutorAdapter):
         environment = os.environ.copy()
         for key, value in self.backend_config.env.items():
             environment[key] = self._expand_environment_value(key, value, environment)
+        environment = self._ensure_project_venv_bin_on_path(environment)
         return self._prepare_environment(environment, working_dir)
+
+    def _ensure_project_venv_bin_on_path(self, environment: dict[str, str]) -> dict[str, str]:
+        venv_bin = _PROJECT_ROOT / ".venv" / "bin"
+        if not venv_bin.exists():
+            return environment
+
+        path_entries = environment.get("PATH", "").split(os.pathsep) if environment.get("PATH") else []
+        venv_bin_str = str(venv_bin)
+        if venv_bin_str in path_entries:
+            return environment
+
+        updated_environment = dict(environment)
+        updated_environment["PATH"] = os.pathsep.join([venv_bin_str, *path_entries]) if path_entries else venv_bin_str
+        return updated_environment
 
     def _prepare_environment(self, environment: dict[str, str], working_dir: Path) -> dict[str, str]:
         return environment

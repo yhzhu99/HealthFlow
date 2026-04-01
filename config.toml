@@ -97,6 +97,13 @@ provider_api_key_env = "ZENMUX_API_KEY"
 prompt_mode = "append"
 timeout_seconds = 1800
 
+# --- Execution Environment Contract ---
+[environment]
+python_version = "3.12"
+package_manager = "uv"
+install_command = "uv add"
+run_prefix = "uv run"
+
 # --- System Configuration ---
 [system]
 max_attempts = 3

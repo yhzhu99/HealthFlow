@@ -6,7 +6,7 @@
 HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task runtime artifacts, and long-term reflective memory. Dataset preparation and benchmark evaluation workflows can still live in the repository under `data/`, but they are intentionally decoupled from the `healthflow/` runtime package.
 
 - structured `Meta` planning with EHR-adaptive memory retrieval
-- `Executor` as a CodeAct runtime over pluggable tool surfaces
+- `Executor` as a CodeAct runtime over external executor backends
 - `Evaluator`-driven retry and failure diagnosis
 - `Reflector` writeback from both successful and failed trajectories
 - inspectable workspace artifacts and run telemetry
@@ -20,7 +20,7 @@ The current release surface is intentionally **backend and CLI only**. A fronten
 HealthFlow runs a lean **Meta -> Executor -> Evaluator -> Reflector** loop.
 
 1. **Meta**: retrieve relevant safeguard, workflow, dataset, and execution memories, then emit a structured execution plan.
-2. **Executor**: interpret the plan as a CodeAct brief and act through code, commands, workspace artifacts, and configured tool surfaces.
+2. **Executor**: interpret the plan as a CodeAct brief and act through code, commands, and workspace artifacts using whatever tools are already configured in the outer executor.
 3. **Evaluator**: review the execution trace and produced artifacts, classify the outcome as `success`, `needs_retry`, or `failed`, and provide repair instructions for the next attempt.
 4. **Reflector**: synthesize reusable safeguard, workflow, dataset, or execution memories from the full trajectory after the task session ends.
 
@@ -29,7 +29,7 @@ The task-level self-correction budget is controlled by `system.max_attempts`, wh
 ## What HealthFlow Contributes
 
 - **MERF core runtime**: the framework definition is the four-stage Meta, Executor, Evaluator, Reflector loop rather than an outer benchmark-evaluation pipeline.
-- **CodeAct execution surface**: the executor is framed around explicit actions and can work over pluggable tool surfaces such as CLI or MCP-backed tools.
+- **Lean execution contract**: HealthFlow defines workspace rules, execution-environment defaults, and workflow recommendations without becoming a tool-hosting framework.
 - **Inspectable memory**: safeguard, workflow, dataset, and execution memories are stored in JSONL, routed through adaptive retrieval lanes, and exposed through a saved retrieval audit.
 - **Evaluator-centered recovery**: retries are driven by structured failure diagnosis and repair instructions instead of a single scalar score alone.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
@@ -110,9 +110,15 @@ Executor-specific repository instruction files are intentionally avoided at the 
 
 ## External CLI Workflows
 
-HealthFlow does not hardcode compatibility for any specific domain package or external tool. Instead, it interacts with external systems through the same CodeAct-style execution layer used for all tasks.
+HealthFlow does not implement an internal MCP registry, plugin framework, or large CLI catalog. Tool availability belongs to the outer executor layer such as Claude Code, OpenCode, Pi, or Codex.
 
-The executor can advertise tool surfaces through a unified catalog. The planner may recommend preferred tools, while the executor is still allowed to adapt at runtime.
+HealthFlow only supplies:
+
+- a lightweight execution-environment contract
+- small workflow recommendations
+- documentation recipes for selected external CLIs
+
+When external CLIs are part of the supported workflow, prefer declaring them in this project's `pyproject.toml` and installing them into the shared repo `.venv`. Executor backends should use that same project environment rather than ad hoc global tool installs.
 
 Executor defaults are configured for normal text output. HealthFlow does not require external backends to finish in JSON. Structured event streams remain optional backend-specific telemetry modes.
 
@@ -213,6 +219,16 @@ env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KE
 model_flag = "--model"
 ```
 
+HealthFlow also exposes a small execution-environment contract:
+
+```toml
+[environment]
+python_version = "3.12"
+package_manager = "uv"
+install_command = "uv add"
+run_prefix = "uv run"
+```
+
 To decouple the internal roles, set:
 
 ```toml
@@ -224,19 +240,35 @@ reflector = "google/gemini-3-flash-preview"
 
 Any unset role falls back to `--active-llm`.
 
-Optional tool surfaces can be declared in `config.toml`:
+Legacy tool-registration sections are intentionally unsupported. If you previously configured CLI or MCP tools inside HealthFlow, move that setup into the outer executor and keep only the environment defaults above in HealthFlow.
 
-```toml
-[tools.python]
-surface = "cli"
-description = "Run Python scripts in the workspace."
-invocation_hint = "python <script>.py"
+### External CLI Recipes
 
-[tools.local_mcp]
-surface = "mcp"
-description = "Domain-specific MCP connector exposed to the executor."
-invocation_hint = "connector-defined"
+HealthFlow may recommend selected external CLIs when the task warrants them, but it does not install, register, or invoke them directly.
+
+ToolUniverse CLI examples:
+
+```bash
+uv run tu list
+uv run tu find "pathway analysis"
+uv run tu info <tool-name>
+uv run tu run <tool-name> --help
 ```
+
+ToolUniverse also supports a local `.tooluniverse/profile.yaml` workspace and can launch its own MCP server with `tu serve`, but HealthFlow does not manage that MCP surface.
+
+OneEHR CLI examples:
+
+```bash
+uv run oneehr preprocess --help
+uv run oneehr train --help
+uv run oneehr test --help
+uv run oneehr analyze --help
+uv run oneehr plot --help
+uv run oneehr convert --help
+```
+
+The OneEHR workflow is only surfaced as a recommendation for EHR modeling tasks, and only when the executor environment already provides the CLI.
 
 ### Single Task
 
@@ -297,7 +329,7 @@ Main config sections:
 - `[llm.*]`: reasoning model providers, with either `api_key` or `api_key_env`
 - `[llm_roles]`: optional planner/evaluator/reflector model overrides
 - `[executor]`: default backend and CLI backend definitions
-- `[tools.*]`: optional tool catalog entries exposed to the planner and executor, with `surface = "cli"` or `surface = "mcp"`
+- `[environment]`: lightweight runtime defaults such as preferred Python version and `uv` command prefixes
 - `[memory]`: runtime write policy only (`append`, `freeze`, or `reset_before_run`)
 - `[evaluation]`: evaluator success threshold
 - `[system]`: workspace, shell, and task-attempt settings (`max_attempts`)
@@ -314,7 +346,6 @@ By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entr
 - `healthflow/execution/`: executor layer
 - `healthflow/ehr/`: optional EHR specialization helpers kept outside the core loop
 - `healthflow/experience/`: EHR-adaptive memory and retrieval audit
-- `healthflow/tools/`: tool catalog and optional tool-surface metadata
 
 ## Citation
 
