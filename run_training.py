@@ -146,16 +146,20 @@ class TrainingRunner:
                 try:
                     data = json.loads(line)
                     # Validate required keys
-                    required_keys = ["qid", "task", "answer"]
+                    required_keys = ["qid", "task"]
                     missing_keys = [key for key in required_keys if key not in data]
                     if missing_keys:
                         logger.warning(f"Skipping line {line_num}: missing keys {missing_keys}")
+                        continue
+                    reference_answer = data.get("reference_answer", data.get("answer"))
+                    if reference_answer is None:
+                        logger.warning(f"Skipping line {line_num}: missing answer/reference_answer field")
                         continue
 
                     examples.append(TrainingExample(
                         qid=str(data["qid"]),
                         task=data["task"],
-                        answer=data["answer"]
+                        answer=reference_answer
                     ))
 
                 except json.JSONDecodeError as e:

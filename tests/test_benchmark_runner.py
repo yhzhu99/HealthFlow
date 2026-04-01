@@ -1,9 +1,25 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from run_benchmark import aggregate_cost_totals
+from run_benchmark import aggregate_cost_totals, load_dataset
 
 
 class BenchmarkRunnerTests(unittest.TestCase):
+    def test_load_dataset_accepts_reference_answer_only(self):
+        with TemporaryDirectory() as tmp_dir:
+            dataset_path = Path(tmp_dir) / "dataset.jsonl"
+            dataset_path.write_text(
+                '{"qid": 1, "task": "task one", "reference_answer": "reference_answers/1/answer_manifest.json"}\n',
+                encoding="utf-8",
+            )
+
+            rows = load_dataset(dataset_path)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["answer"], "reference_answers/1/answer_manifest.json")
+        self.assertEqual(rows[0]["reference_answer"], "reference_answers/1/answer_manifest.json")
+
     def test_aggregate_cost_totals_combines_stage_and_executor_costs(self):
         results = [
             {
