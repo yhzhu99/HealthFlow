@@ -213,13 +213,67 @@ reflector = "missing-model"
 api_key = "key"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-chat"
-executor_model_name = "deepseek/deepseek-chat"
+executor_model_name = "deepseek-chat"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 """.strip(),
                 encoding="utf-8",
             )
             config = get_config(config_path, "deepseek")
 
-            self.assertEqual(config.active_executor.model, "deepseek/deepseek-chat")
+            self.assertEqual(config.active_executor.model, "deepseek-chat")
+            self.assertEqual(config.active_executor.provider, "deepseek")
+            self.assertEqual(config.active_executor.provider_base_url, "https://api.deepseek.com/anthropic")
+            self.assertEqual(config.active_executor.provider_api, "anthropic-messages")
+            self.assertEqual(config.active_executor.provider_api_key_env, "DEEPSEEK_API_KEY")
+
+    def test_claude_code_backend_inherits_executor_provider_settings_from_active_llm(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.deepseek]
+api_key = "key"
+base_url = "https://api.deepseek.com"
+model_name = "deepseek-chat"
+executor_model_name = "deepseek-chat"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
+
+[executor]
+active_backend = "claude_code"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "deepseek")
+
+            self.assertEqual(config.active_executor.model, "deepseek-chat")
+            self.assertEqual(config.active_executor.provider, "deepseek")
+            self.assertEqual(config.active_executor.provider_base_url, "https://api.deepseek.com/anthropic")
+            self.assertEqual(config.active_executor.provider_api, "anthropic-messages")
+            self.assertEqual(config.active_executor.provider_api_key_env, "DEEPSEEK_API_KEY")
+
+    def test_deepseek_executor_model_name_rejects_provider_prefixed_values(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm.deepseek]
+api_key = "key"
+base_url = "https://api.deepseek.com"
+model_name = "deepseek-chat"
+executor_provider = "deepseek"
+executor_model_name = "deepseek/deepseek-chat"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "bare model id"):
+                get_config(config_path, "deepseek")
 
     def test_environment_defaults_can_be_overridden(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -335,6 +389,8 @@ model_name = "model"
         self.assertEqual(config.llm_config_for_role("planner").model_name, "deepseek-chat")
         self.assertEqual(config.llm_config_for_role("evaluator").model_name, "openai/gpt-5.4")
         self.assertEqual(config.llm_config_for_role("reflector").model_name, "google/gemini-3-flash-preview")
+        self.assertEqual(config.active_executor.provider, "deepseek")
+        self.assertEqual(config.active_executor.model, "deepseek-chat")
 
     def test_system_shell_raises_migration_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:

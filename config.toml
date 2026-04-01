@@ -12,7 +12,11 @@ output_cost_per_million_tokens = 1.22
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-chat"
-executor_model_name = "deepseek/deepseek-chat"
+executor_model_name = "deepseek-chat"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 input_cost_per_million_tokens = 0.28
 output_cost_per_million_tokens = 0.43
 
@@ -20,7 +24,11 @@ output_cost_per_million_tokens = 0.43
 api_key_env = "DEEPSEEK_API_KEY"
 base_url = "https://api.deepseek.com"
 model_name = "deepseek-reasoner"
-executor_model_name = "deepseek/deepseek-reasoner"
+executor_model_name = "deepseek-reasoner"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
 
 [llm."z-ai/glm-5"]
 api_key_env = "ZENMUX_API_KEY"
@@ -62,8 +70,12 @@ active_backend = "opencode"
 [executor.backends.claude_code]
 binary = "claude"
 args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "high"]
-env = { ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic", ANTHROPIC_API_KEY = "${ZENMUX_API_KEY}", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
+env = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
 model_flag = "--model"
+provider = "zenmux"
+provider_base_url = "https://zenmux.ai/api/anthropic"
+provider_api = "anthropic-messages"
+provider_api_key_env = "ZENMUX_API_KEY"
 prompt_mode = "append"
 timeout_seconds = 1800
 

@@ -22,6 +22,22 @@ class LLMProviderConfig(BaseModel):
         default=None,
         description="Optional model name to inherit into executor backends when it differs from the internal LLM model ID.",
     )
+    executor_provider: str | None = Field(
+        default=None,
+        description="Optional executor provider name to inherit into backend-specific routing.",
+    )
+    executor_provider_base_url: str | None = Field(
+        default=None,
+        description="Optional executor provider base URL for backends that require explicit endpoint configuration.",
+    )
+    executor_provider_api: str | None = Field(
+        default=None,
+        description="Optional executor transport identifier such as anthropic-messages or openai-completions.",
+    )
+    executor_provider_api_key_env: str | None = Field(
+        default=None,
+        description="Optional environment variable name to use for executor-side provider authentication.",
+    )
     timeout: int = Field(180, description="Request timeout in seconds.")
     input_cost_per_million_tokens: float | None = Field(
         default=None,
@@ -31,6 +47,14 @@ class LLMProviderConfig(BaseModel):
         default=None,
         description="Optional estimated output-token price in USD per 1M tokens.",
     )
+
+    @model_validator(mode="after")
+    def validate_executor_model_name(self):
+        if self.executor_provider == "deepseek" and self.executor_model_name and "/" in self.executor_model_name:
+            raise ValueError(
+                "DeepSeek executor_model_name must be a bare model id such as 'deepseek-chat', not a provider-prefixed value."
+            )
+        return self
 
 
 class BackendCLIConfig(BaseModel):
@@ -97,11 +121,13 @@ def default_executor_backends() -> Dict[str, BackendCLIConfig]:
                 "high",
             ],
             env={
-                "ANTHROPIC_BASE_URL": "https://zenmux.ai/api/anthropic",
-                "ANTHROPIC_API_KEY": "${ZENMUX_API_KEY}",
                 "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
             },
             model_flag="--model",
+            provider="zenmux",
+            provider_base_url="https://zenmux.ai/api/anthropic",
+            provider_api="anthropic-messages",
+            provider_api_key_env="ZENMUX_API_KEY",
             prompt_mode="append",
         ),
         "codex": BackendCLIConfig(
@@ -207,10 +233,19 @@ class HealthFlowConfig(BaseModel):
     @property
     def active_executor(self) -> BackendCLIConfig:
         active_executor = self.executor.backends[self.active_executor_name]
-        resolved_model = active_executor.model
-        if resolved_model is None and active_executor.inherit_active_llm:
-            resolved_model = self.llm.executor_model_name or self.llm.model_name
-        return active_executor.model_copy(update={"model": resolved_model})
+        resolved_updates: dict[str, str | None] = {}
+        if active_executor.inherit_active_llm:
+            if active_executor.model is None:
+                resolved_updates["model"] = self.llm.executor_model_name or self.llm.model_name
+            if self.llm.executor_provider is not None:
+                resolved_updates["provider"] = self.llm.executor_provider
+            if self.llm.executor_provider_base_url is not None:
+                resolved_updates["provider_base_url"] = self.llm.executor_provider_base_url
+            if self.llm.executor_provider_api is not None:
+                resolved_updates["provider_api"] = self.llm.executor_provider_api
+            if self.llm.executor_provider_api_key_env is not None:
+                resolved_updates["provider_api_key_env"] = self.llm.executor_provider_api_key_env
+        return active_executor.model_copy(update=resolved_updates)
 
     def llm_config_for_role(self, role: str) -> LLMProviderConfig:
         configured_name = getattr(self.llm_roles, role, None) or self.active_llm_name

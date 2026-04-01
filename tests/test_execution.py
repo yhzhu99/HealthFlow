@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from healthflow.core.contracts import ExecutionPlan
-from healthflow.core.config import BackendCLIConfig, EnvironmentConfig, default_executor_backends
+from healthflow.core.config import BackendCLIConfig, EnvironmentConfig, default_executor_backends, get_config
 from healthflow.execution.base import ExecutionContext
 from healthflow.execution.cli_adapters import (
     CLISubprocessExecutor,
@@ -73,6 +73,33 @@ class ExecutionFactoryTests(unittest.TestCase):
         command = executor._build_command("say hi")
 
         self.assertEqual(command, ["opencode", "run", "-m", "zenmux/openai/gpt-5.4", "say hi"])
+
+    def test_opencode_uses_builtin_deepseek_provider_without_double_prefix(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                """
+[llm."deepseek/deepseek-v3.2"]
+api_key = "key"
+base_url = "https://api.deepseek.com"
+model_name = "deepseek-chat"
+executor_model_name = "deepseek-chat"
+executor_provider = "deepseek"
+executor_provider_base_url = "https://api.deepseek.com/anthropic"
+executor_provider_api = "anthropic-messages"
+executor_provider_api_key_env = "DEEPSEEK_API_KEY"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = get_config(config_path, "deepseek/deepseek-v3.2", "opencode")
+            executor = create_executor_adapter(config.active_executor_name, config.active_executor)
+
+        command = executor._build_command("say hi")
+
+        self.assertEqual(
+            command,
+            ["opencode", "run", "--variant", "high", "--format", "json", "-m", "deepseek/deepseek-chat", "say hi"],
+        )
 
     def test_appended_prompt_is_redacted_from_saved_command(self):
         executor = OpenCodeExecutor(
@@ -161,6 +188,32 @@ class ExecutionFactoryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ZENMUX_API_KEY"):
                 executor._build_environment(Path.cwd())
 
+    def test_claude_code_environment_uses_resolved_provider_settings(self):
+        executor = ClaudeCodeExecutor(
+            "claude_code",
+            BackendCLIConfig(
+                binary="claude",
+                env={"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"},
+                provider="deepseek",
+                provider_base_url="https://api.deepseek.com/anthropic",
+                provider_api="anthropic-messages",
+                provider_api_key_env="DEEPSEEK_API_KEY",
+                model="deepseek-chat",
+                model_flag="--model",
+            ),
+        )
+
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "deepseek-key"}, clear=False):
+            environment = executor._build_environment(Path.cwd())
+
+        self.assertEqual(environment["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic")
+        self.assertEqual(environment["ANTHROPIC_API_KEY"], "deepseek-key")
+        self.assertEqual(environment["ANTHROPIC_AUTH_TOKEN"], "deepseek-key")
+        self.assertEqual(environment["ANTHROPIC_MODEL"], "deepseek-chat")
+        self.assertEqual(environment["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "deepseek-chat")
+        self.assertEqual(environment["ANTHROPIC_SMALL_FAST_MODEL"], "deepseek-chat")
+        self.assertEqual(environment["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
+
     def test_default_backend_environment_includes_project_venv_bin(self):
         for backend_name, backend_config in default_executor_backends().items():
             resolved_config = backend_config
@@ -205,6 +258,33 @@ class ExecutionFactoryTests(unittest.TestCase):
         self.assertEqual(models_json["providers"]["zenmux"]["api"], "openai-completions")
         self.assertEqual(models_json["providers"]["zenmux"]["apiKey"], "ZENMUX_API_KEY")
         self.assertEqual(models_json["providers"]["zenmux"]["models"][0]["id"], "openai/gpt-5.4")
+
+    def test_pi_executor_writes_anthropic_runtime_models_json_for_deepseek(self):
+        executor = PiExecutor(
+            "pi",
+            BackendCLIConfig(
+                binary="pi",
+                args=["--print"],
+                provider="deepseek",
+                provider_flag="--provider",
+                provider_base_url="https://api.deepseek.com/anthropic",
+                provider_api="anthropic-messages",
+                provider_api_key_env="DEEPSEEK_API_KEY",
+                model="deepseek-chat",
+                model_flag="--model",
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            working_dir = Path(tmpdir)
+            environment = executor._build_environment(working_dir)
+            agent_dir = Path(environment["PI_CODING_AGENT_DIR"])
+            models_json = json.loads((agent_dir / "models.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(models_json["providers"]["deepseek"]["baseUrl"], "https://api.deepseek.com/anthropic")
+        self.assertEqual(models_json["providers"]["deepseek"]["api"], "anthropic-messages")
+        self.assertEqual(models_json["providers"]["deepseek"]["apiKey"], "DEEPSEEK_API_KEY")
+        self.assertEqual(models_json["providers"]["deepseek"]["models"][0]["id"], "deepseek-chat")
 
     def test_shared_executor_prompt_contains_neutral_workspace_rules(self):
         context = ExecutionContext(
