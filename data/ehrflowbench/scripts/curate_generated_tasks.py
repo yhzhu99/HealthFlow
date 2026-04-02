@@ -24,6 +24,14 @@ SOURCE_TASK_LINKAGE_MODE = "task_proxy"
 SOURCE_TASK_ELIGIBILITY = "proxy_candidate"
 REVIEW_STATUS = "seeded_for_human_review"
 TASK_MANIFEST_VERSION = "ehrflowbench_task_manifest_v1"
+REPORT_SECTION_ORDER = (
+    "Objective",
+    "Data",
+    "Method",
+    "Results",
+    "Evidence",
+    "Conclusion",
+)
 
 BUCKET_PRIORITY = (
     "causal",
@@ -162,14 +170,14 @@ LIGHTWEIGHT_PATTERNS = (
     "small validation-based hyperparameter selection",
 )
 
-TARGET_FALLBACK_PATTERNS = (
+LEGACY_TARGET_FALLBACK_PATTERNS = (
     "if a candidate target is unavailable",
     "fall back to another directly available target",
     "if multiple feasible targets exist",
     "if split files only define patient partitions",
 )
 
-EXPLICIT_COMMON_TARGET_PATTERNS = (
+LEGACY_CROSS_DATASET_TARGET_PATTERNS = (
     "choose one binary target that is present in both tjh and mimic-iv-demo",
     "common executable utilization-oriented endpoint available or derivable in both datasets",
     "prioritizing `outcome`, `readmission`, or",
@@ -184,6 +192,43 @@ TEXT_DEPENDENCY_PATTERNS = (
     "tf-idf",
     "unstructured text",
 )
+
+LOCAL_ONLY_PATTERNS = (
+    "use only the",
+    "using only the",
+    "use only local files",
+    "use only repository-local",
+    "repository-local processed ehr assets",
+    "do not use external data",
+)
+
+PAPER_SUMMARY_PATTERNS = (
+    "summarize the paper",
+    "summarise the paper",
+    "summary of the paper",
+    "critique the paper",
+    "paper critique",
+    "literature review",
+)
+
+SOURCE_PAPER_REFERENCE_PATTERNS = (
+    r"\bas described in the paper\b",
+    r"\bas shown in the paper\b",
+    r"\bin the source paper\b",
+    r"\bin the original paper\b",
+    r"\bpaper section\s+\d",
+    r"\bsection\s+\d+(\.\d+)*\b",
+    r"\btable\s+\d+([a-z])?\b",
+    r"\bfigure\s+\d+([a-z])?\b",
+    r"\bequation\s+\d+([a-z])?\b",
+    r"\beq\.\s*\(?\d+([a-z])?\)?\b",
+    r"\bappendix\s+[a-z0-9]+\b",
+)
+
+OTHER_DATASET_MARKERS = {
+    "tjh": ("mimic", "mimic-iv", "mimic iv", "mimic_iv_demo"),
+    "mimic_iv_demo": ("tjh", "tongji"),
+}
 
 FORBIDDEN_DEPENDENCY_PATTERNS = {
     "depends_on_healthflow_runtime": (
@@ -202,6 +247,16 @@ FORBIDDEN_DEPENDENCY_PATTERNS = {
     ),
     "depends_on_external_data": ("external dataset", "outside this repository"),
     "depends_on_manual_annotation": ("manual annotation", "human annotation", "annotator"),
+    "depends_on_external_api_or_llm": (
+        "external api",
+        "openai api",
+        "call openai",
+        "call an api",
+        "external service",
+        "llm inference",
+        "large language model",
+        "gpt-",
+    ),
 }
 
 HEAVY_EXECUTION_PATTERNS = (
@@ -267,11 +322,12 @@ class ReviewedTask:
     practicality_score: int = 0
     novelty_score: int = 0
     quality_score: int = 0
-    explicit_common_target: bool = False
-    has_target_fallback: bool = False
+    has_local_only_constraint: bool = False
     has_numeric_artifact: bool = False
     has_figure_or_table_artifact: bool = False
     has_text_dependency: bool = False
+    mentions_other_dataset: bool = False
+    has_source_paper_reference: bool = False
     input_dataset: str | None = None
     has_valid_single_dataset_inputs: bool = False
     has_mixed_dataset_inputs: bool = False
@@ -451,10 +507,10 @@ def collect_generated_candidates(
             continue
 
         tasks = task_payload.get("tasks")
-        if not isinstance(tasks, list) or len(tasks) != 2:
+        if not isinstance(tasks, list) or not tasks:
             if not allow_incomplete:
-                raise ValueError(f"Paper {paper_id} does not contain exactly 2 tasks")
-            warnings.append(f"Skipped incomplete bundle for paper {paper_id}: expected 2 tasks")
+                raise ValueError(f"Paper {paper_id} does not contain any generated tasks")
+            warnings.append(f"Skipped incomplete bundle for paper {paper_id}: expected at least 1 task")
             continue
 
         paper_title = paper_titles.get(paper_id) or title_from_dir_name(markdown_dirs.get(paper_id)) or f"Paper {paper_id}"
@@ -526,7 +582,9 @@ def looks_like_figure_or_table(path: str) -> bool:
     if path.startswith("tables/") or path.startswith("figures/"):
         return True
     suffix = Path(path).suffix.lower()
-    return suffix in NUMERIC_SUFFIXES or suffix in VISUAL_SUFFIXES
+    if suffix in VISUAL_SUFFIXES:
+        return True
+    return suffix in {".csv", ".tsv", ".xlsx"} and "table" in Path(path).stem.lower()
 
 
 def classify_required_input_set(required_inputs: tuple[str, ...]) -> tuple[str | None, bool, bool, bool]:
@@ -572,6 +630,23 @@ def contains_forbidden_dependency(text: str) -> list[str]:
     return reasons
 
 
+def contains_source_paper_reference(text: str) -> bool:
+    negative_prefix_markers = ("do not", "don't", "avoid", "without", "rather than", "must not")
+    for pattern in SOURCE_PAPER_REFERENCE_PATTERNS:
+        for match in re.finditer(pattern, text):
+            prefix = text[max(0, match.start() - 60):match.start()]
+            if any(marker in prefix for marker in negative_prefix_markers):
+                continue
+            return True
+    return False
+
+
+def mentions_other_dataset(text: str, input_dataset: str | None) -> bool:
+    if input_dataset is None:
+        return False
+    return contains_any(text, OTHER_DATASET_MARKERS.get(input_dataset, ()))
+
+
 def requires_heavy_execution(text: str) -> bool:
     return any(re.search(pattern, text) for pattern in HEAVY_EXECUTION_PATTERNS)
 
@@ -590,9 +665,8 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
             candidate.task,
         ]
     )
-    task_blob = " ".join(
+    instruction_blob = " ".join(
         [
-            candidate.paper_title,
             candidate.task_brief,
             " ".join(candidate.focus_areas),
             candidate.task,
@@ -600,7 +674,8 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
             " ".join(candidate.report_requirements),
         ]
     )
-    normalized_blob = normalize_text(task_blob)
+    task_blob = " ".join([candidate.paper_title, instruction_blob])
+    normalized_instruction = normalize_text(instruction_blob)
     bucket = classify_primary_bucket(candidate.paper_title, classification_blob)
     method_family = classify_method_family(task_blob)
     target_family = classify_target_family(task_blob)
@@ -613,10 +688,9 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
         similarity_text=build_similarity_text(candidate),
     )
 
-    reviewed.has_target_fallback = contains_any(normalized_blob, TARGET_FALLBACK_PATTERNS)
-    reviewed.explicit_common_target = contains_any(normalized_blob, EXPLICIT_COMMON_TARGET_PATTERNS)
-    reviewed.has_text_dependency = contains_any(normalized_blob, TEXT_DEPENDENCY_PATTERNS)
-    reviewed.lightweight_hint = contains_any(normalized_blob, LIGHTWEIGHT_PATTERNS)
+    reviewed.has_local_only_constraint = contains_any(normalized_instruction, LOCAL_ONLY_PATTERNS)
+    reviewed.has_text_dependency = contains_any(normalized_instruction, TEXT_DEPENDENCY_PATTERNS)
+    reviewed.lightweight_hint = contains_any(normalized_instruction, LIGHTWEIGHT_PATTERNS)
     reviewed.has_numeric_artifact = any(looks_like_numeric_artifact(path) for path in candidate.deliverables)
     reviewed.has_figure_or_table_artifact = any(looks_like_figure_or_table(path) for path in candidate.deliverables)
     (
@@ -625,15 +699,19 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
         reviewed.has_split_metadata_inputs,
         reviewed.has_mixed_dataset_inputs,
     ) = classify_required_input_set(candidate.required_inputs)
+    reviewed.mentions_other_dataset = mentions_other_dataset(normalized_instruction, reviewed.input_dataset)
+    reviewed.has_source_paper_reference = contains_source_paper_reference(normalized_instruction)
 
-    if reviewed.explicit_common_target:
-        reviewed.flags.append("explicit_common_target")
-    if reviewed.has_target_fallback:
-        reviewed.flags.append("target_fallback")
+    if reviewed.has_local_only_constraint:
+        reviewed.flags.append("local_only")
     if reviewed.has_text_dependency:
         reviewed.flags.append("text_dependency")
     if reviewed.lightweight_hint:
         reviewed.flags.append("lightweight")
+    if reviewed.mentions_other_dataset:
+        reviewed.flags.append("mentions_other_dataset")
+    if reviewed.has_source_paper_reference:
+        reviewed.flags.append("source_paper_reference")
     if reviewed.input_dataset:
         reviewed.flags.append(f"input_dataset:{reviewed.input_dataset}")
     if reviewed.method_family == "graph":
@@ -647,13 +725,28 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
         reviewed.hard_reject_reasons.append("missing_report_deliverable")
     if not reviewed.has_numeric_artifact:
         reviewed.hard_reject_reasons.append("missing_numeric_artifact")
+    if not reviewed.has_figure_or_table_artifact:
+        reviewed.hard_reject_reasons.append("missing_figure_or_table_artifact")
     if reviewed.has_mixed_dataset_inputs:
         reviewed.hard_reject_reasons.append("mixed_dataset_inputs")
     if not reviewed.has_valid_single_dataset_inputs:
         reviewed.hard_reject_reasons.append("invalid_single_dataset_inputs")
-    reviewed.hard_reject_reasons.extend(contains_forbidden_dependency(normalized_blob))
+    if reviewed.has_text_dependency:
+        reviewed.hard_reject_reasons.append("unsupported_text_dependency")
+    if reviewed.mentions_other_dataset:
+        reviewed.hard_reject_reasons.append("mentions_other_dataset")
+    if reviewed.has_source_paper_reference:
+        reviewed.hard_reject_reasons.append("source_paper_reference")
+    if contains_any(normalized_instruction, LEGACY_TARGET_FALLBACK_PATTERNS):
+        reviewed.hard_reject_reasons.append("legacy_target_fallback_instruction")
+    if contains_any(normalized_instruction, LEGACY_CROSS_DATASET_TARGET_PATTERNS):
+        reviewed.hard_reject_reasons.append("legacy_cross_dataset_target_instruction")
+    if contains_any(normalized_instruction, PAPER_SUMMARY_PATTERNS):
+        reviewed.hard_reject_reasons.append("paper_summary_or_critique_task")
+    reviewed.hard_reject_reasons.extend(contains_forbidden_dependency(normalized_instruction))
 
-    if requires_heavy_execution(normalized_blob):
+    if requires_heavy_execution(normalized_instruction):
+        reviewed.hard_reject_reasons.append("heavy_execution_requirement")
         reviewed.flags.append("heavy_execution_reference")
 
     reviewed.feasibility_score = 0
@@ -661,15 +754,13 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
         reviewed.feasibility_score += 1
     if reviewed.has_split_metadata_inputs:
         reviewed.feasibility_score += 1
-    if reviewed.explicit_common_target or (
-        "`outcome`" in normalized_blob or "`readmission`" in normalized_blob or "`los`" in normalized_blob
-    ):
+    if reviewed.has_local_only_constraint:
         reviewed.feasibility_score += 1
 
     reviewed.specificity_score = 0
-    if contains_any(normalized_blob, EXPLICIT_MODEL_PATTERNS):
+    if contains_any(normalized_instruction, EXPLICIT_MODEL_PATTERNS):
         reviewed.specificity_score += 1
-    if contains_any(normalized_blob, METRIC_PATTERNS) or "split_metadata.json" in normalized_blob:
+    if contains_any(normalized_instruction, METRIC_PATTERNS) or "split_metadata.json" in normalized_instruction:
         reviewed.specificity_score += 1
 
     reviewed.evaluability_score = 0
@@ -681,7 +772,7 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
     reviewed.practicality_score = 0
     if reviewed.lightweight_hint:
         reviewed.practicality_score += 1
-    if not requires_heavy_execution(normalized_blob) and len(candidate.deliverables) <= 14:
+    if not requires_heavy_execution(normalized_instruction) and len(candidate.deliverables) <= 14:
         reviewed.practicality_score += 1
 
     reviewed.quality_score = (
@@ -711,7 +802,7 @@ def assign_novelty_scores(reviewed_tasks: list[ReviewedTask]) -> None:
             rarity_threshold = max(1, math.ceil(bucket_size / 5))
             if method_count <= rarity_threshold or target_count <= rarity_threshold:
                 novelty = 1
-            if task.primary_bucket in {"causal", "fairness"} or task.has_text_dependency:
+            if task.primary_bucket in {"causal", "fairness"}:
                 novelty = 1
         task.novelty_score = novelty
         task.quality_score += novelty
@@ -720,9 +811,9 @@ def assign_novelty_scores(reviewed_tasks: list[ReviewedTask]) -> None:
 def selection_sort_key(task: ReviewedTask) -> tuple[Any, ...]:
     return (
         -task.quality_score,
-        task.has_target_fallback,
-        -int(task.explicit_common_target),
         -int(task.has_figure_or_table_artifact),
+        -int(task.lightweight_hint),
+        -int(task.has_local_only_constraint),
         BUCKET_PRIORITY.index(task.primary_bucket),
         task.paper_id,
         task.task_idx,
@@ -1050,9 +1141,14 @@ def build_task_prompt(task: ReviewedTask) -> str:
     lines.append("Report requirements:")
     lines.extend(f"- {value}" for value in task.source.report_requirements)
     lines.append("")
+    lines.append("Report section order:")
+    lines.extend(f"- `{value}`" for value in REPORT_SECTION_ORDER)
+    lines.append("")
     lines.append("Execution constraints:")
     lines.append("- Use `uv run python` for Python execution.")
     lines.append("- Do not use any code under `healthflow/`.")
+    lines.append("- Do not call external APIs, external services, or LLM endpoints.")
+    lines.append("- Do not rely on the original paper or refer to its sections, tables, or figures.")
     lines.append(f"- Keep the workflow executable on {input_dataset_label} only.")
     return "\n".join(lines).strip()
 

@@ -10,6 +10,7 @@ from data.ehrflowbench.scripts.curate_generated_tasks import assign_splits
 from data.ehrflowbench.scripts.curate_generated_tasks import build_dataset_row
 from data.ehrflowbench.scripts.curate_generated_tasks import build_task_prompt
 from data.ehrflowbench.scripts.curate_generated_tasks import classify_required_input_set
+from data.ehrflowbench.scripts.curate_generated_tasks import review_candidate
 from data.ehrflowbench.scripts.curate_generated_tasks import select_best_task_per_paper
 
 
@@ -22,8 +23,8 @@ def make_reviewed_task(
     input_dataset: str = "tjh",
     method_family: str = "prediction",
     target_family: str = "outcome_prediction",
-    has_target_fallback: bool = False,
-    explicit_common_target: bool = True,
+    lightweight_hint: bool = False,
+    has_local_only_constraint: bool = True,
 ) -> ReviewedTask:
     required_inputs = {
         "tjh": (
@@ -62,10 +63,10 @@ def make_reviewed_task(
         evaluability_score=2,
         practicality_score=2,
         novelty_score=max(0, quality_score - 9),
-        explicit_common_target=explicit_common_target,
-        has_target_fallback=has_target_fallback,
+        has_local_only_constraint=has_local_only_constraint,
         has_figure_or_table_artifact=True,
         has_numeric_artifact=True,
+        lightweight_hint=lightweight_hint,
         input_dataset=input_dataset,
         has_valid_single_dataset_inputs=True,
         has_split_metadata_inputs=True,
@@ -122,22 +123,20 @@ class EHRFlowBenchCurationTests(unittest.TestCase):
         self.assertGreaterEqual(quotas["graph"], 1)
         self.assertGreaterEqual(quotas["causal"], 1)
 
-    def test_select_best_task_per_paper_prefers_fewer_fallbacks_on_tie(self):
+    def test_select_best_task_per_paper_prefers_lightweight_hint_on_tie(self):
         stronger = make_reviewed_task(
             paper_id=7,
             task_idx=1,
             bucket="prediction",
             quality_score=8,
-            has_target_fallback=False,
-            explicit_common_target=True,
+            lightweight_hint=True,
         )
         weaker = make_reviewed_task(
             paper_id=7,
             task_idx=2,
             bucket="prediction",
             quality_score=8,
-            has_target_fallback=True,
-            explicit_common_target=False,
+            lightweight_hint=False,
         )
 
         selected, rejected = select_best_task_per_paper([weaker, stronger], min_quality_score=7)
@@ -162,7 +161,7 @@ class EHRFlowBenchCurationTests(unittest.TestCase):
             make_reviewed_task(paper_id=11, task_idx=1, bucket="temporal", quality_score=8),
         ]
 
-        train, eval_tasks = assign_splits(selected, train_size=10, eval_size=1)
+        train, eval_tasks = assign_splits(selected, train_size=10, test_size=1)
 
         self.assertEqual(len(train), 10)
         self.assertEqual(len(eval_tasks), 1)
@@ -193,6 +192,62 @@ class EHRFlowBenchCurationTests(unittest.TestCase):
 
         self.assertIn("MIMIC-IV-demo only", prompt)
         self.assertNotIn("both TJH and MIMIC-IV-demo", prompt)
+        self.assertIn("Do not call external APIs", prompt)
+        self.assertIn("Objective", prompt)
+
+    def test_review_candidate_rejects_cross_dataset_reference_and_missing_figure_artifact(self):
+        candidate = GeneratedTaskCandidate(
+            paper_id=41,
+            paper_title="Paper 41",
+            task_idx=1,
+            task_brief="Cross-dataset task",
+            task_type="report_generation",
+            focus_areas=("prediction", "benchmarking"),
+            task=(
+                "Use only the TJH dataset, but compare the final model against MIMIC-IV-demo "
+                "and report the result in a summary."
+            ),
+            required_inputs=(
+                "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
+                "data/ehrflowbench/processed/tjh/split_metadata.json",
+            ),
+            deliverables=("report.md", "metrics.json"),
+            report_requirements=("Report metrics.",) * 6,
+            tasks_path=Path("/tmp/41_tasks.json"),
+            response_path=Path("/tmp/41_response.json"),
+        )
+
+        reviewed = review_candidate(candidate)
+
+        self.assertIn("mentions_other_dataset", reviewed.hard_reject_reasons)
+        self.assertIn("missing_figure_or_table_artifact", reviewed.hard_reject_reasons)
+
+    def test_review_candidate_rejects_source_paper_references_and_legacy_cross_dataset_targets(self):
+        candidate = GeneratedTaskCandidate(
+            paper_id=42,
+            paper_title="Paper 42",
+            task_idx=1,
+            task_brief="Legacy task",
+            task_type="report_generation",
+            focus_areas=("prediction", "reporting"),
+            task=(
+                "As described in the paper, reproduce Table 2 and choose one binary target that is present in "
+                "both TJH and MIMIC-IV-demo. Use the processed TJH dataset only for execution."
+            ),
+            required_inputs=(
+                "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
+                "data/ehrflowbench/processed/tjh/split_metadata.json",
+            ),
+            deliverables=("report.md", "metrics.json", "tables/results.csv"),
+            report_requirements=("Report metrics.",) * 6,
+            tasks_path=Path("/tmp/42_tasks.json"),
+            response_path=Path("/tmp/42_response.json"),
+        )
+
+        reviewed = review_candidate(candidate)
+
+        self.assertIn("source_paper_reference", reviewed.hard_reject_reasons)
+        self.assertIn("legacy_cross_dataset_target_instruction", reviewed.hard_reject_reasons)
 
 
 if __name__ == "__main__":
