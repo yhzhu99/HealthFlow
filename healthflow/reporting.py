@@ -299,7 +299,7 @@ def _build_analysis_section(
         lines.extend(["", "### Data Risks and Safeguards", "", *_render_table(["Severity", "Risk", "Why It Mattered"], risk_rows)])
     elif trajectory.get("data_profile", {}).get("domain_focus") == "ehr":
         lines.append(
-            "Because the request involved EHR data, the analysis path emphasized privacy-preserving handling, schema verification, and output inspection before final reporting."
+            "Because the request involved EHR data, the analysis path emphasized schema verification and task-relevant safeguards before final reporting."
         )
     if insights:
         lines.extend(["", "### Key Analytical Insights", ""])

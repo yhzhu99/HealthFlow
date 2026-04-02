@@ -167,6 +167,31 @@ class ReportingTests(unittest.TestCase):
             self.assertIn("[direct_response.json](run/direct_response.json)", report)
             self.assertIn("## Results", report)
 
+    def test_report_uses_task_relevant_ehr_language_without_privacy_claim(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "task"
+            workspace.mkdir(parents=True, exist_ok=True)
+            self._write_runtime_files(workspace)
+            runtime = workspace / "runtime"
+            (runtime / "run" / "trajectory.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "task-demo",
+                        "user_request": "Convert the uploaded EHR workbook to CSV.",
+                        "data_profile": {"domain_focus": "ehr", "task_family": "format_conversion"},
+                        "risk_findings": [],
+                        "attempts": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = generate_task_report(workspace).read_text(encoding="utf-8")
+
+            self.assertIn("task-relevant safeguards", report)
+            self.assertNotIn("privacy-preserving", report)
+
     def _write_runtime_files(self, workspace: Path) -> None:
         sandbox = workspace / "sandbox"
         runtime = workspace / "runtime"
