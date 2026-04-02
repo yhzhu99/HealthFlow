@@ -77,7 +77,11 @@ class EHRProfilingTests(unittest.TestCase):
             self.assertIn("uv run", recommendation_text)
 
             tool_contracts = WorkflowRecommendationBroker().available_project_cli_tools(request, profile)
-            self.assertEqual(tool_contracts, [])
+            contract_text = " ".join(tool_contracts).lower()
+            self.assertIn("oneehr", contract_text)
+            self.assertIn("tooluniverse", contract_text)
+            self.assertIn("uv run oneehr", contract_text)
+            self.assertIn("uv run tu", contract_text)
 
     def test_tooluniverse_is_only_suggested_for_explicit_tool_lookup_requests(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -97,6 +101,15 @@ class EHRProfilingTests(unittest.TestCase):
             self.assertIn("uv run tu", contract_text)
             self.assertIn("find", contract_text)
             self.assertIn("serve", contract_text)
+
+    def test_supported_project_cli_discovery_deduplicates_tooluniverse_binaries(self):
+        broker = WorkflowRecommendationBroker()
+
+        discovered = broker.discover_supported_project_cli_tools()
+
+        self.assertIn("oneehr", discovered)
+        self.assertIn("tooluniverse", discovered)
+        self.assertEqual(discovered.count("tooluniverse"), 1)
 
 
 if __name__ == "__main__":

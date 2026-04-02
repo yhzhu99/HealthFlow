@@ -27,6 +27,7 @@ class MetaAgent:
         dataset_experiences: List[Experience],
         execution_experiences: List[Experience],
         execution_environment: List[str],
+        available_project_cli_tools: List[str],
         workflow_recommendations: List[str],
         previous_feedback: Optional[str] = None,
     ) -> ExecutionPlan:
@@ -41,6 +42,7 @@ class MetaAgent:
             dataset_experiences=dataset_experiences,
             execution_experiences=execution_experiences,
             execution_environment=execution_environment,
+            available_project_cli_tools=available_project_cli_tools,
             workflow_recommendations=workflow_recommendations,
             previous_feedback=previous_feedback,
         )
@@ -93,6 +95,7 @@ class MetaAgent:
         dataset_experiences: List[Experience],
         execution_experiences: List[Experience],
         execution_environment: List[str],
+        available_project_cli_tools: List[str],
         workflow_recommendations: List[str],
         previous_feedback: Optional[str],
     ) -> str:
@@ -102,6 +105,7 @@ class MetaAgent:
                 "Execution environment",
                 self._render_bullet_list(execution_environment) or "- Use the default executor environment.",
             ),
+            self._render_section("Project CLI tools", self._render_bullet_list(available_project_cli_tools)),
             self._render_section("Workflow recommendations", self._render_bullet_list(workflow_recommendations)),
             self._render_section("EHR safeguards", self._render_memory_block(safeguard_experiences, prefix="Guardrail")),
             self._render_section("Workflow memories", self._render_memory_block(workflow_experiences, prefix="Workflow")),

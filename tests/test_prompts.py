@@ -21,12 +21,14 @@ class PromptRenderingTests(unittest.TestCase):
             dataset_experiences=[],
             execution_experiences=[],
             execution_environment=["Preferred Python version: 3.12"],
+            available_project_cli_tools=[],
             workflow_recommendations=[],
             previous_feedback=None,
         )
 
         self.assertIn("User request:", rendered)
         self.assertIn("Execution environment:", rendered)
+        self.assertNotIn("Project CLI tools:", rendered)
         self.assertNotIn("Workflow recommendations:", rendered)
         self.assertNotIn("EHR safeguards:", rendered)
         self.assertNotIn("Workflow memories:", rendered)
@@ -58,14 +60,17 @@ class PromptRenderingTests(unittest.TestCase):
             dataset_experiences=[],
             execution_experiences=[],
             execution_environment=["Preferred Python version: 3.12"],
+            available_project_cli_tools=["`oneehr`: Prefer `uv run oneehr <subcommand>` from the repo root."],
             workflow_recommendations=["Prefer `uv run` for repo-local scripts."],
             previous_feedback="The prior attempt never wrote the requested artifact.",
         )
 
+        self.assertIn("Project CLI tools:", rendered)
         self.assertIn("Workflow recommendations:", rendered)
         self.assertIn("EHR safeguards:", rendered)
         self.assertIn("Feedback from Previous Failed Attempt:", rendered)
         self.assertIn("Validate inclusion criteria", rendered)
+        self.assertIn("uv run oneehr", rendered)
         self.assertIn("prior attempt never wrote the requested artifact", rendered.lower())
 
     def test_evaluator_prompt_renders_literal_json_block_and_runtime_json_values(self):

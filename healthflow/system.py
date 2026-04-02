@@ -446,6 +446,7 @@ class HealthFlowSystem:
                 dataset_experiences=dataset_experiences,
                 execution_experiences=execution_experiences,
                 execution_environment=self.config.environment.summary_lines(),
+                available_project_cli_tools=available_project_cli_tools,
                 workflow_recommendations=workflow_recommendations,
                 previous_feedback=previous_feedback,
             )

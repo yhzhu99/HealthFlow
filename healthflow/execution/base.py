@@ -61,6 +61,9 @@ class ExecutionContext:
         ]
         if has_project_cli_tools:
             rules.append("Treat surfaced project CLI tools as approved project-local workflows for this run.")
+            rules.append(
+                "When a surfaced project CLI directly fits the task, prefer it over reimplementing the same workflow and validate it early with a lightweight help or status command."
+            )
         if has_workflow_recommendations:
             rules.append("Use planner workflow recommendations when they fit, but adapt if execution reality requires a better path.")
         if has_safeguards:

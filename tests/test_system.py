@@ -36,6 +36,16 @@ class _FakeMetaAgent:
         )
 
 
+class _CapturingMetaAgent(_FakeMetaAgent):
+    def __init__(self):
+        super().__init__()
+        self.calls: list[dict] = []
+
+    async def generate_plan(self, **kwargs) -> ExecutionPlan:
+        self.calls.append(kwargs)
+        return await super().generate_plan(**kwargs)
+
+
 class _FakeEvaluator:
     def __init__(self):
         self.last_usage = {"input_tokens": 50, "output_tokens": 10, "total_tokens": 60}
@@ -356,6 +366,27 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("# HealthFlow Report", report_text)
             self.assertIn("[final_report.md](final_report.md)", report_text)
             self.assertNotIn(str(Path(result["workspace_path"])), report_text)
+
+    async def test_run_task_passes_supported_project_cli_tools_to_planner_for_general_runs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = _build_test_config(workspace_dir)
+            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            system.meta_agent = _CapturingMetaAgent()
+            system.evaluator = _FakeEvaluator()
+            system.reflector = _FakeReflector()
+            system.executor = _FakeExecutor()
+
+            result = await system.run_task("Summarize the uploaded sales cohort and save a short note.")
+
+            self.assertTrue(result["success"])
+            self.assertTrue(result["available_project_cli_tools"])
+            planner_call = system.meta_agent.calls[-1]
+            self.assertTrue(planner_call["available_project_cli_tools"])
+            planner_tools = " ".join(planner_call["available_project_cli_tools"]).lower()
+            self.assertIn("oneehr", planner_tools)
+            self.assertIn("tooluniverse", planner_tools)
 
     async def test_run_task_normalizes_contradictory_success_verdicts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
