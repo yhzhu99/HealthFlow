@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-PYTHON_SCRIPT="$SCRIPT_DIR/generate_tasks_via_api.py"
+PYTHON_SCRIPT="$SCRIPT_DIR/generate_tasks.py"
 OUTPUT_ROOT="$PROJECT_ROOT/data/ehrflowbench/processed/papers/generated_tasks"
 RUNS_ROOT="$PROJECT_ROOT/data/ehrflowbench/processed/papers/generation_runs"
 LATEST_RUN_FILE="$RUNS_ROOT/latest_run.txt"
