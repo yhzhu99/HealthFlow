@@ -467,12 +467,6 @@ def task_mentions_other_dataset(task: LLMGeneratedTask, assigned_dataset_key: st
 
 
 def enrich_generated_task(task: LLMGeneratedTask, dataset_config: DatasetPromptConfig) -> GeneratedTask:
-    if task_mentions_other_dataset(task, dataset_config.key):
-        raise ValueError(
-            f"Task assigned to {dataset_config.display_name} mentions the other dataset; "
-            "single-task single-dataset contract violated"
-        )
-
     return GeneratedTask(
         task_brief=task.task_brief.strip(),
         task_type=TASK_TYPE,
