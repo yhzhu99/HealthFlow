@@ -51,18 +51,20 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
                 generate_tasks.PROMPT_TASK_ASSIGNMENT_PLACEHOLDER,
             ]
         )
+        dataset_config = FAKE_DATASET_CONFIGS[0]
 
-        with patch.object(generate_tasks, "DATASET_PROMPT_CONFIGS", FAKE_DATASET_CONFIGS):
-            with patch.object(generate_tasks, "build_dataset_metadata_block", return_value="DATASET BLOCK"):
-                with patch.object(generate_tasks, "build_task_assignment_block", return_value="ASSIGNMENT BLOCK"):
-                    adapted = generate_tasks.adapt_prompt(prompt_body, task_count=2)
+        with patch.object(generate_tasks, "build_dataset_metadata_block", return_value="DATASET BLOCK") as build_dataset_metadata_block:
+            with patch.object(generate_tasks, "build_task_assignment_block", return_value="ASSIGNMENT BLOCK") as build_task_assignment_block:
+                adapted = generate_tasks.adapt_prompt(prompt_body, task_count=2, dataset_config=dataset_config)
 
         self.assertIn("DATASET BLOCK", adapted)
         self.assertIn("ASSIGNMENT BLOCK", adapted)
         self.assertNotIn(generate_tasks.PROMPT_DATASET_METADATA_PLACEHOLDER, adapted)
         self.assertNotIn(generate_tasks.PROMPT_TASK_ASSIGNMENT_PLACEHOLDER, adapted)
+        build_dataset_metadata_block.assert_called_once_with((dataset_config,))
+        build_task_assignment_block.assert_called_once_with(dataset_config)
 
-    def test_enrich_generated_bundle_appends_fixed_fields(self) -> None:
+    def test_extract_generated_task_appends_fixed_fields(self) -> None:
         bundle = LLMGeneratedTaskBundle(
             tasks=[
                 LLMGeneratedTask(
@@ -70,26 +72,18 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
                     focus_areas=["temporal modeling", "outcome analysis"],
                     task="Build a deterministic longitudinal analysis on the assigned dataset only.",
                     deliverables=["metrics.json", "figures/trajectory.png"],
-                ),
-                LLMGeneratedTask(
-                    task_brief="Profile ICU physiologic phenotypes in MIMIC-IV-demo.",
-                    focus_areas=["phenotyping", "descriptive analytics"],
-                    task="Cluster patients in the assigned dataset only and report stable subgroup statistics.",
-                    deliverables=["report.md", "tables/cluster_summary.csv"],
-                ),
+                )
             ]
         )
 
-        with patch.object(generate_tasks, "DATASET_PROMPT_CONFIGS", FAKE_DATASET_CONFIGS):
-            enriched = generate_tasks.enrich_generated_bundle(bundle)
+        enriched = generate_tasks.extract_generated_task(bundle, FAKE_DATASET_CONFIGS[0])
 
-        self.assertEqual(enriched.tasks[0].task_type, "report_generation")
-        self.assertEqual(enriched.tasks[0].required_inputs, list(FAKE_DATASET_CONFIGS[0].required_inputs))
-        self.assertEqual(enriched.tasks[1].required_inputs, list(FAKE_DATASET_CONFIGS[1].required_inputs))
-        self.assertEqual(len(enriched.tasks[0].report_requirements), 6)
-        self.assertEqual(enriched.tasks[0].deliverables[0], "report.md")
+        self.assertEqual(enriched.task_type, "report_generation")
+        self.assertEqual(enriched.required_inputs, list(FAKE_DATASET_CONFIGS[0].required_inputs))
+        self.assertEqual(len(enriched.report_requirements), 6)
+        self.assertEqual(enriched.deliverables[0], "report.md")
 
-    def test_enrich_generated_bundle_rejects_cross_dataset_mentions(self) -> None:
+    def test_extract_generated_task_rejects_cross_dataset_mentions(self) -> None:
         bundle = LLMGeneratedTaskBundle(
             tasks=[
                 LLMGeneratedTask(
@@ -97,42 +91,40 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
                     focus_areas=["prediction", "comparison"],
                     task="Run the same workflow on TJH and MIMIC-IV-demo and compare them.",
                     deliverables=["report.md", "metrics.json"],
-                ),
-                LLMGeneratedTask(
-                    task_brief="Profile ICU trajectories.",
-                    focus_areas=["temporal analysis", "phenotyping"],
-                    task="Use only the assigned dataset.",
-                    deliverables=["report.md", "tables/summary.csv"],
-                ),
+                )
             ]
         )
 
-        with patch.object(generate_tasks, "DATASET_PROMPT_CONFIGS", FAKE_DATASET_CONFIGS):
-            with self.assertRaisesRegex(ValueError, "single-task single-dataset contract violated"):
-                generate_tasks.enrich_generated_bundle(bundle)
+        with self.assertRaisesRegex(ValueError, "single-task single-dataset contract violated"):
+            generate_tasks.extract_generated_task(bundle, FAKE_DATASET_CONFIGS[0])
 
-    def test_write_prompt_output_writes_prompt_file(self) -> None:
+    def test_write_prompt_outputs_writes_one_file_per_dataset(self) -> None:
         paper_paths = PaperPaths(
             paper_id=7,
             paper_dir=Path("/tmp/7_paper"),
             pdf_path=Path("/tmp/7_paper/paper.pdf"),
             markdown_path=Path("/tmp/7_paper/full.md"),
         )
+        prompt_payloads = [
+            (FAKE_DATASET_CONFIGS[0], "Prompt body for TJH."),
+            (FAKE_DATASET_CONFIGS[1], "Prompt body for MIMIC."),
+        ]
 
         with TemporaryDirectory() as tmpdir:
-            prompt_path = generate_tasks.write_prompt_output(
+            prompt_paths = generate_tasks.write_prompt_outputs(
                 Path(tmpdir),
                 paper_paths,
-                "Prompt body for local inspection.",
+                prompt_payloads,
                 overwrite=False,
             )
 
-            self.assertEqual(prompt_path.name, "7_prompt.md")
-            content = prompt_path.read_text(encoding="utf-8")
-            self.assertIn("# Prompt Input", content)
-            self.assertIn("- pdf_path: `/tmp/7_paper/paper.pdf`", content)
-            self.assertIn("## Prompt Text", content)
-            self.assertIn("Prompt body for local inspection.", content)
+            self.assertEqual([path.name for path in prompt_paths], ["7_tjh_prompt.md", "7_mimic_iv_demo_prompt.md"])
+            first_content = prompt_paths[0].read_text(encoding="utf-8")
+            second_content = prompt_paths[1].read_text(encoding="utf-8")
+            self.assertIn("- dataset_key: `tjh`", first_content)
+            self.assertIn("Prompt body for TJH.", first_content)
+            self.assertIn("- dataset_key: `mimic_iv_demo`", second_content)
+            self.assertIn("Prompt body for MIMIC.", second_content)
 
     def test_main_output_prompt_only_skips_api_calls(self) -> None:
         args = SimpleNamespace(
@@ -153,31 +145,138 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
         )
 
         with patch.object(generate_tasks, "ARGS", args, create=True):
-            with patch.object(generate_tasks, "resolve_paper_paths", return_value=paper_paths):
-                with patch.object(generate_tasks, "extract_prompt_body", return_value="prompt template"):
-                    with patch.object(generate_tasks, "adapt_prompt", return_value="final prompt"):
-                        with patch.object(
-                            generate_tasks,
-                            "write_prompt_output",
-                            return_value=Path("/tmp/generated_tasks/7_prompt.md"),
-                        ) as write_prompt_output:
-                            with patch.object(generate_tasks, "load_llm_config", side_effect=AssertionError("unexpected")):
-                                with patch.object(generate_tasks, "build_client", side_effect=AssertionError("unexpected")):
-                                    with patch.object(
-                                        generate_tasks,
-                                        "call_generation_api",
-                                        side_effect=AssertionError("unexpected"),
-                                    ):
-                                        with patch("builtins.print") as mock_print:
-                                            generate_tasks.main()
+            with patch.object(generate_tasks, "DATASET_PROMPT_CONFIGS", FAKE_DATASET_CONFIGS):
+                with patch.object(generate_tasks, "resolve_paper_paths", return_value=paper_paths):
+                    with patch.object(generate_tasks, "extract_prompt_body", return_value="prompt template"):
+                        with patch.object(generate_tasks, "adapt_prompt", side_effect=["final prompt 1", "final prompt 2"]) as adapt_prompt:
+                            with patch.object(
+                                generate_tasks,
+                                "write_prompt_outputs",
+                                return_value=[
+                                    Path("/tmp/generated_tasks/7_tjh_prompt.md"),
+                                    Path("/tmp/generated_tasks/7_mimic_iv_demo_prompt.md"),
+                                ],
+                            ) as write_prompt_outputs:
+                                with patch.object(generate_tasks, "load_llm_config", side_effect=AssertionError("unexpected")):
+                                    with patch.object(generate_tasks, "build_client", side_effect=AssertionError("unexpected")):
+                                        with patch.object(
+                                            generate_tasks,
+                                            "call_generation_api",
+                                            side_effect=AssertionError("unexpected"),
+                                        ):
+                                            with patch("builtins.print") as mock_print:
+                                                generate_tasks.main()
 
-        write_prompt_output.assert_called_once_with(
+        self.assertEqual(adapt_prompt.call_count, 2)
+        write_prompt_outputs.assert_called_once_with(
             Path("/tmp/generated_tasks"),
             paper_paths,
-            "final prompt",
+            [
+                (FAKE_DATASET_CONFIGS[0], "final prompt 1"),
+                (FAKE_DATASET_CONFIGS[1], "final prompt 2"),
+            ],
             False,
         )
         payload = json.loads(mock_print.call_args.args[0])
         self.assertEqual(payload["paper_id"], 7)
-        self.assertEqual(payload["prompt_path"], "/tmp/generated_tasks/7_prompt.md")
+        self.assertEqual(
+            payload["prompt_paths"],
+            [
+                "/tmp/generated_tasks/7_tjh_prompt.md",
+                "/tmp/generated_tasks/7_mimic_iv_demo_prompt.md",
+            ],
+        )
         self.assertTrue(payload["output_prompt_only"])
+
+    def test_main_calls_api_twice_and_combines_tasks(self) -> None:
+        args = SimpleNamespace(
+            paper_id=7,
+            paper_dir=None,
+            model_key="unused",
+            task_count=2,
+            output_prompt_only=False,
+            max_output_tokens=123,
+            output_dir=Path("/tmp/generated_tasks"),
+            overwrite=False,
+        )
+        paper_paths = PaperPaths(
+            paper_id=7,
+            paper_dir=Path("/tmp/7_paper"),
+            pdf_path=Path("/tmp/7_paper/paper.pdf"),
+            markdown_path=None,
+        )
+        generated_task_1 = generate_tasks.GeneratedTask(
+            task_brief="Task one.",
+            task_type="report_generation",
+            focus_areas=["a", "b"],
+            task="Do task one.",
+            required_inputs=["input1"],
+            deliverables=["report.md", "metrics.json"],
+            report_requirements=list(generate_tasks.FIXED_REPORT_REQUIREMENTS),
+        )
+        generated_task_2 = generate_tasks.GeneratedTask(
+            task_brief="Task two.",
+            task_type="report_generation",
+            focus_areas=["c", "d"],
+            task="Do task two.",
+            required_inputs=["input2"],
+            deliverables=["report.md", "tables/out.csv"],
+            report_requirements=list(generate_tasks.FIXED_REPORT_REQUIREMENTS),
+        )
+
+        with patch.object(generate_tasks, "ARGS", args, create=True):
+            with patch.object(generate_tasks, "DATASET_PROMPT_CONFIGS", FAKE_DATASET_CONFIGS):
+                with patch.object(generate_tasks, "resolve_paper_paths", return_value=paper_paths):
+                    with patch.object(generate_tasks, "extract_prompt_body", return_value="prompt template"):
+                        with patch.object(generate_tasks, "adapt_prompt", side_effect=["prompt 1", "prompt 2"]) as adapt_prompt:
+                            with patch.object(generate_tasks, "load_llm_config", return_value="llm-config") as load_llm_config:
+                                with patch.object(generate_tasks, "build_client", return_value="client") as build_client:
+                                    with patch.object(
+                                        generate_tasks,
+                                        "call_generation_api",
+                                        side_effect=[
+                                            (generated_task_1, {"response_id": "resp-1", "usage": {"input_tokens": 10}, "estimated_cost": {"total_cost_usd": 1.0}}),
+                                            (generated_task_2, {"response_id": "resp-2", "usage": {"input_tokens": 20}, "estimated_cost": {"total_cost_usd": 2.0}}),
+                                        ],
+                                    ) as call_generation_api:
+                                        with patch.object(
+                                            generate_tasks,
+                                            "combine_generation_metadata",
+                                            return_value={
+                                                "response_ids": ["resp-1", "resp-2"],
+                                                "estimated_cost": {"total_cost_usd": 3.0},
+                                            },
+                                        ) as combine_generation_metadata:
+                                            with patch.object(
+                                                generate_tasks,
+                                                "write_outputs",
+                                                return_value=(
+                                                    Path("/tmp/generated_tasks/7_tasks.json"),
+                                                    Path("/tmp/generated_tasks/7_response.json"),
+                                                ),
+                                            ) as write_outputs:
+                                                with patch("builtins.print") as mock_print:
+                                                    generate_tasks.main()
+
+        load_llm_config.assert_called_once()
+        build_client.assert_called_once_with("llm-config")
+        self.assertEqual(adapt_prompt.call_count, 2)
+        self.assertEqual(call_generation_api.call_count, 2)
+        self.assertEqual(call_generation_api.call_args_list[0].kwargs["dataset_config"], FAKE_DATASET_CONFIGS[0])
+        self.assertEqual(call_generation_api.call_args_list[0].kwargs["prompt_text"], "prompt 1")
+        self.assertEqual(call_generation_api.call_args_list[1].kwargs["dataset_config"], FAKE_DATASET_CONFIGS[1])
+        self.assertEqual(call_generation_api.call_args_list[1].kwargs["prompt_text"], "prompt 2")
+        combine_generation_metadata.assert_called_once_with(
+            "llm-config",
+            paper_paths,
+            [
+                {"response_id": "resp-1", "usage": {"input_tokens": 10}, "estimated_cost": {"total_cost_usd": 1.0}},
+                {"response_id": "resp-2", "usage": {"input_tokens": 20}, "estimated_cost": {"total_cost_usd": 2.0}},
+            ],
+        )
+        written_bundle = write_outputs.call_args.args[2]
+        self.assertEqual(len(written_bundle.tasks), 2)
+        self.assertEqual(written_bundle.tasks[0], generated_task_1)
+        self.assertEqual(written_bundle.tasks[1], generated_task_2)
+        payload = json.loads(mock_print.call_args.args[0])
+        self.assertEqual(payload["response_ids"], ["resp-1", "resp-2"])

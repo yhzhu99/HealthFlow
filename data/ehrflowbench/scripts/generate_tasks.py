@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 DEFAULT_MODEL_KEY = "openai/gpt-5.4"
 DEFAULT_TASK_COUNT = 2
+TASKS_PER_API_CALL = 1
 DEFAULT_MAX_OUTPUT_TOKENS = 65536
 DEFAULT_REASONING_EFFORT = "medium"
 TASK_TYPE = "report_generation"
@@ -93,7 +94,7 @@ class LLMGeneratedTask(BaseModel):
 
 
 class LLMGeneratedTaskBundle(BaseModel):
-    tasks: list[LLMGeneratedTask] = Field(min_length=DEFAULT_TASK_COUNT, max_length=DEFAULT_TASK_COUNT)
+    task: LLMGeneratedTask
 
 
 class GeneratedTask(BaseModel):
@@ -229,7 +230,7 @@ def build_dataset_metadata_block(dataset_configs: tuple[DatasetPromptConfig, ...
         split_summary = summarize_split_metadata(config.split_metadata_path)
         supported_targets = extract_supported_targets(parquet_summary["schema"])
 
-        lines.append(f"### Dataset {index}: {config.display_name}")
+        lines.append(f"### Dataset: {config.display_name}")
         lines.append(f"- Dataset key: `{config.key}`")
         lines.append(f"- Canonical parquet path: `{config.required_inputs[0]}`")
         lines.append(f"- Canonical split metadata path: `{config.required_inputs[1]}`")
@@ -240,9 +241,9 @@ def build_dataset_metadata_block(dataset_configs: tuple[DatasetPromptConfig, ...
         )
         lines.append(f"- Key column: `{split_summary.get('key_column', 'unknown')}`")
         if split_summary.get("label_column"):
-            lines.append(f"- Label column: `{split_summary['label_column']}`")
+            lines.append(f"- Main label column: `{split_summary['label_column']}`")
         if supported_targets:
-            lines.append("- Directly visible target-like columns: " + ", ".join(f"`{value}`" for value in supported_targets))
+            lines.append("- Available label columns: " + ", ".join(f"`{value}`" for value in supported_targets))
         if split_summary.get("split_ratios"):
             lines.append(
                 "- Split ratios: "
@@ -276,18 +277,11 @@ def build_dataset_metadata_block(dataset_configs: tuple[DatasetPromptConfig, ...
     return "\n".join(lines).strip()
 
 
-def build_task_assignment_block(dataset_configs: tuple[DatasetPromptConfig, ...]) -> str:
-    if len(dataset_configs) != DEFAULT_TASK_COUNT:
-        raise ValueError(
-            f"EhrFlowBench task generation is fixed to {DEFAULT_TASK_COUNT} tasks; "
-            f"received {len(dataset_configs)} dataset assignment configs"
-        )
-
-    lines = [f"Generate exactly {DEFAULT_TASK_COUNT} tasks in this exact order:"]
-    for index, config in enumerate(dataset_configs, start=1):
-        lines.append(f"{index}. Task {index} must use `{config.display_name}` only.")
-        lines.append(" Do not ask this task to access or compare against the other dataset.")
-    lines.append("Return the `tasks` array in the same order as the numbered assignment above.")
+def build_task_assignment_block(dataset_config: DatasetPromptConfig) -> str:
+    lines = [
+        f"The task must use `{dataset_config.display_name}` only.",
+        "Do not ask this task to access, compare against, or mention any other dataset."
+    ]
     return "\n".join(lines)
 
 
@@ -297,7 +291,7 @@ def inject_prompt_block(prompt: str, placeholder: str, block: str, title: str) -
     return f"{prompt.rstrip()}\n\n## {title}\n\n{block}\n"
 
 
-def adapt_prompt(prompt_body: str, task_count: int) -> str:
+def adapt_prompt(prompt_body: str, task_count: int, dataset_config: DatasetPromptConfig) -> str:
     if task_count != DEFAULT_TASK_COUNT:
         raise ValueError(
             f"EhrFlowBench task generation is fixed to {DEFAULT_TASK_COUNT} tasks "
@@ -307,13 +301,13 @@ def adapt_prompt(prompt_body: str, task_count: int) -> str:
     prompt = inject_prompt_block(
         prompt_body,
         PROMPT_DATASET_METADATA_PLACEHOLDER,
-        build_dataset_metadata_block(DATASET_PROMPT_CONFIGS),
+        build_dataset_metadata_block((dataset_config,)),
         "Injected Local EHR Metadata",
     )
     prompt = inject_prompt_block(
         prompt,
         PROMPT_TASK_ASSIGNMENT_PLACEHOLDER,
-        build_task_assignment_block(DATASET_PROMPT_CONFIGS),
+        build_task_assignment_block(dataset_config),
         "Injected Task Allocation",
     )
     return prompt
@@ -486,17 +480,13 @@ def enrich_generated_task(task: LLMGeneratedTask, dataset_config: DatasetPromptC
     )
 
 
-def enrich_generated_bundle(bundle: LLMGeneratedTaskBundle) -> GeneratedTaskBundle:
-    if len(bundle.tasks) != len(DATASET_PROMPT_CONFIGS):
+def extract_generated_task(bundle: LLMGeneratedTaskBundle, dataset_config: DatasetPromptConfig) -> GeneratedTask:
+    if len(bundle.tasks) != TASKS_PER_API_CALL:
         raise ValueError(
-            f"Expected {len(DATASET_PROMPT_CONFIGS)} tasks from the model, received {len(bundle.tasks)}"
+            f"Expected {TASKS_PER_API_CALL} task from the model for {dataset_config.display_name}, "
+            f"received {len(bundle.tasks)}"
         )
-    return GeneratedTaskBundle(
-        tasks=[
-            enrich_generated_task(task, dataset_config)
-            for task, dataset_config in zip(bundle.tasks, DATASET_PROMPT_CONFIGS, strict=True)
-        ]
-    )
+    return enrich_generated_task(bundle.tasks[0], dataset_config)
 
 
 def response_debug_payload(
@@ -575,8 +565,9 @@ def call_generation_api(
     llm_config: LLMConfig,
     prompt_text: str,
     paper_paths: PaperPaths,
+    dataset_config: DatasetPromptConfig,
     max_output_tokens: int,
-) -> tuple[GeneratedTaskBundle, dict[str, Any]]:
+) -> tuple[GeneratedTask, dict[str, Any]]:
     request_input = build_generation_request_input(prompt_text, paper_paths)
     reasoning_config = {
         "effort": llm_config.reasoning_effort
@@ -602,7 +593,7 @@ def call_generation_api(
         )
         raise ValueError(f"The model response did not contain a parsed payload ({describe_response_state(response)})")
 
-    result = enrich_generated_bundle(parsed)
+    result = extract_generated_task(parsed, dataset_config)
 
     metadata = {
         "response_id": response.id,
@@ -615,32 +606,98 @@ def call_generation_api(
         "estimated_cost": estimate_cost(response.usage, llm_config),
         "output_text": response.output_text,
         "uploaded_via": "responses.input_file.file_data",
-        "task_dataset_assignments": [config.key for config in DATASET_PROMPT_CONFIGS],
+        "task_dataset_assignment": dataset_config.key,
     }
     return result, metadata
 
 
-def write_prompt_output(output_dir: Path, paper_paths: PaperPaths, prompt_text: str, overwrite: bool) -> Path:
+def aggregate_numeric_dicts(payloads: list[dict[str, Any] | None]) -> dict[str, int | float | None] | None:
+    keys = {
+        key
+        for payload in payloads
+        if isinstance(payload, dict)
+        for key in payload
+    }
+    if not keys:
+        return None
+
+    aggregated: dict[str, int | float | None] = {}
+    saw_numeric = False
+    for key in sorted(keys):
+        numeric_values = [
+            value
+            for payload in payloads
+            if isinstance(payload, dict)
+            for value in [payload.get(key)]
+            if isinstance(value, (int, float))
+        ]
+        if numeric_values:
+            saw_numeric = True
+            total = sum(numeric_values)
+            aggregated[key] = int(total) if all(isinstance(value, int) for value in numeric_values) else total
+        else:
+            aggregated[key] = None
+    return aggregated if saw_numeric else None
+
+
+def combine_generation_metadata(
+    llm_config: LLMConfig,
+    paper_paths: PaperPaths,
+    response_metadatas: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "response_ids": [metadata["response_id"] for metadata in response_metadatas],
+        "model": llm_config.model_name,
+        "paper_id": paper_paths.paper_id,
+        "paper_dir": str(paper_paths.paper_dir),
+        "pdf_path": str(paper_paths.pdf_path),
+        "markdown_path": str(paper_paths.markdown_path) if paper_paths.markdown_path else None,
+        "usage": aggregate_numeric_dicts([metadata.get("usage") for metadata in response_metadatas]),
+        "estimated_cost": aggregate_numeric_dicts([metadata.get("estimated_cost") for metadata in response_metadatas]),
+        "uploaded_via": "responses.input_file.file_data",
+        "task_dataset_assignments": [config.key for config in DATASET_PROMPT_CONFIGS],
+        "responses": response_metadatas,
+    }
+
+
+def prompt_output_path(output_dir: Path, paper_paths: PaperPaths, dataset_config: DatasetPromptConfig) -> Path:
+    return output_dir / f"{paper_paths.paper_id}_{dataset_config.key}_prompt.md"
+
+
+def write_prompt_outputs(
+    output_dir: Path,
+    paper_paths: PaperPaths,
+    prompt_payloads: list[tuple[DatasetPromptConfig, str]],
+    overwrite: bool,
+) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    prompt_path = output_dir / f"{paper_paths.paper_id}_prompt.md"
-    if not overwrite and prompt_path.exists():
+    prompt_paths = [
+        prompt_output_path(output_dir, paper_paths, dataset_config)
+        for dataset_config, _prompt_text in prompt_payloads
+    ]
+    if not overwrite and any(path.exists() for path in prompt_paths):
         raise FileExistsError(f"Prompt output already exists for paper {paper_paths.paper_id}; use --overwrite")
 
-    prompt_sections = [
-        "# Prompt Input",
-        "",
-        f"- paper_id: {paper_paths.paper_id}",
-        f"- paper_dir: `{paper_paths.paper_dir}`",
-        f"- pdf_path: `{paper_paths.pdf_path}`",
-        f"- markdown_path: `{paper_paths.markdown_path}`" if paper_paths.markdown_path else "- markdown_path: null",
-        "",
-        "## Prompt Text",
-        "",
-        prompt_text.rstrip(),
-        "",
-    ]
-    prompt_path.write_text("\n".join(prompt_sections), encoding="utf-8")
-    return prompt_path
+    written_paths: list[Path] = []
+    for (dataset_config, prompt_text), prompt_path in zip(prompt_payloads, prompt_paths, strict=True):
+        prompt_sections = [
+            "# Prompt Input",
+            "",
+            f"- paper_id: {paper_paths.paper_id}",
+            f"- dataset_key: `{dataset_config.key}`",
+            f"- dataset_name: `{dataset_config.display_name}`",
+            f"- paper_dir: `{paper_paths.paper_dir}`",
+            f"- pdf_path: `{paper_paths.pdf_path}`",
+            f"- markdown_path: `{paper_paths.markdown_path}`" if paper_paths.markdown_path else "- markdown_path: null",
+            "",
+            "## Prompt Text",
+            "",
+            prompt_text.rstrip(),
+            "",
+        ]
+        prompt_path.write_text("\n".join(prompt_sections), encoding="utf-8")
+        written_paths.append(prompt_path)
+    return written_paths
 
 
 def write_outputs(output_dir: Path, paper_paths: PaperPaths, result: GeneratedTaskBundle, metadata: dict[str, Any], overwrite: bool) -> tuple[Path, Path]:
@@ -658,15 +715,18 @@ def write_outputs(output_dir: Path, paper_paths: PaperPaths, result: GeneratedTa
 def main() -> None:
     paper_paths = resolve_paper_paths(MARKDOWN_ROOT, ARGS.paper_id, ARGS.paper_dir)
     prompt_body = extract_prompt_body(PROMPT_PATH)
-    prompt_text = adapt_prompt(prompt_body, ARGS.task_count)
+    prompt_payloads = [
+        (dataset_config, adapt_prompt(prompt_body, ARGS.task_count, dataset_config))
+        for dataset_config in DATASET_PROMPT_CONFIGS
+    ]
     if ARGS.output_prompt_only:
-        prompt_path = write_prompt_output(ARGS.output_dir, paper_paths, prompt_text, ARGS.overwrite)
+        prompt_paths = write_prompt_outputs(ARGS.output_dir, paper_paths, prompt_payloads, ARGS.overwrite)
         print(json.dumps(
             {
                 "paper_id": paper_paths.paper_id,
                 "paper_dir": str(paper_paths.paper_dir),
                 "pdf_path": str(paper_paths.pdf_path),
-                "prompt_path": str(prompt_path),
+                "prompt_paths": [str(path) for path in prompt_paths],
                 "output_prompt_only": True,
             },
             indent=2,
@@ -675,13 +735,22 @@ def main() -> None:
 
     llm_config = load_llm_config(CONFIG_PATH, ARGS.model_key)
     client = build_client(llm_config)
-    result, metadata = call_generation_api(
-        client=client,
-        llm_config=llm_config,
-        prompt_text=prompt_text,
-        paper_paths=paper_paths,
-        max_output_tokens=ARGS.max_output_tokens,
-    )
+    generated_tasks: list[GeneratedTask] = []
+    response_metadatas: list[dict[str, Any]] = []
+    for dataset_config, prompt_text in prompt_payloads:
+        task, response_metadata = call_generation_api(
+            client=client,
+            llm_config=llm_config,
+            prompt_text=prompt_text,
+            paper_paths=paper_paths,
+            dataset_config=dataset_config,
+            max_output_tokens=ARGS.max_output_tokens,
+        )
+        generated_tasks.append(task)
+        response_metadatas.append(response_metadata)
+
+    result = GeneratedTaskBundle(tasks=generated_tasks)
+    metadata = combine_generation_metadata(llm_config, paper_paths, response_metadatas)
     tasks_path, metadata_path = write_outputs(ARGS.output_dir, paper_paths, result, metadata, ARGS.overwrite)
     print(json.dumps(
         {
@@ -691,7 +760,7 @@ def main() -> None:
             "tasks_path": str(tasks_path),
             "metadata_path": str(metadata_path),
             "task_count": len(result.tasks),
-            "response_id": metadata["response_id"],
+            "response_ids": metadata["response_ids"],
             "estimated_cost": metadata["estimated_cost"],
         },
         indent=2,
