@@ -66,8 +66,8 @@ output_cost_per_million_tokens = 3.00
 
 [runtime]
 planner_llm = "deepseek/deepseek-chat"
-evaluator_llm = "openai/gpt-5.4"
-reflector_llm = "google/gemini-3-flash-preview"
+evaluator_llm = "deepseek/deepseek-chat"
+reflector_llm = "deepseek/deepseek-chat"
 executor_llm = "deepseek/deepseek-chat"
 
 # --- Executor Configuration ---
