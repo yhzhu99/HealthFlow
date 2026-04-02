@@ -16,7 +16,7 @@ from sklearn.metrics.pairwise import linear_kernel
 
 
 DEFAULT_TRAIN_SIZE = 10
-DEFAULT_EVAL_SIZE = 100
+DEFAULT_TEST_SIZE = 100
 DEFAULT_MIN_QUALITY_SCORE = 7
 DEFAULT_DUPLICATE_THRESHOLD = 0.55
 
@@ -316,9 +316,9 @@ class ReviewedTask:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Curate EHRFlowBench generated tasks into train/eval splits.")
+    parser = argparse.ArgumentParser(description="Curate EHRFlowBench generated tasks into train/test splits.")
     parser.add_argument("--train-size", type=int, default=DEFAULT_TRAIN_SIZE)
-    parser.add_argument("--eval-size", type=int, default=DEFAULT_EVAL_SIZE)
+    parser.add_argument("--test-size", type=int, default=DEFAULT_TEST_SIZE)
     parser.add_argument("--min-quality-score", type=int, default=DEFAULT_MIN_QUALITY_SCORE)
     parser.add_argument("--duplicate-threshold", type=float, default=DEFAULT_DUPLICATE_THRESHOLD)
     parser.add_argument(
@@ -898,8 +898,8 @@ def eligible_for_train(task: ReviewedTask) -> bool:
     return True
 
 
-def assign_splits(selected_tasks: list[ReviewedTask], train_size: int, eval_size: int) -> tuple[list[ReviewedTask], list[ReviewedTask]]:
-    if len(selected_tasks) != train_size + eval_size:
+def assign_splits(selected_tasks: list[ReviewedTask], train_size: int, test_size: int) -> tuple[list[ReviewedTask], list[ReviewedTask]]:
+    if len(selected_tasks) != train_size + test_size:
         raise ValueError("Split sizes do not sum to the number of selected tasks")
 
     grouped: dict[str, list[ReviewedTask]] = defaultdict(list)
@@ -948,18 +948,18 @@ def assign_splits(selected_tasks: list[ReviewedTask], train_size: int, eval_size
     if len(train) != train_size:
         raise ValueError(f"Could not assign {train_size} train tasks; assigned {len(train)}")
 
-    eval_tasks = [task for task in selected_tasks if task.key not in used]
-    eval_tasks.sort(key=selection_sort_key)
-    if len(eval_tasks) != eval_size:
-        raise ValueError(f"Could not assign {eval_size} eval tasks; assigned {len(eval_tasks)}")
+    test_tasks = [task for task in selected_tasks if task.key not in used]
+    test_tasks.sort(key=selection_sort_key)
+    if len(test_tasks) != test_size:
+        raise ValueError(f"Could not assign {test_size} test tasks; assigned {len(test_tasks)}")
 
     train = train[:]
-    return train, eval_tasks
+    return train, test_tasks
 
 
-def assign_qids(train_tasks: list[ReviewedTask], eval_tasks: list[ReviewedTask]) -> None:
+def assign_qids(train_tasks: list[ReviewedTask], test_tasks: list[ReviewedTask]) -> None:
     qid = 1
-    for split, rows in (("train", train_tasks), ("eval", eval_tasks)):
+    for split, rows in (("train", train_tasks), ("test", test_tasks)):
         for task in rows:
             task.selected = True
             task.split = split
@@ -1145,7 +1145,7 @@ def build_subset_manifest(
     reviewed_tasks: list[ReviewedTask],
     selected_tasks: list[ReviewedTask],
     train_tasks: list[ReviewedTask],
-    eval_tasks: list[ReviewedTask],
+    test_tasks: list[ReviewedTask],
     bucket_quotas: dict[str, int],
     duplicate_guard_relaxed: bool,
     warnings: list[str],
@@ -1161,10 +1161,10 @@ def build_subset_manifest(
         "selection_unit": "paper_grouped_single_task",
         "reference_answer_field": "reference_answer",
         "reference_answer_contract": "Rows point to expected/<qid>/task_manifest.json.",
-        "qid_policy": "Global qids are assigned once across train then eval and reused in every manifest.",
+        "qid_policy": "Global qids are assigned once across train then test and reused in every manifest.",
         "split_counts": {
             "train": len(train_tasks),
-            "eval": len(eval_tasks),
+            "test": len(test_tasks),
         },
         "selection_policy": {
             "min_quality_score": min_quality_score,
@@ -1189,7 +1189,7 @@ def build_subset_manifest(
             "selected_bucket_counts": {bucket: selected_bucket_counts.get(bucket, 0) for bucket in BUCKET_PRIORITY if selected_bucket_counts.get(bucket, 0) > 0},
         },
         "train_qids": [task.qid for task in train_tasks],
-        "eval_qids": [task.qid for task in eval_tasks],
+        "test_qids": [task.qid for task in test_tasks],
         "selected_rows": [
             {
                 "qid": task.qid,
@@ -1209,7 +1209,7 @@ def build_subset_manifest(
 def run_curation(
     *,
     train_size: int,
-    eval_size: int,
+    test_size: int,
     min_quality_score: int,
     duplicate_threshold: float,
     allow_incomplete: bool,
@@ -1238,11 +1238,11 @@ def run_curation(
     paper_best_tasks, initial_rejections = select_best_task_per_paper(reviewed_tasks, min_quality_score)
     selected_tasks, bucket_quotas, quota_rejections, duplicate_guard_relaxed = select_canonical_tasks(
         paper_best_tasks,
-        train_size + eval_size,
+        train_size + test_size,
         duplicate_threshold,
     )
-    train_tasks, eval_tasks = assign_splits(selected_tasks, train_size, eval_size)
-    assign_qids(train_tasks, eval_tasks)
+    train_tasks, test_tasks = assign_splits(selected_tasks, train_size, test_size)
+    assign_qids(train_tasks, test_tasks)
 
     rejection_lookup = defaultdict(list)
     for key, reasons in initial_rejections.items():
@@ -1250,26 +1250,26 @@ def run_curation(
     for key, reasons in quota_rejections.items():
         rejection_lookup[key].extend(reasons)
 
-    selected_lookup = {task.key for task in train_tasks + eval_tasks}
+    selected_lookup = {task.key for task in train_tasks + test_tasks}
     for task in reviewed_tasks:
         if task.key in selected_lookup:
             continue
         task.rejection_reasons = sorted(set(rejection_lookup.get(task.key) or task.hard_reject_reasons or ["not_selected"]))
 
-    selected_tasks_ordered = train_tasks + eval_tasks
+    selected_tasks_ordered = train_tasks + test_tasks
     dataset_rows_train = [build_dataset_row(task) for task in train_tasks]
-    dataset_rows_eval = [build_dataset_row(task) for task in eval_tasks]
+    dataset_rows_test = [build_dataset_row(task) for task in test_tasks]
     manifest_rows_train = [build_manifest_index_row(task) for task in train_tasks]
-    manifest_rows_eval = [build_manifest_index_row(task) for task in eval_tasks]
+    manifest_rows_test = [build_manifest_index_row(task) for task in test_tasks]
     paper_map_rows = [build_paper_map_row(task) for task in selected_tasks_ordered]
     rejected_rows = [build_rejected_row(task) for task in reviewed_tasks if task.key not in selected_lookup]
 
     output_root.mkdir(parents=True, exist_ok=True)
     reset_output_files(output_root)
     write_jsonl(output_root / "train.jsonl", dataset_rows_train)
-    write_jsonl(output_root / "eval.jsonl", dataset_rows_eval)
+    write_jsonl(output_root / "test.jsonl", dataset_rows_test)
     write_jsonl(output_root / "task_manifest_train.jsonl", manifest_rows_train)
-    write_jsonl(output_root / "task_manifest_eval.jsonl", manifest_rows_eval)
+    write_jsonl(output_root / "task_manifest_test.jsonl", manifest_rows_test)
     write_csv(output_root / "paper_map.csv", paper_map_rows)
     write_csv(output_root / "rejected_tasks.csv", rejected_rows)
 
@@ -1285,7 +1285,7 @@ def run_curation(
         reviewed_tasks=reviewed_tasks,
         selected_tasks=selected_tasks_ordered,
         train_tasks=train_tasks,
-        eval_tasks=eval_tasks,
+        test_tasks=test_tasks,
         bucket_quotas=bucket_quotas,
         duplicate_guard_relaxed=duplicate_guard_relaxed,
         warnings=warnings,
@@ -1301,7 +1301,7 @@ def run_curation(
         "missing_paper_ids": missing_ids,
         "selected_count": len(selected_tasks_ordered),
         "train_count": len(train_tasks),
-        "eval_count": len(eval_tasks),
+        "test_count": len(test_tasks),
         "bucket_quotas": bucket_quotas,
         "duplicate_guard_relaxed": duplicate_guard_relaxed,
         "output_root": relative_path(output_root),
@@ -1312,7 +1312,7 @@ def main() -> None:
     args = parse_args()
     summary = run_curation(
         train_size=args.train_size,
-        eval_size=args.eval_size,
+        test_size=args.test_size,
         min_quality_score=args.min_quality_score,
         duplicate_threshold=args.duplicate_threshold,
         allow_incomplete=args.allow_incomplete,
