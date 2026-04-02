@@ -4,6 +4,7 @@ from typing import Dict, List
 
 
 TASK_FAMILY_KEYWORDS: Dict[str, List[str]] = {
+    "format_conversion": ["convert", "conversion", "export", "save as", "write as", "csv", "tsv", "json", "parquet"],
     "cohort_extraction": ["cohort", "inclusion", "exclusion", "eligibility", "population", "index date", "criteria", "subset", "filter"],
     "descriptive_analysis": ["describe", "distribution", "incidence", "prevalence", "summary statistics", "baseline characteristics", "eda", "exploratory analysis", "summarize"],
     "predictive_modeling": ["predict", "prediction", "predictive", "classification", "regression", "model", "auc", "auroc", "xgboost", "logistic", "random forest", "f1 score", "accuracy", "rmse", "mse"],
@@ -63,11 +64,53 @@ EHR_DOMAIN_TERMS: Dict[str, List[str]] = {
     ],
 }
 
+FORMAT_CONVERSION_HINTS = (
+    "convert",
+    "conversion",
+    "export",
+    "save as",
+    "write as",
+    "rewrite as",
+    "turn into",
+    "transform to",
+    "转成",
+    "转为",
+    "转换成",
+    "转换为",
+    "导出",
+    "保存为",
+    "另存为",
+)
+FORMAT_TARGET_TOKENS = (
+    "csv",
+    "tsv",
+    "json",
+    "jsonl",
+    "parquet",
+    "feather",
+    "xlsx",
+    "xls",
+    "excel",
+)
+
+
+def _is_format_conversion_request(user_request: str) -> bool:
+    request = user_request.lower()
+    has_conversion_hint = any(hint in request for hint in FORMAT_CONVERSION_HINTS)
+    has_target_format = any(token in request for token in FORMAT_TARGET_TOKENS)
+    if has_conversion_hint and has_target_format:
+        return True
+    return False
+
 
 def classify_task_family(user_request: str) -> str:
+    if _is_format_conversion_request(user_request):
+        return "format_conversion"
     request = user_request.lower()
     scored = []
     for family, keywords in TASK_FAMILY_KEYWORDS.items():
+        if family == "format_conversion":
+            continue
         score = sum(1 for keyword in keywords if keyword in request)
         if score:
             scored.append((score, family))
@@ -98,6 +141,10 @@ def detect_domain_focus(
 
 def default_workflow_recommendations(task_family: str, domain_focus: str = "general") -> list[str]:
     family_recommendations = {
+        "format_conversion": [
+            "Preserve the original rows, columns, and identifier values unless the user explicitly requests a transformation.",
+            "Write the converted file directly and verify that the output format matches the requested deliverable.",
+        ],
         "cohort_extraction": ["Use reproducible cohort logic", "Persist filtering criteria as an auditable artifact"],
         "descriptive_analysis": ["Save summary tables or figures when they support the answer"],
         "predictive_modeling": ["Save validation evidence and metrics artifacts"],
@@ -119,6 +166,10 @@ def default_workflow_recommendations(task_family: str, domain_focus: str = "gene
 
 def deliverable_guidance(task_family: str, domain_focus: str = "general") -> list[str]:
     guidance = {
+        "format_conversion": [
+            "Save the converted file in the requested format and keep the schema faithful to the source unless the user asked for a schema change.",
+            "Do not anonymize, filter, aggregate, or otherwise transform the data beyond the requested format conversion unless the user explicitly asked for it.",
+        ],
         "cohort_extraction": [
             "Persist the selection logic in a script, notebook, or reproducible artifact when reproducibility matters.",
             "If the final output is a cohort/table, save the resulting subset and briefly explain the criteria you applied.",

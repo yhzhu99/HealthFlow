@@ -64,7 +64,7 @@ class WorkflowRecommendationBroker:
         discovered_tools = self.discover_supported_project_cli_tools()
         tool_contracts: list[str] = []
 
-        if "oneehr" in discovered_tools:
+        if "oneehr" in discovered_tools and self._should_recommend_oneehr(data_profile):
             tool_contracts.append(
                 "`oneehr`: Available in the project environment for EHR modeling pipelines. "
                 "Best fit for EHR preprocess/train/test/analyze/plot workflows. "

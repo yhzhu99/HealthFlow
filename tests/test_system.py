@@ -368,7 +368,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("[trajectory.json](run/trajectory.json)", report_text)
             self.assertNotIn(str(Path(result["workspace_path"])), report_text)
 
-    async def test_run_task_passes_supported_project_cli_tools_to_planner_for_general_runs(self):
+    async def test_run_task_passes_task_applicable_project_cli_tools_to_planner_for_general_runs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
@@ -386,7 +386,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             planner_call = system.meta_agent.calls[-1]
             self.assertTrue(planner_call["available_project_cli_tools"])
             planner_tools = " ".join(planner_call["available_project_cli_tools"]).lower()
-            self.assertIn("oneehr", planner_tools)
+            self.assertNotIn("oneehr", planner_tools)
             self.assertIn("tooluniverse", planner_tools)
 
     async def test_run_task_normalizes_contradictory_success_verdicts(self):

@@ -80,10 +80,48 @@ class EHRProfilingTests(unittest.TestCase):
 
             tool_contracts = WorkflowRecommendationBroker().available_project_cli_tools(request, profile)
             contract_text = " ".join(tool_contracts).lower()
-            self.assertIn("oneehr", contract_text)
+            self.assertNotIn("oneehr", contract_text)
             self.assertIn("tooluniverse", contract_text)
-            self.assertIn("uv run oneehr", contract_text)
             self.assertIn("uv run tu", contract_text)
+
+    def test_ehr_format_conversion_request_stays_task_bounded(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            dataset_path = root / "time_series_375_prerpocess_en.xlsx"
+            pd.DataFrame(
+                {
+                    "PATIENT_ID": [1, 1, 2],
+                    "Admission time": ["2024-01-01", "2024-01-02", "2024-01-01"],
+                    "Discharge time": ["2024-01-02", "2024-01-03", "2024-01-02"],
+                    "outcome": [0, 0, 1],
+                }
+            ).to_excel(dataset_path, index=False)
+
+            request = f"Analyze the provided '{dataset_path}' 将这个ehr数据集转成csv的版本"
+            profile = profile_workspace_data(workspace, request)
+
+            self.assertEqual(profile.task_family, "format_conversion")
+            self.assertEqual(profile.domain_focus, "ehr")
+            self.assertIn("schema", profile.domain_signals)
+            self.assertIn("patient identifier", " ".join(profile.notes).lower())
+
+            findings = detect_risk_findings(request, profile)
+            categories = {item.category for item in findings}
+            finding_text = " ".join(item.message for item in findings).lower()
+            self.assertEqual(categories, {"domain_overlay"})
+            self.assertNotIn("patient-aware", finding_text)
+            self.assertNotIn("leakage", finding_text)
+
+            recommendations = WorkflowRecommendationBroker().recommend(request, profile)
+            recommendation_text = " ".join(recommendations).lower()
+            self.assertNotIn("oneehr", recommendation_text)
+            self.assertIn("preserve the original rows", recommendation_text)
+
+            tool_contracts = WorkflowRecommendationBroker().available_project_cli_tools(request, profile)
+            contract_text = " ".join(tool_contracts).lower()
+            self.assertNotIn("oneehr", contract_text)
 
     def test_tooluniverse_is_only_suggested_for_explicit_tool_lookup_requests(self):
         with tempfile.TemporaryDirectory() as tmpdir:

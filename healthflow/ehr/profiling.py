@@ -277,7 +277,7 @@ def profile_workspace_data(workspace_dir: Path, user_request: str, max_preview_r
     task_family = classify_task_family(user_request)
     schemas: list[SchemaSummary] = []
     modalities = set()
-    signature_parts = [task_family]
+    signature_parts: list[str] = []
 
     total_rows = 0
     group_id_columns = set()
@@ -323,13 +323,13 @@ def profile_workspace_data(workspace_dir: Path, user_request: str, max_preview_r
     if not schemas:
         notes.append("No profileable structured inputs were uploaded for this task.")
     if group_id_columns:
-        notes.append("Group/entity identifiers were detected and may require entity-aware validation or splitting.")
+        notes.append("Group/entity identifier columns were detected in the profiled inputs.")
     if patient_id_columns:
-        notes.append("Patient-level identifiers were detected and should drive split logic.")
+        notes.append("Patient identifier columns were detected in the profiled inputs.")
     if target_columns:
-        notes.append("Target-like columns were detected and require leakage checks.")
+        notes.append("Target-like columns were detected in the profiled inputs.")
     if time_columns:
-        notes.append("Time-like columns were detected and can support temporal validation.")
+        notes.append("Time-like columns were detected in the profiled inputs.")
     if domain_focus == "ehr":
         notes.append("EHR domain signals were detected, so healthcare-specific safeguards should be applied selectively.")
 

@@ -47,6 +47,7 @@ MODELING_FAMILIES = {"predictive_modeling", "survival_analysis", "time_series_mo
 def detect_risk_findings(user_request: str, data_profile: DataProfile) -> list[RiskFinding]:
     request = user_request.lower()
     findings: list[RiskFinding] = []
+    is_modeling_task = data_profile.task_family in MODELING_FAMILIES
 
     if any(term in request for term in LEAKAGE_TERMS) and any(term in request for term in TEMPORAL_TERMS):
         findings.append(
@@ -57,7 +58,7 @@ def detect_risk_findings(user_request: str, data_profile: DataProfile) -> list[R
             )
         )
 
-    if data_profile.group_id_columns:
+    if is_modeling_task and data_profile.group_id_columns:
         findings.append(
             RiskFinding(
                 severity="medium",
@@ -70,17 +71,16 @@ def detect_risk_findings(user_request: str, data_profile: DataProfile) -> list[R
             )
         )
 
-    if data_profile.target_columns:
-        severity = "high" if data_profile.task_family in MODELING_FAMILIES else "medium"
+    if is_modeling_task and data_profile.target_columns:
         findings.append(
             RiskFinding(
-                severity=severity,
+                severity="high",
                 category="target_leakage",
                 message="Target-like columns detected in inputs. Confirm they are not used as predictors except where explicitly intended.",
             )
         )
 
-    if data_profile.task_family in MODELING_FAMILIES:
+    if is_modeling_task:
         findings.append(
             RiskFinding(
                 severity="medium",
@@ -120,15 +120,15 @@ def detect_risk_findings(user_request: str, data_profile: DataProfile) -> list[R
                 severity="medium",
                 category="cohort_definition",
                 message="Cohort tasks should state inclusion and exclusion logic explicitly, including index date and outcome window.",
+                )
             )
-        )
 
     if data_profile.domain_focus == "ehr":
         findings.append(
             RiskFinding(
                 severity="info",
                 category="domain_overlay",
-                message="EHR signals were detected. Apply healthcare-specific leakage, cohort, and privacy checks only where they are actually relevant.",
+                message="EHR signals were detected. Apply only the healthcare-specific checks that are directly relevant to the requested task.",
             )
         )
 
