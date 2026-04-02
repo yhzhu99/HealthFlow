@@ -557,9 +557,9 @@ async def _run_healthflow_scenario(
         )
 
     task_workspace = Path(result["workspace_path"])
-    run_result = json.loads(_read_text(Path(result["run_result_path"])))
-    run_manifest = json.loads(_read_text(Path(result["run_manifest_path"])))
-    prompt_path = Path(result["prompt_path"]) if result.get("prompt_path") else None
+    runtime_index = json.loads(_read_text(Path(result["runtime_index_path"])))
+    run_summary = json.loads(_read_text(Path(result["run_summary_path"])))
+    prompt_path = Path(result["last_executor_prompt_path"]) if result.get("last_executor_prompt_path") else None
     prompt_text = _read_text(prompt_path) if prompt_path and prompt_path.exists() else ""
 
     expected_tool_marker = "oneehr" if scenario == "oneehr" else "tooluniverse"
@@ -567,14 +567,12 @@ async def _run_healthflow_scenario(
     errors: list[str] = []
 
     result_tools = " ".join(str(item) for item in result.get("available_project_cli_tools", [])).lower()
-    run_result_tools = " ".join(str(item) for item in run_result.get("available_project_cli_tools", [])).lower()
-    manifest_tools = " ".join(str(item) for item in run_manifest.get("available_project_cli_tools", [])).lower()
+    summary_tools = " ".join(str(item) for item in run_summary.get("available_project_cli_tools", [])).lower()
+    index_tools = " ".join(str(item) for item in runtime_index.get("workflow_recommendations", [])).lower()
     if expected_tool_marker not in result_tools:
         errors.append("Returned result did not include the expected project CLI tool contract.")
-    if expected_tool_marker not in run_result_tools:
-        errors.append("run_result.json did not include the expected project CLI tool contract.")
-    if expected_tool_marker not in manifest_tools:
-        errors.append("run_manifest.json did not include the expected project CLI tool contract.")
+    if expected_tool_marker not in summary_tools and expected_tool_marker not in index_tools:
+        errors.append("Runtime summaries did not include the expected project CLI tool contract.")
     if "## Available Project CLI Tools" not in prompt_text:
         errors.append("Executor prompt is missing the Available Project CLI Tools section.")
     if expected_prompt_marker not in prompt_text:
@@ -585,9 +583,9 @@ async def _run_healthflow_scenario(
 
     artifacts = {
         "workspace_path": str(task_workspace),
-        "run_result_path": str(Path(result["run_result_path"])),
-        "run_manifest_path": str(Path(result["run_manifest_path"])),
-        "log_path": str(Path(result["log_path"])) if result.get("log_path") else "",
+        "runtime_index_path": str(Path(result["runtime_index_path"])),
+        "run_summary_path": str(Path(result["run_summary_path"])),
+        "log_path": str(Path(result["last_executor_log_path"])) if result.get("last_executor_log_path") else "",
         "prompt_path": str(prompt_path) if prompt_path else "",
     }
     artifacts.update(workspace_artifacts)

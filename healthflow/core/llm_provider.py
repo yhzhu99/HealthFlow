@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any, Callable, List, TypeVar
 
 import httpx
@@ -91,6 +92,8 @@ class LLMProvider:
             http_client=httpx.AsyncClient(timeout=config.timeout),
         )
         self.model_name = config.model_name
+        self.last_generate_trace: dict[str, Any] = {}
+        self.last_structured_trace: dict[str, Any] = {}
         logger.info(f"LLMProvider initialized for model: {self.model_name} at {config.base_url}")
 
     @retry(wait=wait_exponential(multiplier=1, min=4, max=10), stop=stop_after_attempt(3))
@@ -114,6 +117,7 @@ class LLMProvider:
             An LLMResponse object with the generated content.
         """
         logger.debug(f"Generating LLM response with model {self.model_name}. JSON mode: {json_mode}")
+        started_at = time.time()
         try:
             # Set response format based on json_mode flag
             response_format = {"type": "json_object"} if json_mode else {"type": "text"}
@@ -140,6 +144,19 @@ class LLMProvider:
             content = completion.choices[0].message.content or ""
             usage = self._normalize_usage(getattr(completion, "usage", None))
             estimated_cost_usd = self._estimate_cost_usd(usage)
+            duration_seconds = round(time.time() - started_at, 4)
+            self.last_generate_trace = {
+                "messages": [msg.model_dump() for msg in messages],
+                "json_mode": json_mode,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "model_name": self.model_name,
+                "reasoning_effort": self.config.reasoning_effort,
+                "response_content": content,
+                "usage": usage,
+                "estimated_cost_usd": estimated_cost_usd,
+                "duration_seconds": duration_seconds,
+            }
             logger.debug(f"LLM response received. Length: {len(content)}")
             return LLMResponse(
                 content=content,
@@ -205,8 +222,14 @@ class LLMProvider:
         repair_messages = list(messages)
         last_error: Exception | None = None
         last_response: LLMResponse | None = None
+        aggregate_usage: dict[str, Any] = {}
+        aggregate_cost_usd = 0.0
+        has_aggregate_cost = False
+        call_attempts: list[dict[str, Any]] = []
+        started_at = time.time()
 
         for attempt in range(1, max_attempts + 1):
+            request_messages = [message.model_dump() for message in repair_messages]
             response = await self.generate(
                 repair_messages,
                 temperature=temperature,
@@ -214,10 +237,45 @@ class LLMProvider:
                 json_mode=True,
             )
             last_response = response
+            call_attempt = {
+                "local_attempt": attempt,
+                "request_messages": request_messages,
+                "response_content": response.content,
+                "response_usage": response.usage,
+                "response_estimated_cost_usd": response.estimated_cost_usd,
+                "response_model_name": response.model_name,
+                "parse_status": "pending",
+            }
+            call_attempts.append(call_attempt)
+            aggregate_usage = _merge_usage_totals(aggregate_usage, response.usage)
+            if response.estimated_cost_usd is not None:
+                aggregate_cost_usd += float(response.estimated_cost_usd)
+                has_aggregate_cost = True
             try:
-                return parser(response.content), response
+                parsed = parser(response.content)
+                call_attempt["parse_status"] = "success"
+                aggregated_response = response.model_copy(
+                    update={
+                        "usage": aggregate_usage,
+                        "estimated_cost_usd": round(aggregate_cost_usd, 8) if has_aggregate_cost else None,
+                    }
+                )
+                self.last_structured_trace = {
+                    "success": True,
+                    "initial_messages": [message.model_dump() for message in messages],
+                    "attempts": call_attempts,
+                    "local_attempt_count": len(call_attempts),
+                    "usage": aggregate_usage,
+                    "estimated_cost_usd": round(aggregate_cost_usd, 8) if has_aggregate_cost else None,
+                    "model_name": aggregated_response.model_name,
+                    "duration_seconds": round(time.time() - started_at, 4),
+                    "final_response_content": response.content,
+                }
+                return parsed, aggregated_response
             except Exception as exc:
                 last_error = exc
+                call_attempt["parse_status"] = "failed"
+                call_attempt["parse_error"] = str(exc)
                 logger.warning(
                     "Structured response parse failed for model '{}' on local attempt {}/{}: {}",
                     self.model_name,
@@ -243,9 +301,29 @@ class LLMProvider:
                         ]
                     )
 
+        aggregated_response = None
+        if last_response is not None:
+            aggregated_response = last_response.model_copy(
+                update={
+                    "usage": aggregate_usage,
+                    "estimated_cost_usd": round(aggregate_cost_usd, 8) if has_aggregate_cost else None,
+                }
+            )
+        self.last_structured_trace = {
+            "success": False,
+            "initial_messages": [message.model_dump() for message in messages],
+            "attempts": call_attempts,
+            "local_attempt_count": len(call_attempts),
+            "usage": aggregate_usage,
+            "estimated_cost_usd": round(aggregate_cost_usd, 8) if has_aggregate_cost else None,
+            "model_name": aggregated_response.model_name if aggregated_response is not None else self.model_name,
+            "duration_seconds": round(time.time() - started_at, 4),
+            "final_response_content": aggregated_response.content if aggregated_response is not None else "",
+            "final_error": str(last_error) if last_error is not None else None,
+        }
         raise StructuredResponseError(
             f"Failed to parse a structured response after {max_attempts} attempts: {last_error}",
-            response=last_response,
+            response=aggregated_response,
         ) from last_error
 
     def _normalize_usage(self, usage: Any) -> dict[str, Any]:
@@ -292,3 +370,16 @@ class LLMProvider:
 def create_llm_provider(config: LLMProviderConfig) -> LLMProvider:
     """Factory function to create the LLM provider from its specific config."""
     return LLMProvider(config)
+
+
+def _merge_usage_totals(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(left)
+    for key, value in right.items():
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            merged[key] = merged.get(key, 0.0) + float(value)
+    return {
+        key: int(value) if float(value).is_integer() else round(float(value), 8)
+        for key, value in merged.items()
+    }

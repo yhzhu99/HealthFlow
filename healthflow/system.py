@@ -26,6 +26,7 @@ from .execution import ExecutionCancelledError, ExecutionContext, WorkflowRecomm
 from .experience.experience_manager import ExperienceManager
 from .experience.experience_models import RetrievalContext
 from .reporting import generate_task_report
+from .runtime_artifacts import AttemptPaths, TaskRuntimePaths
 
 _STEP_FINISH_REASON_RE = re.compile(r"reason=([^\s]+)")
 _CONTENT_TOKEN_RE = re.compile(r"[a-z0-9']+")
@@ -76,6 +77,7 @@ _REQUEST_TOKEN_STOPWORDS = {
 _TOKEN_EQUIVALENTS = {
     "hk": {"hk", "hong", "kong"},
 }
+_RUNTIME_SCHEMA_VERSION = "2.0"
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -128,7 +130,8 @@ class HealthFlowSystem:
     ) -> dict:
         task_id = str(uuid.uuid4())
         task_workspace = self.workspace_dir / task_id
-        task_workspace.mkdir(parents=True, exist_ok=True)
+        paths = TaskRuntimePaths.build(task_workspace)
+        paths.ensure_base_dirs()
 
         if self.config.memory.write_policy == "reset_before_run":
             await self.experience_manager.reset()
@@ -137,7 +140,7 @@ class HealthFlowSystem:
             logger.info("[{}] Saving {} uploaded files to the workspace.", task_id, len(uploaded_files))
             for filename, content in uploaded_files.items():
                 safe_filename = Path(filename).name
-                file_path = task_workspace / safe_filename
+                file_path = paths.sandbox_dir / safe_filename
                 with open(file_path, "wb") as handle:
                     handle.write(content)
 
@@ -145,7 +148,7 @@ class HealthFlowSystem:
         try:
             result = await self._run_task_flow(
                 task_id,
-                task_workspace,
+                paths,
                 user_request,
                 live,
                 spinner,
@@ -156,7 +159,7 @@ class HealthFlowSystem:
             logger.warning("[{}] Task cancelled during execution.", task_id)
             result = self._build_cancelled_task_result(
                 task_id=task_id,
-                task_workspace=task_workspace,
+                paths=paths,
                 user_request=user_request,
                 execution_result=exc.result,
                 cancel_reason=exc.cancel_reason,
@@ -165,12 +168,14 @@ class HealthFlowSystem:
             logger.warning("[{}] Task cancelled before completion.", task_id)
             result = self._build_cancelled_task_result(
                 task_id=task_id,
-                task_workspace=task_workspace,
+                paths=paths,
                 user_request=user_request,
             )
         execution_time = round(time.time() - start_time, 2)
         result["execution_time"] = execution_time
         result["workspace_path"] = str(task_workspace)
+        result["sandbox_path"] = str(paths.sandbox_dir)
+        result["runtime_path"] = str(paths.runtime_dir)
         result["backend"] = self.config.active_executor_name
         result["executor_model"] = self.config.active_executor.model
         result["executor_provider"] = self.config.active_executor.provider
@@ -181,9 +186,11 @@ class HealthFlowSystem:
         result["execution_environment"] = self.config.environment.model_dump(mode="json")
         result["workflow_recommendations"] = result.get("workflow_recommendations", [])
         result["available_project_cli_tools"] = result.get("available_project_cli_tools", [])
-        result["run_result_path"] = str(task_workspace / "run_result.json")
-        result["run_manifest_path"] = str(task_workspace / "run_manifest.json")
-        result["cost_analysis_path"] = str(task_workspace / "cost_analysis.json")
+        result["runtime_index_path"] = str(paths.index_path)
+        result["run_summary_path"] = str(paths.run_summary_path)
+        result["run_trajectory_path"] = str(paths.run_trajectory_path)
+        result["run_costs_path"] = str(paths.run_costs_path)
+        result["final_evaluation_path"] = str(paths.final_evaluation_path)
         result["report_requested"] = report_requested
         result["report_generated"] = False
         result["report_path"] = None
@@ -191,7 +198,7 @@ class HealthFlowSystem:
         result["response_mode"] = result.get("response_mode", "orchestrated")
         result["cancelled"] = result.get("cancelled", False)
         result["cancel_reason"] = result.get("cancel_reason")
-        self._write_run_metadata_artifacts(task_workspace, task_id, user_request, execution_time, result)
+        self._write_runtime_index(paths, task_id, user_request, execution_time, result)
 
         if report_requested and not result.get("cancelled", False):
             try:
@@ -203,13 +210,13 @@ class HealthFlowSystem:
                 result["report_generated"] = False
                 result["report_path"] = None
                 result["report_error"] = str(exc)
-            self._write_run_metadata_artifacts(task_workspace, task_id, user_request, execution_time, result)
+            self._write_runtime_index(paths, task_id, user_request, execution_time, result)
         return result
 
     async def _run_task_flow(
         self,
         task_id: str,
-        task_workspace: Path,
+        paths: TaskRuntimePaths,
         user_request: str,
         live: Optional[Live],
         spinner: Optional[Spinner],
@@ -223,14 +230,14 @@ class HealthFlowSystem:
         if direct_response is not None:
             return await self._run_direct_response_flow(
                 task_id=task_id,
-                task_workspace=task_workspace,
+                paths=paths,
                 user_request=user_request,
                 direct_response=direct_response,
             )
 
         return await self._run_unified_flow(
             task_id,
-            task_workspace,
+            paths,
             user_request,
             live,
             spinner,
@@ -240,19 +247,30 @@ class HealthFlowSystem:
     async def _run_direct_response_flow(
         self,
         task_id: str,
-        task_workspace: Path,
+        paths: TaskRuntimePaths,
         user_request: str,
         direct_response: DirectResponse,
     ) -> Dict[str, Any]:
         planning_usage = dict(direct_response.usage)
         total_estimated_cost_usd = direct_response.estimated_cost_usd
-        data_profile = profile_workspace_data(task_workspace, user_request)
+        data_profile = profile_workspace_data(paths.sandbox_dir, user_request)
         risk_findings = detect_risk_findings(user_request, data_profile)
         task_state = {
             "data_profile": asdict(data_profile),
             "risk_findings": [asdict(item) for item in risk_findings],
         }
-        self._write_json(task_workspace / "task_state.json", task_state)
+        self._write_json(paths.task_state_path, task_state)
+        self._append_runtime_event(
+            paths,
+            stage="run",
+            event="task_state_profiled",
+            status="completed",
+            metadata={
+                "task_family": data_profile.task_family,
+                "domain_focus": data_profile.domain_focus,
+            },
+            path_map={"task_state": paths.relative_path(paths.task_state_path)},
+        )
 
         memory_context = {
             "query": user_request,
@@ -269,7 +287,6 @@ class HealthFlowSystem:
             "skipped": True,
             "skip_reason": direct_response.reason,
         }
-        self._write_json(task_workspace / "memory_context.json", memory_context)
 
         evaluation = {
             "status": "success",
@@ -283,9 +300,21 @@ class HealthFlowSystem:
             "memory_worthy_insights": [],
             "reasoning": direct_response.reason,
         }
-        self._write_json(task_workspace / "evaluation.json", evaluation)
+        direct_response_payload = {
+            "mode": direct_response.mode,
+            "category": direct_response.category,
+            "answer": direct_response.answer,
+            "reason": direct_response.reason,
+            "model_name": direct_response.model_name,
+            "usage": planning_usage,
+            "estimated_cost_usd": direct_response.estimated_cost_usd,
+            "memory_context": memory_context,
+        }
+        self._write_json(paths.direct_response_path, direct_response_payload)
+        self._write_json(paths.final_evaluation_path, evaluation)
 
-        full_history = {
+        trajectory = {
+            "schema_version": _RUNTIME_SCHEMA_VERSION,
             "task_id": task_id,
             "user_request": user_request,
             "backend": self.config.active_executor_name,
@@ -303,16 +332,16 @@ class HealthFlowSystem:
             "direct_response_estimated_cost_usd": direct_response.estimated_cost_usd,
             "available_project_cli_tools": [],
             "workflow_recommendations": [],
-            "task_state_path": str(task_workspace / "task_state.json"),
+            "task_state_path": paths.relative_path(paths.task_state_path),
             "data_profile": task_state["data_profile"],
             "risk_findings": task_state["risk_findings"],
-            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "memory_context_path": paths.relative_path(paths.direct_response_path),
             "memory_retrieval": memory_context,
             "attempts": [],
         }
-        self._write_json(task_workspace / "full_history.json", full_history)
+        self._write_json(paths.run_trajectory_path, trajectory)
 
-        empty_cost_analysis = {
+        costs_payload = {
             "attempts": [],
             "run_total": {
                 "attempts": 0,
@@ -325,7 +354,42 @@ class HealthFlowSystem:
                 "total_estimated_cost_usd": total_estimated_cost_usd,
             },
         }
-        self._write_json(task_workspace / "cost_analysis.json", empty_cost_analysis)
+        self._write_json(paths.run_costs_path, costs_payload)
+        self._write_json(
+            paths.run_summary_path,
+            {
+                "task_id": task_id,
+                "mode": direct_response.mode,
+                "success": True,
+                "cancelled": False,
+                "final_summary": "Returned a built-in direct response for a lightweight conversational prompt.",
+                "answer": direct_response.answer,
+                "evaluation_status": "success",
+                "evaluation_score": 1.0,
+                "attempt_count": 0,
+                "available_project_cli_tools": [],
+                "workflow_recommendations": [],
+                "paths": {
+                    "task_state": paths.relative_path(paths.task_state_path),
+                    "direct_response": paths.relative_path(paths.direct_response_path),
+                    "trajectory": paths.relative_path(paths.run_trajectory_path),
+                    "costs": paths.relative_path(paths.run_costs_path),
+                    "final_evaluation": paths.relative_path(paths.final_evaluation_path),
+                },
+            },
+        )
+        self._append_runtime_event(
+            paths,
+            stage="planner",
+            event="direct_response_completed",
+            status="completed",
+            agent_name="direct_response_router",
+            model_name=direct_response.model_name,
+            usage=planning_usage,
+            estimated_cost_usd=total_estimated_cost_usd,
+            path_map={"direct_response": paths.relative_path(paths.direct_response_path)},
+            metadata={"category": direct_response.category},
+        )
 
         return {
             "success": True,
@@ -348,11 +412,13 @@ class HealthFlowSystem:
                 "executor_estimated_cost_usd": None,
                 "total_estimated_cost_usd": total_estimated_cost_usd,
             },
-            "cost_analysis": empty_cost_analysis,
+            "cost_analysis": costs_payload,
             "log_path": None,
             "prompt_path": None,
-            "evaluation_path": str(task_workspace / "evaluation.json"),
-            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "last_executor_log_path": None,
+            "last_executor_prompt_path": None,
+            "task_state_path": str(paths.task_state_path),
+            "attempts_index": [],
             "response_mode": direct_response.mode,
             "cancelled": False,
             "cancel_reason": None,
@@ -361,7 +427,7 @@ class HealthFlowSystem:
     async def _run_unified_flow(
         self,
         task_id: str,
-        task_workspace: Path,
+        paths: TaskRuntimePaths,
         user_request: str,
         live: Optional[Live],
         spinner: Optional[Spinner],
@@ -370,7 +436,7 @@ class HealthFlowSystem:
         if spinner and live:
             spinner.text = "Profiling task state and preparing memory retrieval..."
 
-        data_profile = profile_workspace_data(task_workspace, user_request)
+        data_profile = profile_workspace_data(paths.sandbox_dir, user_request)
         risk_findings = detect_risk_findings(user_request, data_profile)
         workflow_recommendations = self._workflow_recommendations(user_request, data_profile)
         available_project_cli_tools = self._available_project_cli_tools(user_request, data_profile)
@@ -378,9 +444,21 @@ class HealthFlowSystem:
             "data_profile": asdict(data_profile),
             "risk_findings": [asdict(item) for item in risk_findings],
         }
-        self._write_json(task_workspace / "task_state.json", task_state)
+        self._write_json(paths.task_state_path, task_state)
+        self._append_runtime_event(
+            paths,
+            stage="run",
+            event="task_state_profiled",
+            status="completed",
+            metadata={
+                "task_family": data_profile.task_family,
+                "domain_focus": data_profile.domain_focus,
+            },
+            path_map={"task_state": paths.relative_path(paths.task_state_path)},
+        )
 
-        full_history: Dict[str, Any] = {
+        trajectory: Dict[str, Any] = {
+            "schema_version": _RUNTIME_SCHEMA_VERSION,
             "task_id": task_id,
             "user_request": user_request,
             "backend": self.config.active_executor_name,
@@ -394,7 +472,7 @@ class HealthFlowSystem:
             "execution_environment": self.config.environment.model_dump(mode="json"),
             "available_project_cli_tools": available_project_cli_tools,
             "workflow_recommendations": workflow_recommendations,
-            "task_state_path": str(task_workspace / "task_state.json"),
+            "task_state_path": paths.relative_path(paths.task_state_path),
             "data_profile": task_state["data_profile"],
             "risk_findings": task_state["risk_findings"],
             "attempts": [],
@@ -416,12 +494,15 @@ class HealthFlowSystem:
         reflection_usage = None
 
         for attempt_num in range(1, self.config.system.max_attempts + 1):
-            previous_feedback = self._feedback_from_attempt(full_history["attempts"][-1]) if attempt_num > 1 else None
+            attempt_paths = paths.attempt(attempt_num)
+            attempt_paths.ensure_dirs()
+            previous_feedback = self._feedback_from_attempt(trajectory["attempts"][-1]) if attempt_num > 1 else None
             retrieval_context = self._build_retrieval_context(
                 data_profile=data_profile,
                 risk_findings=risk_findings,
-                prior_failure_modes=self._prior_failure_modes(full_history["attempts"]),
+                prior_failure_modes=self._prior_failure_modes(trajectory["attempts"]),
             )
+            self._write_json(attempt_paths.retrieval_context_path, retrieval_context.model_dump(mode="json"))
             retrieval_result = await self.experience_manager.retrieve_experiences(
                 user_request,
                 retrieval_context=retrieval_context,
@@ -430,11 +511,25 @@ class HealthFlowSystem:
             workflow_experiences = retrieval_result.workflow_experiences
             dataset_experiences = retrieval_result.dataset_experiences
             execution_experiences = retrieval_result.execution_experiences
-            memory_context_path = task_workspace / f"memory_context_v{attempt_num}.json"
-            self._write_json(memory_context_path, retrieval_result.audit.model_dump(mode="json"))
-            self._write_json(task_workspace / "memory_context.json", retrieval_result.audit.model_dump(mode="json"))
-            full_history["memory_context_path"] = str(task_workspace / "memory_context.json")
-            full_history["memory_retrieval"] = retrieval_result.audit.model_dump(mode="json")
+            retrieval_audit = retrieval_result.audit.model_dump(mode="json")
+            self._write_json(attempt_paths.retrieval_result_path, retrieval_audit)
+            trajectory["memory_context_path"] = paths.relative_path(attempt_paths.retrieval_result_path)
+            trajectory["memory_retrieval"] = retrieval_audit
+            self._append_runtime_event(
+                paths,
+                attempt=attempt_num,
+                stage="memory",
+                event="retrieval_completed",
+                status="completed",
+                path_map={
+                    "retrieval_context": paths.relative_path(attempt_paths.retrieval_context_path),
+                    "retrieval_result": paths.relative_path(attempt_paths.retrieval_result_path),
+                },
+                metadata={
+                    "selected_count": len(retrieval_audit.get("selected", [])),
+                    "skipped": retrieval_audit.get("skipped", False),
+                },
+            )
 
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Planning..."
@@ -452,8 +547,30 @@ class HealthFlowSystem:
             )
             planning_usage = self._capture_agent_usage(self.meta_agent, "planner")
             plan_markdown = plan.to_markdown()
-            task_list_path = task_workspace / f"task_list_v{attempt_num}.md"
-            task_list_path.write_text(plan_markdown, encoding="utf-8")
+            self._write_text(attempt_paths.planner_plan_markdown_path, plan_markdown)
+            self._write_agent_trace_artifacts(
+                input_messages_path=attempt_paths.planner_input_messages_path,
+                output_raw_path=attempt_paths.planner_output_raw_path,
+                output_parsed_path=attempt_paths.planner_output_parsed_path,
+                call_path=attempt_paths.planner_call_path,
+                repair_trace_path=attempt_paths.planner_repair_trace_path,
+                trace=getattr(self.meta_agent, "last_trace", {}),
+            )
+            self._append_runtime_event(
+                paths,
+                attempt=attempt_num,
+                stage="planner",
+                event="plan_generated",
+                status="completed",
+                agent_name="planner",
+                model_name=planning_usage.get("model_name"),
+                usage=planning_usage.get("usage"),
+                estimated_cost_usd=planning_usage.get("estimated_cost_usd"),
+                path_map={
+                    "plan": paths.relative_path(attempt_paths.planner_plan_markdown_path),
+                    "planner_call": paths.relative_path(attempt_paths.planner_call_path),
+                },
+            )
 
             execution_context = ExecutionContext(
                 user_request=user_request,
@@ -467,17 +584,64 @@ class HealthFlowSystem:
                 dataset_memory=self._format_memory_lines(dataset_experiences),
                 execution_memory=self._format_memory_lines(execution_experiences),
                 prior_feedback=previous_feedback,
+                executor_artifact_dir=attempt_paths.executor_dir,
             )
 
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Executing with {self.config.active_executor_name}..."
             execution_result = await self.executor.execute(
                 execution_context,
-                task_workspace,
+                paths.sandbox_dir,
             )
 
-            generated_answer = self._extract_answer_from_workspace(task_workspace, execution_result.log, user_request)
-            workspace_artifacts = self._workspace_artifact_paths(task_workspace)
+            generated_answer = self._extract_answer_from_workspace(paths.sandbox_dir, execution_result.log, user_request)
+            workspace_artifacts = self._workspace_artifact_paths(paths.sandbox_dir)
+            self._write_json(
+                attempt_paths.executor_command_path,
+                {
+                    "backend": execution_result.backend,
+                    "command": execution_result.command,
+                    "backend_version": execution_result.backend_version,
+                    "executor_metadata": execution_result.executor_metadata,
+                    "duration_seconds": execution_result.duration_seconds,
+                    "timed_out": execution_result.timed_out,
+                    "cancelled": execution_result.cancelled,
+                    "cancel_reason": execution_result.cancel_reason,
+                },
+            )
+            self._write_json(attempt_paths.executor_usage_path, execution_result.usage)
+            self._write_json(attempt_paths.executor_telemetry_path, execution_result.telemetry)
+            self._write_json(
+                attempt_paths.executor_artifacts_index_path,
+                {
+                    "sandbox_artifacts": workspace_artifacts,
+                    "generated_answer": generated_answer,
+                },
+            )
+            self._append_runtime_event(
+                paths,
+                attempt=attempt_num,
+                stage="executor",
+                event="execution_completed",
+                status="completed" if execution_result.success else "failed",
+                backend=execution_result.backend,
+                usage=execution_result.usage,
+                estimated_cost_usd=execution_result.usage.get("estimated_cost_usd"),
+                path_map={
+                    "prompt": paths.relative_path(attempt_paths.executor_prompt_path),
+                    "combined_log": paths.relative_path(attempt_paths.executor_combined_log_path),
+                    "stdout": paths.relative_path(attempt_paths.executor_stdout_path),
+                    "stderr": paths.relative_path(attempt_paths.executor_stderr_path),
+                    "telemetry": paths.relative_path(attempt_paths.executor_telemetry_path),
+                    "usage": paths.relative_path(attempt_paths.executor_usage_path),
+                    "artifacts": paths.relative_path(attempt_paths.executor_artifacts_index_path),
+                },
+                metadata={
+                    "return_code": execution_result.return_code,
+                    "timed_out": execution_result.timed_out,
+                    "cancelled": execution_result.cancelled,
+                },
+            )
 
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Evaluating..."
@@ -491,12 +655,37 @@ class HealthFlowSystem:
             verdict = self._normalize_evaluation_verdict(verdict)
             evaluation_usage = self._capture_agent_usage(self.evaluator, "evaluator")
             final_verdict = verdict
+            self._write_agent_trace_artifacts(
+                input_messages_path=attempt_paths.evaluator_input_messages_path,
+                output_raw_path=attempt_paths.evaluator_output_raw_path,
+                output_parsed_path=attempt_paths.evaluator_output_parsed_path,
+                call_path=attempt_paths.evaluator_call_path,
+                repair_trace_path=attempt_paths.evaluator_repair_trace_path,
+                trace=getattr(self.evaluator, "last_trace", {}),
+            )
+            self._append_runtime_event(
+                paths,
+                attempt=attempt_num,
+                stage="evaluator",
+                event="evaluation_completed",
+                status=verdict.status,
+                agent_name="evaluator",
+                model_name=evaluation_usage.get("model_name"),
+                usage=evaluation_usage.get("usage"),
+                estimated_cost_usd=evaluation_usage.get("estimated_cost_usd"),
+                path_map={"evaluator_call": paths.relative_path(attempt_paths.evaluator_call_path)},
+                metadata={
+                    "score": verdict.score,
+                    "failure_type": verdict.failure_type,
+                    "retry_recommended": verdict.retry_recommended,
+                },
+            )
 
             attempt_history = {
                 "attempt": attempt_num,
-                "memory_context_path": str(memory_context_path),
+                "memory_context_path": paths.relative_path(attempt_paths.retrieval_result_path),
                 "memory": {
-                    "retrieval": retrieval_result.audit.model_dump(mode="json"),
+                    "retrieval": retrieval_audit,
                     "safeguards": [exp.model_dump(mode="json") for exp in safeguard_experiences],
                     "workflows": [exp.model_dump(mode="json") for exp in workflow_experiences],
                     "datasets": [exp.model_dump(mode="json") for exp in dataset_experiences],
@@ -509,8 +698,10 @@ class HealthFlowSystem:
                     "success": execution_result.success,
                     "return_code": execution_result.return_code,
                     "log": execution_result.log,
-                    "log_path": execution_result.log_path,
-                    "prompt_path": execution_result.prompt_path,
+                    "log_path": paths.relative_path(attempt_paths.executor_combined_log_path),
+                    "prompt_path": paths.relative_path(attempt_paths.executor_prompt_path),
+                    "stdout_path": paths.relative_path(attempt_paths.executor_stdout_path),
+                    "stderr_path": paths.relative_path(attempt_paths.executor_stderr_path),
                     "backend": execution_result.backend,
                     "backend_version": execution_result.backend_version,
                     "executor_metadata": execution_result.executor_metadata,
@@ -519,9 +710,11 @@ class HealthFlowSystem:
                     "timed_out": execution_result.timed_out,
                     "usage": execution_result.usage,
                     "telemetry": execution_result.telemetry,
+                    "cancelled": execution_result.cancelled,
+                    "cancel_reason": execution_result.cancel_reason,
                 },
                 "artifacts": {
-                    "workspace_paths": workspace_artifacts,
+                    "sandbox_paths": workspace_artifacts,
                     "generated_answer": generated_answer,
                 },
                 "gate": {
@@ -532,8 +725,41 @@ class HealthFlowSystem:
                 },
                 "evaluation": verdict.model_dump(mode="json"),
                 "evaluation_meta": evaluation_usage,
+                "paths": {
+                    "attempt_dir": paths.relative_path(attempt_paths.attempt_dir),
+                    "memory": {
+                        "retrieval_context": paths.relative_path(attempt_paths.retrieval_context_path),
+                        "retrieval_result": paths.relative_path(attempt_paths.retrieval_result_path),
+                    },
+                    "planner": {
+                        "plan": paths.relative_path(attempt_paths.planner_plan_markdown_path),
+                        "input_messages": paths.relative_path(attempt_paths.planner_input_messages_path),
+                        "output_raw": paths.relative_path(attempt_paths.planner_output_raw_path),
+                        "output_parsed": paths.relative_path(attempt_paths.planner_output_parsed_path),
+                        "call": paths.relative_path(attempt_paths.planner_call_path),
+                        "repair_trace": paths.relative_path(attempt_paths.planner_repair_trace_path),
+                    },
+                    "executor": {
+                        "prompt": paths.relative_path(attempt_paths.executor_prompt_path),
+                        "command": paths.relative_path(attempt_paths.executor_command_path),
+                        "stdout": paths.relative_path(attempt_paths.executor_stdout_path),
+                        "stderr": paths.relative_path(attempt_paths.executor_stderr_path),
+                        "combined_log": paths.relative_path(attempt_paths.executor_combined_log_path),
+                        "telemetry": paths.relative_path(attempt_paths.executor_telemetry_path),
+                        "usage": paths.relative_path(attempt_paths.executor_usage_path),
+                        "artifacts_index": paths.relative_path(attempt_paths.executor_artifacts_index_path),
+                    },
+                    "evaluator": {
+                        "input_messages": paths.relative_path(attempt_paths.evaluator_input_messages_path),
+                        "output_raw": paths.relative_path(attempt_paths.evaluator_output_raw_path),
+                        "output_parsed": paths.relative_path(attempt_paths.evaluator_output_parsed_path),
+                        "call": paths.relative_path(attempt_paths.evaluator_call_path),
+                        "repair_trace": paths.relative_path(attempt_paths.evaluator_repair_trace_path),
+                    },
+                },
             }
-            full_history["attempts"].append(attempt_history)
+            trajectory["attempts"].append(attempt_history)
+            self._write_json(attempt_paths.summary_path, self._attempt_summary(attempt_history))
 
             if execution_result.success and verdict.is_success(self.config.evaluation.success_threshold):
                 is_success = True
@@ -557,13 +783,13 @@ class HealthFlowSystem:
 
         should_write_memory = (
             self.config.memory.write_policy != "freeze"
-            and self._should_synthesize_memory(full_history)
+            and self._should_synthesize_memory(trajectory)
         )
         if should_write_memory:
             if spinner and live:
                 spinner.text = "Synthesizing memory..."
             reflection_output = await self.reflector.synthesize_experience(
-                full_history,
+                trajectory,
                 final_verdict=final_verdict,
             )
             reflection_usage = self._capture_agent_usage(self.reflector, "reflector")
@@ -576,29 +802,71 @@ class HealthFlowSystem:
             if memory_updates:
                 applied_memory_update_ids = await self.experience_manager.apply_memory_updates(memory_updates)
                 if applied_memory_update_ids:
-                    full_history["memory_updates"] = [
+                    trajectory["memory_updates"] = [
                         update.model_dump(mode="json")
                         for update in memory_updates
                         if update.experience_id in set(applied_memory_update_ids)
                     ]
             if new_experiences:
                 await self.experience_manager.save_experiences(new_experiences)
-                full_history["new_experiences"] = [exp.model_dump(mode="json") for exp in new_experiences]
-        if reflection_usage:
-            full_history["reflection"] = reflection_usage
-
-        history_path = task_workspace / "full_history.json"
-        self._write_json(history_path, full_history)
-        if full_history["attempts"]:
-            self._write_json(
-                task_workspace / "evaluation.json",
-                full_history["attempts"][-1]["evaluation"],
+                trajectory["new_experiences"] = [exp.model_dump(mode="json") for exp in new_experiences]
+            self._write_agent_trace_artifacts(
+                input_messages_path=paths.reflection_input_path,
+                output_raw_path=paths.reflection_output_raw_path,
+                output_parsed_path=paths.reflection_output_parsed_path,
+                call_path=paths.reflection_call_path,
+                repair_trace_path=paths.reflection_repair_trace_path,
+                trace=getattr(self.reflector, "last_trace", {}),
             )
-        last_execution = full_history["attempts"][-1]["execution"] if full_history["attempts"] else {}
-        usage_summary = self._summarize_run_usage(full_history["attempts"], reflection_usage)
+            self._append_runtime_event(
+                paths,
+                stage="reflection",
+                event="reflection_completed",
+                status="completed",
+                agent_name="reflector",
+                model_name=reflection_usage.get("model_name") if reflection_usage else None,
+                usage=reflection_usage.get("usage") if reflection_usage else None,
+                estimated_cost_usd=reflection_usage.get("estimated_cost_usd") if reflection_usage else None,
+                path_map={"reflection_call": paths.relative_path(paths.reflection_call_path)},
+                metadata={
+                    "new_experiences": len(new_experiences),
+                    "memory_updates": len(memory_updates),
+                },
+            )
+        if reflection_usage:
+            trajectory["reflection"] = reflection_usage
+
+        self._write_json(paths.run_trajectory_path, trajectory)
+        self._write_json(paths.final_evaluation_path, final_verdict.model_dump(mode="json"))
+        last_execution = trajectory["attempts"][-1]["execution"] if trajectory["attempts"] else {}
+        usage_summary = self._summarize_run_usage(trajectory["attempts"], reflection_usage)
         cost_summary = self._summarize_run_costs(usage_summary)
-        cost_analysis = self._summarize_cost_analysis(full_history["attempts"], usage_summary, cost_summary, reflection_usage)
-        self._write_json(task_workspace / "cost_analysis.json", cost_analysis)
+        cost_analysis = self._summarize_cost_analysis(trajectory["attempts"], usage_summary, cost_summary, reflection_usage)
+        self._write_json(paths.run_costs_path, cost_analysis)
+        attempts_index = self._attempts_index(trajectory["attempts"])
+        self._write_json(
+            paths.run_summary_path,
+            {
+                "task_id": task_id,
+                "mode": "orchestrated",
+                "success": is_success,
+                "cancelled": False,
+                "final_summary": final_summary,
+                "answer": final_answer,
+                "evaluation_status": final_verdict.status,
+                "evaluation_score": final_verdict.score,
+                "attempt_count": len(trajectory["attempts"]),
+                "attempts": attempts_index,
+                "available_project_cli_tools": available_project_cli_tools,
+                "workflow_recommendations": workflow_recommendations,
+                "paths": {
+                    "task_state": paths.relative_path(paths.task_state_path),
+                    "trajectory": paths.relative_path(paths.run_trajectory_path),
+                    "costs": paths.relative_path(paths.run_costs_path),
+                    "final_evaluation": paths.relative_path(paths.final_evaluation_path),
+                },
+            },
+        )
 
         return {
             "success": is_success,
@@ -614,10 +882,12 @@ class HealthFlowSystem:
             "usage_summary": usage_summary,
             "cost_summary": cost_summary,
             "cost_analysis": cost_analysis,
-            "log_path": full_history["attempts"][-1]["execution"]["log_path"] if full_history["attempts"] else None,
-            "prompt_path": full_history["attempts"][-1]["execution"]["prompt_path"] if full_history["attempts"] else None,
-            "evaluation_path": str(task_workspace / "evaluation.json"),
-            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "log_path": str(attempt_paths.executor_combined_log_path) if trajectory["attempts"] else None,
+            "prompt_path": str(attempt_paths.executor_prompt_path) if trajectory["attempts"] else None,
+            "last_executor_log_path": str(attempt_paths.executor_combined_log_path) if trajectory["attempts"] else None,
+            "last_executor_prompt_path": str(attempt_paths.executor_prompt_path) if trajectory["attempts"] else None,
+            "task_state_path": str(paths.task_state_path),
+            "attempts_index": attempts_index,
             "response_mode": "orchestrated",
             "cancelled": False,
             "cancel_reason": None,
@@ -627,56 +897,60 @@ class HealthFlowSystem:
         self,
         *,
         task_id: str,
-        task_workspace: Path,
+        paths: TaskRuntimePaths,
         user_request: str,
         execution_result=None,
         cancel_reason: str = "Task cancelled by user.",
     ) -> dict[str, Any]:
+        attempt_paths = paths.attempt(1)
         generated_answer = (
-            self._extract_answer_from_workspace(task_workspace, execution_result.log, user_request)
+            self._extract_answer_from_workspace(paths.sandbox_dir, execution_result.log, user_request)
             if execution_result is not None
             else "Task cancelled before completion."
         )
-        data_profile = profile_workspace_data(task_workspace, user_request)
+        data_profile = profile_workspace_data(paths.sandbox_dir, user_request)
         workflow_recommendations = self._workflow_recommendations(user_request, data_profile)
         available_project_cli_tools = self._available_project_cli_tools(user_request, data_profile)
+        if not paths.task_state_path.exists():
+            self._write_json(
+                paths.task_state_path,
+                {
+                    "data_profile": asdict(data_profile),
+                    "risk_findings": [asdict(item) for item in detect_risk_findings(user_request, data_profile)],
+                },
+            )
         evaluation = self._cancelled_evaluation_payload(cancel_reason)
-        self._write_json(task_workspace / "evaluation.json", evaluation)
-
-        memory_context_path = task_workspace / "memory_context.json"
-        if not memory_context_path.exists():
-            self._write_json(memory_context_path, self._minimal_memory_context(user_request, cancel_reason))
-
-        full_history_path = task_workspace / "full_history.json"
-        if not full_history_path.exists():
-            full_history: dict[str, Any] = {
-                "task_id": task_id,
-                "user_request": user_request,
-                "backend": self.config.active_executor_name,
-                "executor_model": self.config.active_executor.model,
-                "executor_provider": self.config.active_executor.provider,
-                "planner_model": self.config.llm_config_for_role("planner").model_name,
-                "llm_role_models": self._role_model_names(),
-                "runtime_llm_keys": self.config.runtime_llm_keys,
-                "memory_write_policy": self.config.memory.write_policy,
-                "available_project_cli_tools": available_project_cli_tools,
-                "workflow_recommendations": workflow_recommendations,
-                "memory_context_path": str(memory_context_path),
-                "memory_retrieval": self._minimal_memory_context(user_request, cancel_reason),
-                "attempts": [],
-                "cancelled": True,
-                "cancel_reason": cancel_reason,
-            }
-            if execution_result is not None:
-                full_history["attempts"].append(
-                    self._cancelled_attempt_history(
-                        execution_result=execution_result,
-                        task_workspace=task_workspace,
-                        generated_answer=generated_answer,
-                        user_request=user_request,
-                    )
-                )
-            self._write_json(full_history_path, full_history)
+        self._write_json(paths.final_evaluation_path, evaluation)
+        trajectory: dict[str, Any] = {
+            "schema_version": _RUNTIME_SCHEMA_VERSION,
+            "task_id": task_id,
+            "user_request": user_request,
+            "backend": self.config.active_executor_name,
+            "executor_model": self.config.active_executor.model,
+            "executor_provider": self.config.active_executor.provider,
+            "planner_model": self.config.llm_config_for_role("planner").model_name,
+            "llm_role_models": self._role_model_names(),
+            "runtime_llm_keys": self.config.runtime_llm_keys,
+            "memory_write_policy": self.config.memory.write_policy,
+            "available_project_cli_tools": available_project_cli_tools,
+            "workflow_recommendations": workflow_recommendations,
+            "task_state_path": paths.relative_path(paths.task_state_path),
+            "memory_context_path": None,
+            "memory_retrieval": self._minimal_memory_context(user_request, cancel_reason),
+            "attempts": [],
+            "cancelled": True,
+            "cancel_reason": cancel_reason,
+        }
+        if execution_result is not None:
+            attempt_history = self._cancelled_attempt_history(
+                execution_result=execution_result,
+                paths=paths,
+                generated_answer=generated_answer,
+                user_request=user_request,
+            )
+            trajectory["attempts"].append(attempt_history)
+            self._write_json(paths.attempt(1).summary_path, self._attempt_summary(attempt_history))
+        self._write_json(paths.run_trajectory_path, trajectory)
 
         usage_summary = {
             "planning": {},
@@ -701,7 +975,42 @@ class HealthFlowSystem:
                 "total_estimated_cost_usd": cost_summary["total_estimated_cost_usd"],
             },
         }
-        self._write_json(task_workspace / "cost_analysis.json", cost_analysis)
+        self._write_json(paths.run_costs_path, cost_analysis)
+        attempts_index = self._attempts_index(trajectory["attempts"])
+        self._write_json(
+            paths.run_summary_path,
+            {
+                "task_id": task_id,
+                "mode": "orchestrated",
+                "success": False,
+                "cancelled": True,
+                "cancel_reason": cancel_reason,
+                "final_summary": cancel_reason,
+                "answer": generated_answer,
+                "evaluation_status": "cancelled",
+                "evaluation_score": 0.0,
+                "attempt_count": len(trajectory["attempts"]),
+                "attempts": attempts_index,
+                "available_project_cli_tools": available_project_cli_tools,
+                "workflow_recommendations": workflow_recommendations,
+                "paths": {
+                    "task_state": paths.relative_path(paths.task_state_path),
+                    "trajectory": paths.relative_path(paths.run_trajectory_path),
+                    "costs": paths.relative_path(paths.run_costs_path),
+                    "final_evaluation": paths.relative_path(paths.final_evaluation_path),
+                },
+            },
+        )
+        self._append_runtime_event(
+            paths,
+            stage="run",
+            event="task_cancelled",
+            status="cancelled",
+            backend=execution_result.backend if execution_result is not None else None,
+            usage=execution_result.usage if execution_result is not None else None,
+            estimated_cost_usd=execution_result.usage.get("estimated_cost_usd") if execution_result is not None else None,
+            metadata={"cancel_reason": cancel_reason},
+        )
 
         return {
             "success": False,
@@ -717,10 +1026,12 @@ class HealthFlowSystem:
             "usage_summary": usage_summary,
             "cost_summary": cost_summary,
             "cost_analysis": cost_analysis,
-            "log_path": execution_result.log_path if execution_result is not None else None,
-            "prompt_path": execution_result.prompt_path if execution_result is not None else None,
-            "evaluation_path": str(task_workspace / "evaluation.json"),
-            "memory_context_path": str(memory_context_path),
+            "log_path": str(attempt_paths.executor_combined_log_path) if execution_result is not None else None,
+            "prompt_path": str(attempt_paths.executor_prompt_path) if execution_result is not None else None,
+            "last_executor_log_path": str(attempt_paths.executor_combined_log_path) if execution_result is not None else None,
+            "last_executor_prompt_path": str(attempt_paths.executor_prompt_path) if execution_result is not None else None,
+            "task_state_path": str(paths.task_state_path),
+            "attempts_index": attempts_index,
             "response_mode": "orchestrated",
             "cancelled": True,
             "cancel_reason": cancel_reason,
@@ -730,20 +1041,57 @@ class HealthFlowSystem:
         self,
         *,
         execution_result,
-        task_workspace: Path,
+        paths: TaskRuntimePaths,
         generated_answer: str,
         user_request: str,
     ) -> dict[str, Any]:
-        execution_record = self._execution_record_from_result(execution_result)
-        workspace_artifacts = self._workspace_artifact_paths(task_workspace)
+        attempt_paths = paths.attempt(1)
+        attempt_paths.ensure_dirs()
+        if execution_result.prompt_path and Path(execution_result.prompt_path).exists() and not attempt_paths.executor_prompt_path.exists():
+            self._write_text(
+                attempt_paths.executor_prompt_path,
+                Path(execution_result.prompt_path).read_text(encoding="utf-8"),
+            )
+        if execution_result.stdout and not attempt_paths.executor_stdout_path.exists():
+            self._write_text(attempt_paths.executor_stdout_path, execution_result.stdout)
+        if execution_result.stderr and not attempt_paths.executor_stderr_path.exists():
+            self._write_text(attempt_paths.executor_stderr_path, execution_result.stderr)
+        if execution_result.log and not attempt_paths.executor_combined_log_path.exists():
+            self._write_text(attempt_paths.executor_combined_log_path, execution_result.log)
+        execution_record = self._execution_record_from_result(execution_result, paths=paths, attempt_paths=attempt_paths)
+        workspace_artifacts = self._workspace_artifact_paths(paths.sandbox_dir)
+        minimal_memory = self._minimal_memory_context(
+            user_request,
+            execution_result.cancel_reason or "Execution cancelled by user.",
+        )
+        self._write_json(attempt_paths.retrieval_result_path, minimal_memory)
+        self._write_json(
+            attempt_paths.executor_command_path,
+            {
+                "backend": execution_result.backend,
+                "command": execution_result.command,
+                "backend_version": execution_result.backend_version,
+                "executor_metadata": execution_result.executor_metadata,
+                "duration_seconds": execution_result.duration_seconds,
+                "timed_out": execution_result.timed_out,
+                "cancelled": execution_result.cancelled,
+                "cancel_reason": execution_result.cancel_reason,
+            },
+        )
+        self._write_json(attempt_paths.executor_usage_path, execution_result.usage)
+        self._write_json(attempt_paths.executor_telemetry_path, execution_result.telemetry)
+        self._write_json(
+            attempt_paths.executor_artifacts_index_path,
+            {
+                "sandbox_artifacts": workspace_artifacts,
+                "generated_answer": generated_answer,
+            },
+        )
         return {
             "attempt": 1,
-            "memory_context_path": str(task_workspace / "memory_context.json"),
+            "memory_context_path": paths.relative_path(attempt_paths.retrieval_result_path),
             "memory": {
-                "retrieval": self._minimal_memory_context(
-                    user_request,
-                    execution_result.cancel_reason or "Execution cancelled by user.",
-                ),
+                "retrieval": minimal_memory,
                 "safeguards": [],
                 "workflows": [],
                 "datasets": [],
@@ -754,7 +1102,7 @@ class HealthFlowSystem:
             "planning": {},
             "execution": execution_record,
             "artifacts": {
-                "workspace_paths": workspace_artifacts,
+                "sandbox_paths": workspace_artifacts,
                 "generated_answer": generated_answer,
             },
             "gate": {
@@ -765,17 +1113,66 @@ class HealthFlowSystem:
             },
             "evaluation": self._cancelled_evaluation_payload(execution_result.cancel_reason or "Execution cancelled by user."),
             "evaluation_meta": {},
+            "paths": {
+                "attempt_dir": paths.relative_path(attempt_paths.attempt_dir),
+                "memory": {
+                    "retrieval_context": paths.relative_path(attempt_paths.retrieval_context_path),
+                    "retrieval_result": paths.relative_path(attempt_paths.retrieval_result_path),
+                },
+                "planner": {
+                    "plan": paths.relative_path(attempt_paths.planner_plan_markdown_path),
+                    "input_messages": paths.relative_path(attempt_paths.planner_input_messages_path),
+                    "output_raw": paths.relative_path(attempt_paths.planner_output_raw_path),
+                    "output_parsed": paths.relative_path(attempt_paths.planner_output_parsed_path),
+                    "call": paths.relative_path(attempt_paths.planner_call_path),
+                    "repair_trace": paths.relative_path(attempt_paths.planner_repair_trace_path),
+                },
+                "executor": {
+                    "prompt": paths.relative_path(attempt_paths.executor_prompt_path),
+                    "command": paths.relative_path(attempt_paths.executor_command_path),
+                    "stdout": paths.relative_path(attempt_paths.executor_stdout_path),
+                    "stderr": paths.relative_path(attempt_paths.executor_stderr_path),
+                    "combined_log": paths.relative_path(attempt_paths.executor_combined_log_path),
+                    "telemetry": paths.relative_path(attempt_paths.executor_telemetry_path),
+                    "usage": paths.relative_path(attempt_paths.executor_usage_path),
+                    "artifacts_index": paths.relative_path(attempt_paths.executor_artifacts_index_path),
+                },
+                "evaluator": {
+                    "input_messages": paths.relative_path(attempt_paths.evaluator_input_messages_path),
+                    "output_raw": paths.relative_path(attempt_paths.evaluator_output_raw_path),
+                    "output_parsed": paths.relative_path(attempt_paths.evaluator_output_parsed_path),
+                    "call": paths.relative_path(attempt_paths.evaluator_call_path),
+                    "repair_trace": paths.relative_path(attempt_paths.evaluator_repair_trace_path),
+                },
+            },
         }
 
-    def _execution_record_from_result(self, execution_result) -> dict[str, Any]:
+    def _execution_record_from_result(
+        self,
+        execution_result,
+        *,
+        paths: TaskRuntimePaths | None = None,
+        attempt_paths: AttemptPaths | None = None,
+    ) -> dict[str, Any]:
         if execution_result is None:
             return {}
+        log_path = execution_result.log_path
+        prompt_path = execution_result.prompt_path
+        stdout_path = None
+        stderr_path = None
+        if paths is not None and attempt_paths is not None:
+            log_path = paths.relative_path(attempt_paths.executor_combined_log_path)
+            prompt_path = paths.relative_path(attempt_paths.executor_prompt_path)
+            stdout_path = paths.relative_path(attempt_paths.executor_stdout_path)
+            stderr_path = paths.relative_path(attempt_paths.executor_stderr_path)
         return {
             "success": execution_result.success,
             "return_code": execution_result.return_code,
             "log": execution_result.log,
-            "log_path": execution_result.log_path,
-            "prompt_path": execution_result.prompt_path,
+            "log_path": log_path,
+            "prompt_path": prompt_path,
+            "stdout_path": stdout_path,
+            "stderr_path": stderr_path,
             "backend": execution_result.backend,
             "backend_version": execution_result.backend_version,
             "executor_metadata": execution_result.executor_metadata,
@@ -1054,7 +1451,7 @@ class HealthFlowSystem:
         if len(attempts) > 1:
             return True
 
-        workspace_paths = attempts[-1].get("artifacts", {}).get("workspace_paths", [])
+        workspace_paths = attempts[-1].get("artifacts", {}).get("sandbox_paths", [])
         non_runtime_paths = [path for path in workspace_paths if not self._is_runtime_artifact_path(path)]
         if non_runtime_paths:
             return True
@@ -1062,24 +1459,7 @@ class HealthFlowSystem:
         return len(str(full_history.get("user_request", "")).split()) > 20
 
     def _is_runtime_artifact_path(self, relative_path: str) -> bool:
-        runtime_prefixes = (".healthflow_pi_agent/",)
-        runtime_suffixes = ("_execution.log", "_prompt.md")
-        runtime_names = {
-            "task_state.json",
-            "memory_context.json",
-            "evaluation.json",
-            "cost_analysis.json",
-            "run_manifest.json",
-            "run_result.json",
-            "full_history.json",
-        }
-        if relative_path.startswith(runtime_prefixes):
-            return True
-        if relative_path in runtime_names:
-            return True
-        if relative_path.startswith("task_list_v") or relative_path.startswith("memory_context_v"):
-            return True
-        return relative_path.endswith(runtime_suffixes)
+        return relative_path.startswith(".healthflow_pi_agent/")
 
     def _format_memory_lines(self, experiences: list[Any]) -> list[str]:
         lines: list[str] = []
@@ -1158,52 +1538,152 @@ class HealthFlowSystem:
         return list(dict.fromkeys(tags))
 
     def _write_json(self, path: Path, payload: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, cls=DateTimeEncoder)
 
-    def _write_run_metadata_artifacts(
+    def _write_text(self, path: Path, content: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    def _write_agent_trace_artifacts(
         self,
-        task_workspace: Path,
+        *,
+        input_messages_path: Path,
+        output_raw_path: Path,
+        output_parsed_path: Path,
+        call_path: Path,
+        repair_trace_path: Path,
+        trace: dict[str, Any],
+    ) -> None:
+        if not trace:
+            self._write_json(input_messages_path, [])
+            self._write_text(output_raw_path, "")
+            self._write_json(output_parsed_path, {})
+            self._write_json(call_path, {})
+            self._write_json(repair_trace_path, {})
+            return
+        self._write_json(input_messages_path, trace.get("input_messages", []))
+        self._write_text(output_raw_path, str(trace.get("output_raw", "")))
+        self._write_json(output_parsed_path, trace.get("output_parsed", {}))
+        self._write_json(call_path, trace.get("call", {}))
+        self._write_json(repair_trace_path, trace.get("repair_trace", {}))
+
+    def _append_runtime_event(
+        self,
+        paths: TaskRuntimePaths,
+        *,
+        stage: str,
+        event: str,
+        status: str,
+        attempt: int | None = None,
+        agent_name: str | None = None,
+        backend: str | None = None,
+        model_name: str | None = None,
+        usage: dict[str, Any] | None = None,
+        estimated_cost_usd: float | None = None,
+        path_map: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        event_payload = {
+            "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+            "task_id": paths.task_root.name,
+            "attempt": attempt,
+            "stage": stage,
+            "event": event,
+            "status": status,
+            "agent_name": agent_name,
+            "backend": backend,
+            "model_name": model_name,
+            "usage": usage or {},
+            "estimated_cost_usd": estimated_cost_usd,
+            "paths": path_map or {},
+            "metadata": metadata or {},
+        }
+        paths.events_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(paths.events_path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event_payload, cls=DateTimeEncoder) + "\n")
+
+    def _attempt_summary(self, attempt: dict[str, Any]) -> dict[str, Any]:
+        execution = attempt.get("execution", {})
+        evaluation = attempt.get("evaluation", {})
+        return {
+            "attempt": attempt.get("attempt"),
+            "status": evaluation.get("status"),
+            "score": evaluation.get("score"),
+            "retry_recommended": evaluation.get("retry_recommended"),
+            "execution": {
+                "success": execution.get("success"),
+                "return_code": execution.get("return_code"),
+                "duration_seconds": execution.get("duration_seconds"),
+                "timed_out": execution.get("timed_out"),
+                "cancelled": execution.get("cancelled"),
+            },
+            "paths": attempt.get("paths", {}),
+        }
+
+    def _attempts_index(self, attempts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        index: list[dict[str, Any]] = []
+        for attempt in attempts:
+            evaluation = attempt.get("evaluation", {})
+            gate = attempt.get("gate", {})
+            index.append(
+                {
+                    "attempt": attempt.get("attempt"),
+                    "status": evaluation.get("status"),
+                    "score": evaluation.get("score"),
+                    "failure_type": evaluation.get("failure_type"),
+                    "retry_recommended": gate.get("retry_recommended"),
+                    "paths": attempt.get("paths", {}),
+                }
+            )
+        return index
+
+    def _write_runtime_index(
+        self,
+        paths: TaskRuntimePaths,
         task_id: str,
         user_request: str,
         execution_time: float,
         result: dict[str, Any],
     ) -> None:
-        self._write_json(task_workspace / "run_result.json", result)
         self._write_json(
-            task_workspace / "run_manifest.json",
+            paths.index_path,
             {
+                "schema_version": _RUNTIME_SCHEMA_VERSION,
                 "task_id": task_id,
                 "user_request": user_request,
-                "workspace_path": str(task_workspace),
-                "backend": self.config.active_executor_name,
-                "executor_model": self.config.active_executor.model,
-                "executor_provider": self.config.active_executor.provider,
-                "planner_model": self.config.llm_config_for_role("planner").model_name,
-                "llm_role_models": result.get("llm_role_models"),
-                "runtime_llm_keys": result.get("runtime_llm_keys"),
-                "memory_write_policy": self.config.memory.write_policy,
-                "execution_environment": result.get("execution_environment"),
-                "available_project_cli_tools": result.get("available_project_cli_tools"),
-                "workflow_recommendations": result.get("workflow_recommendations"),
-                "backend_version": result.get("backend_version"),
-                "executor_metadata": result.get("executor_metadata"),
-                "usage_summary": result.get("usage_summary"),
-                "cost_summary": result.get("cost_summary"),
-                "cost_analysis_path": result.get("cost_analysis_path"),
-                "execution_time": execution_time,
-                "evaluation_status": result.get("evaluation_status"),
+                "mode": result.get("response_mode"),
                 "success": result.get("success", False),
-                "log_path": result.get("log_path"),
-                "prompt_path": result.get("prompt_path"),
-                "evaluation_path": result.get("evaluation_path"),
-                "report_requested": result.get("report_requested", False),
-                "report_generated": result.get("report_generated", False),
-                "report_path": result.get("report_path"),
-                "report_error": result.get("report_error"),
-                "response_mode": result.get("response_mode"),
                 "cancelled": result.get("cancelled", False),
                 "cancel_reason": result.get("cancel_reason"),
+                "execution_time": execution_time,
+                "models": {
+                    "planner": result.get("planner_model"),
+                    "executor": result.get("executor_model"),
+                    "evaluator": (result.get("llm_role_models") or {}).get("evaluator"),
+                    "reflector": (result.get("llm_role_models") or {}).get("reflector"),
+                },
+                "paths": {
+                    "task_root": str(paths.task_root),
+                    "sandbox": str(paths.sandbox_dir),
+                    "runtime": str(paths.runtime_dir),
+                    "events": str(paths.events_path),
+                    "summary": str(paths.run_summary_path),
+                    "trajectory": str(paths.run_trajectory_path),
+                    "costs": str(paths.run_costs_path),
+                    "final_evaluation": str(paths.final_evaluation_path),
+                    "report": result.get("report_path"),
+                },
+                "attempts": result.get("attempts_index", []),
+                "usage_summary": result.get("usage_summary", {}),
+                "cost_summary": result.get("cost_summary", {}),
+                "backend": result.get("backend"),
+                "executor_provider": result.get("executor_provider"),
+                "runtime_llm_keys": result.get("runtime_llm_keys"),
+                "memory_write_policy": result.get("memory_write_policy"),
+                "available_project_cli_tools": result.get("available_project_cli_tools", []),
+                "workflow_recommendations": result.get("workflow_recommendations", []),
             },
         )
 

@@ -23,6 +23,7 @@ class ExecutionContext:
     dataset_memory: List[str] = field(default_factory=list)
     execution_memory: List[str] = field(default_factory=list)
     prior_feedback: Optional[str] = None
+    executor_artifact_dir: Path | None = None
 
     def render_prompt(self) -> str:
         prompt = [
@@ -114,6 +115,8 @@ class ExecutionResult:
     telemetry: Dict[str, Any] = field(default_factory=dict)
     cancelled: bool = False
     cancel_reason: str | None = None
+    stdout: str = ""
+    stderr: str = ""
 
 
 class ExecutionCancelledError(Exception):

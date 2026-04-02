@@ -47,6 +47,7 @@ class ReflectorAgent:
         self.last_usage: dict = {}
         self.last_model_name: str = llm_provider.model_name
         self.last_estimated_cost_usd: float | None = None
+        self.last_trace: dict = {}
 
     async def synthesize_experience(
         self,
@@ -130,6 +131,15 @@ class ReflectorAgent:
                     logger.warning("Skipping invalid experience item from LLM: {}. Error: {}", item, exc)
 
             logger.info("Successfully synthesized {} new experiences.", len(experiences))
+            self.last_trace = self._build_trace(
+                messages=messages,
+                raw_output=response.content,
+                parsed_output={
+                    "experiences": [item.model_dump(mode="json") for item in synthesis.experiences],
+                    "memory_updates": [item.model_dump(mode="json") for item in synthesis.memory_updates],
+                },
+                error=None,
+            )
             return ReflectionWriteback(
                 experiences=experiences,
                 memory_updates=memory_updates,
@@ -143,6 +153,12 @@ class ReflectorAgent:
             logger.error("Failed to parse valid experiences from LLM response. Error: {}", exc)
             if response is not None:
                 logger.debug("Invalid JSON response from LLM: {}", response.content)
+            self.last_trace = self._build_trace(
+                messages=messages,
+                raw_output=response.content if response is not None else "",
+                parsed_output={"experiences": [], "memory_updates": []},
+                error=str(exc),
+            )
             return ReflectionWriteback()
 
     def _allow_safeguard_memory(
@@ -255,6 +271,30 @@ class ReflectorAgent:
                 }
             )
         return trajectory
+
+    def _build_trace(
+        self,
+        *,
+        messages: list[LLMMessage],
+        raw_output: str,
+        parsed_output: dict[str, Any],
+        error: str | None,
+    ) -> dict[str, Any]:
+        provider_trace = getattr(self.llm_provider, "last_structured_trace", {}) or {}
+        return {
+            "input_messages": [message.model_dump() for message in messages],
+            "output_raw": raw_output,
+            "output_parsed": parsed_output,
+            "call": {
+                "model_name": self.last_model_name,
+                "usage": self.last_usage,
+                "estimated_cost_usd": self.last_estimated_cost_usd,
+                "local_attempt_count": provider_trace.get("local_attempt_count", 0),
+                "duration_seconds": provider_trace.get("duration_seconds"),
+                "error": error,
+            },
+            "repair_trace": provider_trace,
+        }
 
 
 @dataclass
