@@ -6,20 +6,25 @@ import json
 import os
 import re
 import sys
+import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pyarrow.parquet as pq
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
 DEFAULT_MODEL_KEY = "openai/gpt-5.4"
 DEFAULT_TASK_COUNT = 2
-DEFAULT_MAX_OUTPUT_TOKENS = 65536
+DEFAULT_MAX_OUTPUT_TOKENS = 8192
 DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 180.0
+DEFAULT_REQUEST_MAX_ATTEMPTS = 3
+DEFAULT_REQUEST_RETRY_BACKOFF_SECONDS = 2.0
+TRANSIENT_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
 TASK_TYPE = "report_generation"
 PROMPT_DATASET_METADATA_PLACEHOLDER = "{{DATASET_METADATA_BLOCK}}"
 PROMPT_TASK_ASSIGNMENT_PLACEHOLDER = "{{TASK_ASSIGNMENT_BLOCK}}"
@@ -483,6 +488,43 @@ def extract_generated_task(bundle: LLMGeneratedTaskBundle, dataset_config: Datas
     return enrich_generated_task(bundle.task, dataset_config)
 
 
+def extract_json_payload(text: str) -> Any:
+    stripped = text.strip()
+    if not stripped:
+        raise ValueError("Response output_text was empty")
+
+    decoder = json.JSONDecoder()
+    candidates = [stripped]
+
+    fence_pattern = re.compile(r"```(?:json)?\n(.*?)\n```", flags=re.DOTALL | re.IGNORECASE)
+    candidates.extend(match.group(1).strip() for match in fence_pattern.finditer(stripped) if match.group(1).strip())
+
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+        for index, char in enumerate(candidate):
+            if char not in "{[":
+                continue
+            try:
+                payload, _ = decoder.raw_decode(candidate[index:])
+                return payload
+            except json.JSONDecodeError:
+                continue
+
+    raise ValueError("Response output_text did not contain valid JSON")
+
+
+def parse_generated_bundle_from_response_text(response: Any) -> LLMGeneratedTaskBundle | None:
+    output_text = getattr(response, "output_text", None)
+    if not isinstance(output_text, str) or not output_text.strip():
+        return None
+    payload = extract_json_payload(output_text)
+    return LLMGeneratedTaskBundle.model_validate(payload)
+
+
 def response_debug_payload(
     *,
     response: Any,
@@ -497,9 +539,15 @@ def response_debug_payload(
         "paper_id": paper_paths.paper_id,
         "paper_dir": str(paper_paths.paper_dir),
         "pdf_path": str(paper_paths.pdf_path),
+        "paper_source": {
+            "mode": "pdf_file",
+            "path": str(paper_paths.pdf_path),
+            "file_size_bytes": paper_paths.pdf_path.stat().st_size,
+        },
         "request": {
             "max_output_tokens": max_output_tokens,
             "reasoning": reasoning_config,
+            "timeout_seconds": DEFAULT_REQUEST_TIMEOUT_SECONDS,
         },
         "status": getattr(response, "status", None),
         "error": model_to_jsonable(getattr(response, "error", None)),
@@ -553,6 +601,18 @@ def should_retry_without_reasoning_max_tokens(exc: Exception) -> bool:
     return any(marker in message for marker in unsupported_markers)
 
 
+def should_retry_api_exception(exc: Exception) -> bool:
+    if isinstance(exc, (APITimeoutError, APIConnectionError)):
+        return True
+    if isinstance(exc, APIStatusError):
+        return exc.status_code in TRANSIENT_STATUS_CODES
+    return False
+
+
+def retry_sleep_seconds(attempt: int) -> float:
+    return DEFAULT_REQUEST_RETRY_BACKOFF_SECONDS * (2 ** max(0, attempt - 1))
+
+
 def call_generation_api(
     *,
     client: OpenAI,
@@ -567,16 +627,48 @@ def call_generation_api(
         "effort": llm_config.reasoning_effort
     }
 
-    response = client.responses.parse(
-        model=llm_config.model_name,
-        input=request_input,
-        reasoning=reasoning_config,
-        text_format=LLMGeneratedTaskBundle,
-        max_output_tokens=max_output_tokens,
-        store=False,
-    )
+    response = None
+    last_exc: Exception | None = None
+    for attempt in range(1, DEFAULT_REQUEST_MAX_ATTEMPTS + 1):
+        try:
+            response = client.responses.parse(
+                model=llm_config.model_name,
+                input=request_input,
+                reasoning=reasoning_config,
+                text_format=LLMGeneratedTaskBundle,
+                max_output_tokens=max_output_tokens,
+                store=False,
+                timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS,
+            )
+            break
+        except Exception as exc:
+            last_exc = exc
+            if not should_retry_api_exception(exc) or attempt >= DEFAULT_REQUEST_MAX_ATTEMPTS:
+                raise
+            delay_seconds = retry_sleep_seconds(attempt)
+            print(
+                (
+                    f"transient API error for paper {paper_paths.paper_id} "
+                    f"(dataset={dataset_config.key}, source=pdf_file, "
+                    f"attempt={attempt}/{DEFAULT_REQUEST_MAX_ATTEMPTS}): {exc}; "
+                    f"retrying in {delay_seconds:.1f}s"
+                ),
+                file=sys.stderr,
+            )
+            time.sleep(delay_seconds)
+
+    if response is None:
+        assert last_exc is not None
+        raise last_exc
 
     parsed = response.output_parsed
+    manual_parse_error: Exception | None = None
+    if parsed is None:
+        try:
+            parsed = parse_generated_bundle_from_response_text(response)
+        except Exception as exc:
+            manual_parse_error = exc
+
     if parsed is None:
         log_response_debug(
             response=response,
@@ -585,6 +677,11 @@ def call_generation_api(
             max_output_tokens=max_output_tokens,
             reasoning_config=reasoning_config,
         )
+        if manual_parse_error is not None:
+            raise ValueError(
+                "The model response did not contain a valid parsed payload "
+                f"({describe_response_state(response)}; manual_parse_error={manual_parse_error})"
+            ) from manual_parse_error
         raise ValueError(f"The model response did not contain a parsed payload ({describe_response_state(response)})")
 
     result = extract_generated_task(parsed, dataset_config)
@@ -599,8 +696,14 @@ def call_generation_api(
         "usage": model_to_jsonable(response.usage),
         "estimated_cost": estimate_cost(response.usage, llm_config),
         "output_text": response.output_text,
+        "paper_source": {
+            "mode": "pdf_file",
+            "path": str(paper_paths.pdf_path),
+            "file_size_bytes": paper_paths.pdf_path.stat().st_size,
+        },
         "uploaded_via": "responses.input_file.file_data",
         "task_dataset_assignment": dataset_config.key,
+        "request_attempts": attempt,
     }
     return result, metadata
 
@@ -639,6 +742,10 @@ def combine_generation_metadata(
     paper_paths: PaperPaths,
     response_metadatas: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    uploaded_via_values = [metadata.get("uploaded_via") for metadata in response_metadatas]
+    paper_source_values = [metadata.get("paper_source") for metadata in response_metadatas]
+    unique_uploaded_via_values = list(dict.fromkeys(uploaded_via_values))
+    unique_paper_source_values = list(dict.fromkeys(json.dumps(value, sort_keys=True) for value in paper_source_values))
     return {
         "response_ids": [metadata["response_id"] for metadata in response_metadatas],
         "model": llm_config.model_name,
@@ -648,7 +755,12 @@ def combine_generation_metadata(
         "markdown_path": str(paper_paths.markdown_path) if paper_paths.markdown_path else None,
         "usage": aggregate_numeric_dicts([metadata.get("usage") for metadata in response_metadatas]),
         "estimated_cost": aggregate_numeric_dicts([metadata.get("estimated_cost") for metadata in response_metadatas]),
-        "uploaded_via": "responses.input_file.file_data",
+        "paper_sources": [metadata.get("paper_source") for metadata in response_metadatas],
+        "paper_source": paper_source_values[0] if len(unique_paper_source_values) == 1 else None,
+        "uploaded_via": unique_uploaded_via_values[0] if len(unique_uploaded_via_values) == 1 else uploaded_via_values,
+        "request_attempts": aggregate_numeric_dicts(
+            [{"request_attempts": metadata.get("request_attempts")} for metadata in response_metadatas]
+        ),
         "task_dataset_assignments": [config.key for config in DATASET_PROMPT_CONFIGS],
         "responses": response_metadatas,
     }

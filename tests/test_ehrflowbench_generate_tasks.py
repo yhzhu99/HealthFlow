@@ -5,11 +5,13 @@ from unittest import TestCase
 from unittest.mock import patch
 from types import SimpleNamespace
 
+import httpx
 from data.ehrflowbench.scripts import generate_tasks
 from data.ehrflowbench.scripts.generate_tasks import DatasetPromptConfig
 from data.ehrflowbench.scripts.generate_tasks import LLMGeneratedTask
 from data.ehrflowbench.scripts.generate_tasks import LLMGeneratedTaskBundle
 from data.ehrflowbench.scripts.generate_tasks import PaperPaths
+from openai import APITimeoutError
 
 
 FAKE_DATASET_CONFIGS = (
@@ -94,6 +96,25 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
         with self.assertRaisesRegex(ValueError, "single-task single-dataset contract violated"):
             generate_tasks.extract_generated_task(bundle, FAKE_DATASET_CONFIGS[0])
 
+    def test_build_generation_request_input_uses_pdf_file(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            paper_dir = Path(tmpdir)
+            pdf_path = paper_dir / "paper.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\n")
+            paper_paths = PaperPaths(
+                paper_id=7,
+                paper_dir=paper_dir,
+                pdf_path=pdf_path,
+                markdown_path=paper_dir / "full.md",
+            )
+
+            request_input = generate_tasks.build_generation_request_input("prompt", paper_paths)
+
+        self.assertEqual(request_input[0]["content"][0]["type"], "input_text")
+        self.assertEqual(request_input[0]["content"][1]["type"], "input_file")
+        self.assertEqual(request_input[0]["content"][1]["filename"], "paper.pdf")
+        self.assertTrue(request_input[0]["content"][1]["file_data"].startswith("data:application/pdf;base64,"))
+
     def test_call_generation_api_uses_bundle_text_format(self) -> None:
         parsed_bundle = LLMGeneratedTaskBundle(
             task=LLMGeneratedTask(
@@ -139,6 +160,110 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
         self.assertEqual(task.task_brief, "Analyze temporal severity progression in TJH.")
         self.assertEqual(metadata["response_id"], "resp-1")
         self.assertEqual(parse.call_args.kwargs["text_format"], LLMGeneratedTaskBundle)
+        self.assertEqual(parse.call_args.kwargs["timeout"], generate_tasks.DEFAULT_REQUEST_TIMEOUT_SECONDS)
+        self.assertEqual(metadata["paper_source"]["mode"], "pdf_file")
+        self.assertEqual(metadata["uploaded_via"], "responses.input_file.file_data")
+        self.assertEqual(metadata["request_attempts"], 1)
+
+    def test_call_generation_api_retries_after_timeout(self) -> None:
+        parsed_bundle = LLMGeneratedTaskBundle(
+            task=LLMGeneratedTask(
+                task_brief="Analyze temporal severity progression in TJH.",
+                focus_areas=["temporal modeling", "outcome analysis"],
+                task="Build a deterministic longitudinal analysis on the assigned dataset only.",
+                deliverables=["metrics.json", "figures/trajectory.png"],
+            )
+        )
+        response = SimpleNamespace(
+            id="resp-1",
+            output_parsed=parsed_bundle,
+            usage=SimpleNamespace(input_tokens=10, output_tokens=20),
+            output_text='{"task":{}}',
+        )
+        request = httpx.Request("POST", "https://example.com/v1/responses")
+        client = SimpleNamespace(
+            responses=SimpleNamespace(
+                parse=self._parse_with_transient_timeout(response, APITimeoutError(request))
+            )
+        )
+        llm_config = generate_tasks.LLMConfig(
+            api_key_env="OPENAI_API_KEY",
+            base_url="https://example.com/v1",
+            model_name="test-model",
+            reasoning_effort="medium",
+            input_cost_per_million_tokens=1.0,
+            output_cost_per_million_tokens=2.0,
+        )
+        paper_paths = PaperPaths(
+            paper_id=7,
+            paper_dir=Path("/tmp/7_paper"),
+            pdf_path=Path("/tmp/7_paper/paper.pdf"),
+            markdown_path=None,
+        )
+
+        with patch.object(generate_tasks, "build_generation_request_input", return_value=[{"role": "user"}]):
+            with patch.object(generate_tasks.time, "sleep") as sleep:
+                task, metadata = generate_tasks.call_generation_api(
+                    client=client,
+                    llm_config=llm_config,
+                    prompt_text="prompt",
+                    paper_paths=paper_paths,
+                    dataset_config=FAKE_DATASET_CONFIGS[0],
+                    max_output_tokens=123,
+                )
+
+        self.assertEqual(task.task_brief, "Analyze temporal severity progression in TJH.")
+        self.assertEqual(metadata["request_attempts"], 2)
+        sleep.assert_called_once_with(generate_tasks.retry_sleep_seconds(1))
+
+    def test_call_generation_api_parses_output_text_when_output_parsed_is_missing(self) -> None:
+        response = SimpleNamespace(
+            id="resp-1",
+            output_parsed=None,
+            usage=SimpleNamespace(input_tokens=10, output_tokens=20),
+            output_text=json.dumps(
+                {
+                    "task": {
+                        "task_brief": "Analyze temporal severity progression in TJH.",
+                        "focus_areas": ["temporal modeling", "outcome analysis"],
+                        "task": "Build a deterministic longitudinal analysis on the assigned dataset only.",
+                        "deliverables": ["metrics.json", "figures/trajectory.png"],
+                    }
+                }
+            ),
+            status="completed",
+            incomplete_details=None,
+            output=[],
+            error=None,
+        )
+        client = SimpleNamespace(responses=SimpleNamespace(parse=lambda **kwargs: response))
+        llm_config = generate_tasks.LLMConfig(
+            api_key_env="OPENAI_API_KEY",
+            base_url="https://example.com/v1",
+            model_name="test-model",
+            reasoning_effort="medium",
+            input_cost_per_million_tokens=1.0,
+            output_cost_per_million_tokens=2.0,
+        )
+        paper_paths = PaperPaths(
+            paper_id=7,
+            paper_dir=Path("/tmp/7_paper"),
+            pdf_path=Path("/tmp/7_paper/paper.pdf"),
+            markdown_path=None,
+        )
+
+        with patch.object(generate_tasks, "build_generation_request_input", return_value=[{"role": "user"}]):
+            task, metadata = generate_tasks.call_generation_api(
+                client=client,
+                llm_config=llm_config,
+                prompt_text="prompt",
+                paper_paths=paper_paths,
+                dataset_config=FAKE_DATASET_CONFIGS[0],
+                max_output_tokens=123,
+            )
+
+        self.assertEqual(task.task_brief, "Analyze temporal severity progression in TJH.")
+        self.assertEqual(metadata["response_id"], "resp-1")
 
     def test_write_prompt_outputs_writes_one_file_per_dataset(self) -> None:
         paper_paths = PaperPaths(
@@ -396,3 +521,15 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
         self.assertEqual(written_bundle.tasks[1], generated_task_2)
         payload = json.loads(mock_print.call_args.args[0])
         self.assertEqual(payload["response_ids"], ["resp-1", "resp-2"])
+
+    @staticmethod
+    def _parse_with_transient_timeout(response: SimpleNamespace, exc: APITimeoutError):
+        calls = {"count": 0}
+
+        def _parse(**kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise exc
+            return response
+
+        return _parse
