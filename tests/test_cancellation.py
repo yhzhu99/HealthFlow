@@ -153,14 +153,15 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result["cancelled"])
             self.assertEqual(result["evaluation_status"], "cancelled")
             self.assertEqual(result["available_project_cli_tools"], [])
-            self.assertTrue(Path(result["run_result_path"]).exists())
-            self.assertTrue(Path(result["run_manifest_path"]).exists())
-            manifest_text = Path(result["run_manifest_path"]).read_text(encoding="utf-8")
-            self.assertIn('"cancelled": true', manifest_text)
-            self.assertIn('"cancel_reason": "Execution cancelled by user."', manifest_text)
-            self.assertIn('"available_project_cli_tools": []', manifest_text)
-            self.assertTrue(Path(result["evaluation_path"]).exists())
-            self.assertTrue(Path(result["log_path"]).exists())
+            self.assertTrue(Path(result["runtime_index_path"]).exists())
+            self.assertTrue(Path(result["run_summary_path"]).exists())
+            self.assertTrue(Path(result["final_evaluation_path"]).exists())
+            runtime_index_text = Path(result["runtime_index_path"]).read_text(encoding="utf-8")
+            self.assertIn('"cancelled": true', runtime_index_text)
+            self.assertIn('"cancel_reason": "Execution cancelled by user."', runtime_index_text)
+            self.assertIn('"available_project_cli_tools": []', runtime_index_text)
+            self.assertTrue(Path(result["final_evaluation_path"]).exists())
+            self.assertTrue(Path(result["last_executor_log_path"]).exists())
 
     async def test_healthflow_cancelled_ehr_run_persists_oneehr_tool_contracts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -202,8 +203,8 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result["cancelled"])
             self.assertTrue(result["available_project_cli_tools"])
             self.assertIn("oneehr", " ".join(result["available_project_cli_tools"]).lower())
-            manifest_text = Path(result["run_manifest_path"]).read_text(encoding="utf-8").lower()
-            self.assertIn("oneehr", manifest_text)
+            runtime_index_text = Path(result["runtime_index_path"]).read_text(encoding="utf-8").lower()
+            self.assertIn("oneehr", runtime_index_text)
 
 
 if __name__ == "__main__":

@@ -101,11 +101,14 @@ def copy_workspace_files(workspace_path: str | None, output_dir: Path):
 
 
 def extract_last_attempt_score(result: Dict[str, Any]) -> float:
-    workspace_path = result.get("workspace_path")
-    if not workspace_path:
-        return 0.0
-
-    history_file = Path(workspace_path) / "full_history.json"
+    trajectory_path = result.get("run_trajectory_path")
+    if trajectory_path:
+        history_file = Path(trajectory_path)
+    else:
+        workspace_path = result.get("workspace_path")
+        if not workspace_path:
+            return 0.0
+        history_file = Path(workspace_path) / "runtime" / "run" / "trajectory.json"
     if not history_file.exists():
         return 0.0
 
@@ -285,9 +288,13 @@ async def run_benchmark_async(
                     "evaluation_score": 0.0,
                     "execution_time": 0.0,
                     "log_path": None,
-                    "evaluation_path": None,
-                    "memory_context_path": None,
-                    "run_result_path": None,
+                    "last_executor_log_path": None,
+                    "last_executor_prompt_path": None,
+                    "runtime_index_path": None,
+                    "run_summary_path": None,
+                    "run_trajectory_path": None,
+                    "run_costs_path": None,
+                    "final_evaluation_path": None,
                     "report_requested": False,
                     "report_generated": False,
                     "report_path": None,
@@ -318,14 +325,17 @@ async def run_benchmark_async(
                 "cost_analysis": result.get("cost_analysis"),
                 "execution_time": result.get("execution_time", 0.0),
                 "workspace_path": result.get("workspace_path"),
-                "log_path": result.get("log_path"),
+                "sandbox_path": result.get("sandbox_path"),
+                "runtime_path": result.get("runtime_path"),
+                "log_path": result.get("last_executor_log_path") or result.get("log_path"),
                 "evaluation_status": result.get("evaluation_status"),
                 "evaluation_score": result.get("evaluation_score"),
-                "evaluation_path": result.get("evaluation_path"),
-                "memory_context_path": result.get("memory_context_path"),
-                "cost_analysis_path": result.get("cost_analysis_path"),
-                "run_result_path": result.get("run_result_path"),
-                "run_manifest_path": result.get("run_manifest_path"),
+                "task_state_path": result.get("task_state_path"),
+                "runtime_index_path": result.get("runtime_index_path"),
+                "run_summary_path": result.get("run_summary_path"),
+                "run_trajectory_path": result.get("run_trajectory_path"),
+                "run_costs_path": result.get("run_costs_path"),
+                "final_evaluation_path": result.get("final_evaluation_path"),
                 "report_requested": result.get("report_requested", False),
                 "report_generated": result.get("report_generated", False),
                 "report_path": result.get("report_path"),

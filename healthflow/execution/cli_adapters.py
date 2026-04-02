@@ -26,12 +26,15 @@ class CLISubprocessExecutor(ExecutorAdapter):
 
     async def execute(self, context: ExecutionContext, working_dir: Path) -> ExecutionResult:
         prompt_text = context.render_prompt()
-        prompt_file_path = self._write_prompt_file(working_dir, prompt_text)
+        artifact_dir = context.executor_artifact_dir
+        prompt_file_path = self._write_prompt_file(working_dir, prompt_text, artifact_dir=artifact_dir)
         environment = self._build_environment(working_dir)
         command_args = self._build_command(prompt_text)
         redacted_command_args = self._redacted_command(command_args, prompt_text)
         backend_version = await self._capture_backend_version(environment)
-        log_file_path = working_dir / f"{self.backend_name}_execution.log"
+        log_file_path = self._log_file_path(working_dir, artifact_dir=artifact_dir)
+        stdout_file_path = self._stdout_file_path(working_dir, artifact_dir=artifact_dir)
+        stderr_file_path = self._stderr_file_path(working_dir, artifact_dir=artifact_dir)
         logger.info(
             "Executing backend '{}' in '{}': {}",
             self.backend_name,
@@ -72,6 +75,8 @@ class CLISubprocessExecutor(ExecutorAdapter):
                         prompt_text=prompt_text,
                         prompt_file_path=prompt_file_path,
                         log_file_path=log_file_path,
+                        stdout_file_path=stdout_file_path,
+                        stderr_file_path=stderr_file_path,
                         redacted_command_args=redacted_command_args,
                         backend_version=backend_version,
                         duration_seconds=duration_seconds,
@@ -82,11 +87,11 @@ class CLISubprocessExecutor(ExecutorAdapter):
                     cancelled_result.cancel_reason or "Execution cancelled by user.",
                 ) from None
 
-            log_content = self._format_combined_log(
-                stdout_bytes.decode("utf-8", errors="replace"),
-                stderr_bytes.decode("utf-8", errors="replace"),
-                timed_out=timed_out,
-            )
+            stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+            log_content = self._format_combined_log(stdout_text, stderr_text, timed_out=timed_out)
+            self._write_stream_file(stdout_file_path, stdout_text)
+            self._write_stream_file(stderr_file_path, stderr_text)
             log_file_path.write_text(log_content, encoding="utf-8")
             duration_seconds = round(time.time() - start_time, 2)
 
@@ -109,6 +114,8 @@ class CLISubprocessExecutor(ExecutorAdapter):
                     duration_seconds=duration_seconds,
                     timed_out=timed_out,
                 ),
+                stdout=stdout_text,
+                stderr=stderr_text,
             )
         except ExecutionCancelledError:
             raise
@@ -136,6 +143,8 @@ class CLISubprocessExecutor(ExecutorAdapter):
                     duration_seconds=duration_seconds,
                     timed_out=timed_out,
                 ),
+                stdout="",
+                stderr="",
             )
 
     async def _build_cancelled_result(
@@ -145,16 +154,18 @@ class CLISubprocessExecutor(ExecutorAdapter):
         prompt_text: str,
         prompt_file_path: Path,
         log_file_path: Path,
+        stdout_file_path: Path,
+        stderr_file_path: Path,
         redacted_command_args: list[str],
         backend_version: str | None,
         duration_seconds: float,
     ) -> ExecutionResult:
         stdout_bytes, stderr_bytes = await self._terminate_process(process)
-        log_content = self._format_combined_log(
-            stdout_bytes.decode("utf-8", errors="replace"),
-            stderr_bytes.decode("utf-8", errors="replace"),
-            cancelled=True,
-        )
+        stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+        stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+        log_content = self._format_combined_log(stdout_text, stderr_text, cancelled=True)
+        self._write_stream_file(stdout_file_path, stdout_text)
+        self._write_stream_file(stderr_file_path, stderr_text)
         log_file_path.write_text(log_content, encoding="utf-8")
         return ExecutionResult(
             success=False,
@@ -177,6 +188,8 @@ class CLISubprocessExecutor(ExecutorAdapter):
             ),
             cancelled=True,
             cancel_reason="Execution cancelled by user.",
+            stdout=stdout_text,
+            stderr=stderr_text,
         )
 
     async def _terminate_process(self, process: asyncio.subprocess.Process) -> tuple[bytes, bytes]:
@@ -205,10 +218,37 @@ class CLISubprocessExecutor(ExecutorAdapter):
             command.append(prompt_text)
         return command
 
-    def _write_prompt_file(self, working_dir: Path, prompt_text: str) -> Path:
-        prompt_path = working_dir / f"{self.backend_name}_prompt.md"
+    def _write_prompt_file(self, working_dir: Path, prompt_text: str, artifact_dir: Path | None = None) -> Path:
+        prompt_path = self._prompt_file_path(working_dir, artifact_dir=artifact_dir)
         prompt_path.write_text(prompt_text, encoding="utf-8")
         return prompt_path
+
+    def _prompt_file_path(self, working_dir: Path, artifact_dir: Path | None = None) -> Path:
+        if artifact_dir is not None:
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            return artifact_dir / "prompt.md"
+        return working_dir / f"{self.backend_name}_prompt.md"
+
+    def _log_file_path(self, working_dir: Path, artifact_dir: Path | None = None) -> Path:
+        if artifact_dir is not None:
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            return artifact_dir / "combined.log"
+        return working_dir / f"{self.backend_name}_execution.log"
+
+    def _stdout_file_path(self, working_dir: Path, artifact_dir: Path | None = None) -> Path:
+        if artifact_dir is not None:
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            return artifact_dir / "stdout.txt"
+        return working_dir / f"{self.backend_name}_stdout.txt"
+
+    def _stderr_file_path(self, working_dir: Path, artifact_dir: Path | None = None) -> Path:
+        if artifact_dir is not None:
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            return artifact_dir / "stderr.txt"
+        return working_dir / f"{self.backend_name}_stderr.txt"
+
+    def _write_stream_file(self, path: Path, content: str) -> None:
+        path.write_text(content, encoding="utf-8")
 
     def _redacted_command(self, command_args: list[str], prompt_text: str) -> list[str]:
         if self.backend_config.prompt_mode != "append" or not command_args:
@@ -423,12 +463,15 @@ class OpenCodeExecutor(CLISubprocessExecutor):
             return await super().execute(context, working_dir)
 
         prompt_text = context.render_prompt()
-        prompt_file_path = self._write_prompt_file(working_dir, prompt_text)
+        artifact_dir = context.executor_artifact_dir
+        prompt_file_path = self._write_prompt_file(working_dir, prompt_text, artifact_dir=artifact_dir)
         environment = self._build_environment(working_dir)
         command_args = self._build_command(prompt_text)
         redacted_command_args = self._redacted_command(command_args, prompt_text)
         backend_version = await self._capture_backend_version(environment)
-        log_file_path = working_dir / f"{self.backend_name}_execution.log"
+        log_file_path = self._log_file_path(working_dir, artifact_dir=artifact_dir)
+        stdout_file_path = self._stdout_file_path(working_dir, artifact_dir=artifact_dir)
+        stderr_file_path = self._stderr_file_path(working_dir, artifact_dir=artifact_dir)
         logger.info(
             "Executing backend '{}' in '{}': {}",
             self.backend_name,
@@ -469,6 +512,8 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                         prompt_text=prompt_text,
                         prompt_file_path=prompt_file_path,
                         log_file_path=log_file_path,
+                        stdout_file_path=stdout_file_path,
+                        stderr_file_path=stderr_file_path,
                         redacted_command_args=redacted_command_args,
                         backend_version=backend_version,
                         duration_seconds=duration_seconds,
@@ -482,6 +527,8 @@ class OpenCodeExecutor(CLISubprocessExecutor):
             duration_seconds = round(time.time() - start_time, 2)
             stdout_text = stdout_bytes.decode("utf-8", errors="replace")
             stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+            self._write_stream_file(stdout_file_path, stdout_text)
+            self._write_stream_file(stderr_file_path, stderr_text)
             parsed = parse_opencode_json_events(stdout_text)
             usage = self._default_usage(
                 prompt_text=prompt_text,
@@ -519,6 +566,8 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                 timed_out=timed_out,
                 usage=usage,
                 telemetry=telemetry,
+                stdout=stdout_text,
+                stderr=stderr_text,
             )
         except ExecutionCancelledError:
             raise
@@ -546,6 +595,8 @@ class OpenCodeExecutor(CLISubprocessExecutor):
                     duration_seconds=duration_seconds,
                     timed_out=timed_out,
                 ),
+                stdout=stdout_bytes.decode("utf-8", errors="replace"),
+                stderr=stderr_bytes.decode("utf-8", errors="replace"),
             )
 
     async def _build_cancelled_result(
@@ -555,6 +606,8 @@ class OpenCodeExecutor(CLISubprocessExecutor):
         prompt_text: str,
         prompt_file_path: Path,
         log_file_path: Path,
+        stdout_file_path: Path,
+        stderr_file_path: Path,
         redacted_command_args: list[str],
         backend_version: str | None,
         duration_seconds: float,
@@ -562,6 +615,8 @@ class OpenCodeExecutor(CLISubprocessExecutor):
         stdout_bytes, stderr_bytes = await self._terminate_process(process)
         stdout_text = stdout_bytes.decode("utf-8", errors="replace")
         stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+        self._write_stream_file(stdout_file_path, stdout_text)
+        self._write_stream_file(stderr_file_path, stderr_text)
         parsed = parse_opencode_json_events(stdout_text)
         usage = self._default_usage(
             prompt_text=prompt_text,
@@ -601,6 +656,8 @@ class OpenCodeExecutor(CLISubprocessExecutor):
             telemetry=telemetry,
             cancelled=True,
             cancel_reason="Execution cancelled by user.",
+            stdout=stdout_text,
+            stderr=stderr_text,
         )
 
     def _render_opencode_log(

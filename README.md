@@ -47,21 +47,25 @@ Dataset preparation and benchmark evaluation assets remain under `data/`; they a
 
 Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 
-- `<backend>_execution.log`
-- `task_list_v*.md`
-- `full_history.json`
-- `memory_context.json`
-- `evaluation.json`
-- `cost_analysis.json`
-- `run_manifest.json`
-- `run_result.json`
+- `sandbox/`
+  - executor-visible inputs and produced deliverables only
+- `runtime/index.json`
+- `runtime/events.jsonl`
+- `runtime/run/summary.json`
+- `runtime/run/trajectory.json`
+- `runtime/run/costs.json`
+- `runtime/run/final_evaluation.json`
+- `runtime/attempts/attempt_*/`
+  - `planner/`: input messages, raw output, parsed output, call metadata, repair trace, plan markdown
+  - `executor/`: prompt, command, stdout, stderr, combined log, telemetry, usage, artifact index
+  - `evaluator/`: input messages, raw output, parsed output, call metadata, repair trace
 
 When `healthflow run ... --report` is enabled, the same workspace also writes:
 
-- `report.md`
+- `runtime/report.md`
 
 These files are the main source of truth for rebuttal-oriented inspection.
-`report.md` is a standard HealthFlow-generated markdown report that summarizes the run, links produced artifacts with relative paths, embeds a small number of images inline, and keeps runtime JSON/log files in a separate audit section.
+`runtime/report.md` is a standard HealthFlow-generated markdown report that summarizes the run, links sandbox deliverables with relative paths, embeds a small number of images inline, and keeps runtime JSON/log files in a separate audit section.
 
 ## Runtime Boundary
 
@@ -87,7 +91,7 @@ Retrieval is inspectable:
 - contradictory memories are tracked by `conflict_slot`
 - safeguard memories suppress conflicting workflow or execution memories before planning
 - dataset memories act as anchors without replacing workflow guidance
-- the retrieval audit is saved to `memory_context.json`
+- the retrieval audit is saved per attempt under `runtime/attempts/attempt_*/memory/retrieval_result.json`
 
 Writeback behavior:
 
@@ -320,7 +324,7 @@ python run_healthflow.py run \
 ```
 
 The same CLI can also run EHR-focused prompts used in the paper and arbitrary external-CLI-driven workflows.
-When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single markdown artifact before exporting it to PDF or other formats.
+When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/runtime/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single markdown artifact before exporting it to PDF or other formats.
 
 To override the configured runtime models from the CLI, pass any subset of:
 `--planner-llm`, `--evaluator-llm`, `--reflector-llm`, `--executor-llm`.

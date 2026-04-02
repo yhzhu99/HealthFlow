@@ -18,6 +18,7 @@ class MetaAgent:
         self.last_usage: dict = {}
         self.last_model_name: str = llm_provider.model_name
         self.last_estimated_cost_usd: float | None = None
+        self.last_trace: dict = {}
 
     async def generate_plan(
         self,
@@ -60,6 +61,12 @@ class MetaAgent:
             self.last_usage = response.usage
             self.last_model_name = response.model_name
             self.last_estimated_cost_usd = response.estimated_cost_usd
+            self.last_trace = self._build_trace(
+                messages=messages,
+                raw_output=response.content,
+                parsed_output=plan.model_dump(mode="json"),
+                fallback_used=False,
+            )
             logger.info("Plan generated successfully.")
             return plan
         except (StructuredResponseError, ValueError) as e:
@@ -71,7 +78,7 @@ class MetaAgent:
             logger.error(f"Failed to parse valid plan from LLM: {e}. Defaulting to a fallback plan.")
             if response is not None:
                 logger.debug(f"Invalid JSON response from LLM: {response.content}")
-            return ExecutionPlan(
+            fallback_plan = ExecutionPlan(
                 objective=user_request,
                 assumptions_to_check=["Inspect the workspace inputs before implementing a solution."],
                 recommended_steps=[
@@ -83,6 +90,14 @@ class MetaAgent:
                 avoidances=["Do not ignore relevant safeguards or previous feedback."],
                 success_signals=["The requested result is present in the workspace and summarized in the final answer."],
             )
+            self.last_trace = self._build_trace(
+                messages=messages,
+                raw_output=response.content if response is not None else "",
+                parsed_output=fallback_plan.model_dump(mode="json"),
+                fallback_used=True,
+                error=str(e),
+            )
+            return fallback_plan
 
     def _build_user_prompt(
         self,
@@ -133,3 +148,29 @@ class MetaAgent:
         if not body:
             return ""
         return f"{title}:\n---\n{body}\n---"
+
+    def _build_trace(
+        self,
+        *,
+        messages: list[LLMMessage],
+        raw_output: str,
+        parsed_output: dict,
+        fallback_used: bool,
+        error: str | None = None,
+    ) -> dict:
+        provider_trace = getattr(self.llm_provider, "last_structured_trace", {}) or {}
+        return {
+            "input_messages": [message.model_dump() for message in messages],
+            "output_raw": raw_output,
+            "output_parsed": parsed_output,
+            "call": {
+                "model_name": self.last_model_name,
+                "usage": self.last_usage,
+                "estimated_cost_usd": self.last_estimated_cost_usd,
+                "local_attempt_count": provider_trace.get("local_attempt_count", 0),
+                "duration_seconds": provider_trace.get("duration_seconds"),
+                "fallback_used": fallback_used,
+                "error": error,
+            },
+            "repair_trace": provider_trace,
+        }

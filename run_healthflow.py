@@ -100,11 +100,14 @@ def _display_task_result(result: dict, *, verbose: bool = False, chat_mode: bool
 [bold]Evaluation Score:[/bold] {result.get('evaluation_score', 'N/A')}
 [bold]Usage Summary:[/bold] {result.get('usage_summary', {})}
 [bold]Cost Summary:[/bold] {result.get('cost_summary', {})}
-[bold]Cost Analysis JSON:[/bold] {result.get('cost_analysis_path', 'N/A')}
-[bold]Log Path:[/bold] {result.get('log_path', 'N/A')}
-[bold]Evaluation JSON:[/bold] {result.get('evaluation_path', 'N/A')}
-[bold]Memory Context:[/bold] {result.get('memory_context_path', 'N/A')}
-[bold]Run Result JSON:[/bold] {result.get('run_result_path', 'N/A')}
+[bold]Runtime Index:[/bold] {result.get('runtime_index_path', 'N/A')}
+[bold]Run Summary JSON:[/bold] {result.get('run_summary_path', 'N/A')}
+[bold]Run Trajectory JSON:[/bold] {result.get('run_trajectory_path', 'N/A')}
+[bold]Run Costs JSON:[/bold] {result.get('run_costs_path', 'N/A')}
+[bold]Final Evaluation JSON:[/bold] {result.get('final_evaluation_path', 'N/A')}
+[bold]Task State JSON:[/bold] {result.get('task_state_path', 'N/A')}
+[bold]Executor Log Path:[/bold] {result.get('last_executor_log_path') or result.get('log_path', 'N/A')}
+[bold]Executor Prompt Path:[/bold] {result.get('last_executor_prompt_path') or result.get('prompt_path', 'N/A')}
 [bold]Report Requested:[/bold] {report_requested}
 [bold]Report Generated:[/bold] {report_generated}
 [bold]Report Path:[/bold] {result.get('report_path') or 'N/A'}
@@ -112,6 +115,8 @@ def _display_task_result(result: dict, *, verbose: bool = False, chat_mode: bool
 
 ---
 [bold]Workspace:[/bold] {result.get('workspace_path', 'N/A')}
+[bold]Sandbox:[/bold] {result.get('sandbox_path', 'N/A')}
+[bold]Runtime:[/bold] {result.get('runtime_path', 'N/A')}
 [bold]Execution Time:[/bold] {result.get('execution_time', 0):.2f}s
 [bold]Cancelled:[/bold] {cancelled}
 [bold]Cancel Reason:[/bold] {result.get('cancel_reason') or 'N/A'}
