@@ -25,91 +25,49 @@ class ExecutionContext:
     prior_feedback: Optional[str] = None
 
     def render_prompt(self) -> str:
-        safeguard_block = (
-            "\n".join(f"- {item}" for item in self.safeguard_memory)
-            or "- No safeguard memory was retrieved for this task."
-        )
-        retrieved_workflow_block = (
-            "\n".join(f"- {item}" for item in self.workflow_memory)
-            or "- No workflow memory was retrieved for this task."
-        )
-        dataset_block = (
-            "\n".join(f"- {item}" for item in self.dataset_memory)
-            or "- No dataset memory was retrieved for this task."
-        )
-        execution_block = (
-            "\n".join(f"- {item}" for item in self.execution_memory)
-            or "- No execution memory was retrieved for this task."
-        )
-        environment_block = "\n".join(
-            f"- {item}" for item in self.execution_environment.summary_lines()
-        ) or "- Use the default executor environment."
-        workflow_recommendation_block = (
-            "\n".join(f"- {item}" for item in self.workflow_recommendations)
-            or "- No workflow recommendations were provided for this run."
-        )
-        project_cli_tools_block = (
-            "\n".join(f"- {item}" for item in self.available_project_cli_tools)
-            or "- No task-specific project CLI tools were surfaced for this run."
-        )
-
         prompt = [
-            "# HealthFlow Executor Brief",
-            "",
-            "You are acting as the active external execution backend selected by HealthFlow.",
-            "Your public assistant identity is always HealthFlow.",
-            "Do not present MetaAgent, the evaluator, the reflector, or the executor backend name as the user-facing assistant identity.",
-            "If the user asks who you are, what your name is, or what you can do, answer as HealthFlow.",
-            "Operate as a CodeAct-style executor: think in explicit actions, choose the next best action, run it, inspect the result, and continue.",
-            "Work inside the current workspace and keep your process reproducible and inspectable.",
-            "Do not rely on repository-level executor-specific instruction files; use only the shared instructions in this prompt.",
-            "HealthFlow does not manage MCP servers, plugin registries, or local CLI tool catalogs.",
+            "# HealthFlow Execution Task",
             "",
             "## Original Task",
             self.user_request.strip(),
             "",
             "## Execution Environment",
-            environment_block,
-            "",
-            "## Available Project CLI Tools",
-            project_cli_tools_block,
-            "",
-            "## Workflow Recommendations",
-            workflow_recommendation_block,
-            "",
-            "## EHR Safeguards",
-            safeguard_block,
-            "",
-            "## Workflow Memory",
-            retrieved_workflow_block,
-            "",
-            "## Dataset Anchors",
-            dataset_block,
-            "",
-            "## Execution Hints",
-            execution_block,
-            "",
-            "## Execution Plan",
-            self.plan.to_markdown(),
+            self._render_bullet_block(
+                self.execution_environment.summary_lines(),
+                fallback="- Use the default executor environment.",
+            ),
         ]
-        if self.prior_feedback:
+        self._append_optional_section(prompt, "## Available Project CLI Tools", self.available_project_cli_tools)
+        self._append_optional_section(prompt, "## Workflow Recommendations", self.workflow_recommendations)
+        self._append_optional_section(prompt, "## EHR Safeguards", self.safeguard_memory)
+        self._append_optional_section(prompt, "## Workflow Memories", self.workflow_memory)
+        self._append_optional_section(prompt, "## Dataset Anchors", self.dataset_memory)
+        self._append_optional_section(prompt, "## Execution Hints", self.execution_memory)
+        has_project_cli_tools = self._has_content(self.available_project_cli_tools)
+        has_workflow_recommendations = self._has_content(self.workflow_recommendations)
+        has_safeguards = self._has_content(self.safeguard_memory)
+        has_prior_feedback = bool(self.prior_feedback and self.prior_feedback.strip())
+        if has_prior_feedback:
             prompt.extend(["", "## Feedback from Previous Attempt", self.prior_feedback.strip()])
-        prompt.extend(
-            [
-                "",
-                "## Execution Rules",
-                "- Inspect the workspace and any task inputs before committing to an implementation path.",
-                "- Save every artifact inside the current workspace. Do not write files outside it.",
-                "- Prefer reproducible Python and CLI workflows, usually through the configured run prefix when it fits.",
-                "- Treat any tool listed under 'Available Project CLI Tools' as an explicitly approved project-local workflow for this run.",
-                "- Use the planner's recommended workflows when they fit, but adapt if execution reality requires a better path.",
-                "- Only rely on CLI tools or services that are already available in your executor environment; verify availability before depending on them.",
-                "- Treat safeguard memories as high-priority guardrails when choosing and validating your approach.",
-                "- Record meaningful intermediate artifacts when they make the final result easier to inspect or reuse.",
-                "- Keep execution narration out of the final user-facing reply unless the task explicitly asks for process detail.",
-                "- End with a concise final answer that references any produced artifacts.",
-            ]
-        )
+        prompt.extend(["", self.plan.to_markdown(title_level=2)])
+        rules = [
+            "Inspect the workspace and any task inputs before committing to an implementation path.",
+            "Save every artifact inside the current workspace. Do not write files outside it.",
+            "Prefer reproducible Python and CLI workflows, usually through the configured run prefix when it fits.",
+            "Only rely on CLI tools or services that are already available in your executor environment.",
+            "Verify external tools before depending on them for the core path.",
+            "Record meaningful intermediate artifacts when they make the final result easier to inspect or reuse.",
+            "End with a concise final answer that references any produced artifacts.",
+        ]
+        if has_project_cli_tools:
+            rules.append("Treat surfaced project CLI tools as approved project-local workflows for this run.")
+        if has_workflow_recommendations:
+            rules.append("Use planner workflow recommendations when they fit, but adapt if execution reality requires a better path.")
+        if has_safeguards:
+            rules.append("Treat safeguard memories as constraints that override softer workflow preferences.")
+        if has_prior_feedback:
+            rules.append("Address the previous attempt feedback explicitly when choosing the next path.")
+        prompt.extend(["", "## Execution Rules", *[f"- {rule}" for rule in rules]])
         if self.report_requested:
             prompt.extend(
                 [
@@ -119,6 +77,21 @@ class ExecutionContext:
                 ]
             )
         return "\n".join(prompt).strip()
+
+    def _append_optional_section(self, prompt: list[str], heading: str, items: list[str]) -> None:
+        block = self._render_bullet_block(items)
+        if not block:
+            return
+        prompt.extend(["", heading, block])
+
+    def _render_bullet_block(self, items: list[str], fallback: str | None = None) -> str:
+        cleaned_items = [item.strip() for item in items if item.strip()]
+        if cleaned_items:
+            return "\n".join(f"- {item}" for item in cleaned_items)
+        return fallback or ""
+
+    def _has_content(self, items: list[str]) -> bool:
+        return any(item.strip() for item in items)
 
 
 @dataclass

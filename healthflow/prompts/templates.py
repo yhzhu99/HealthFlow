@@ -26,42 +26,7 @@ Output format:
     "meta_agent_user": """
 Create a structured plan for the following request.
 
-User request:
----
-$user_request
----
-
-Execution environment:
----
-$execution_environment
----
-
-Workflow recommendations:
----
-$workflow_recommendations
----
-
-EHR safeguards:
----
-$safeguard_experiences
----
-
-Workflow memories:
----
-$workflow_experiences
----
-
-Dataset memories:
----
-$dataset_experiences
----
-
-Execution memories:
----
-$execution_experiences
----
-
-$feedback
+$context_blocks
 
 Instructions:
 1. Make the executor inspect the workspace early instead of assuming input structure.

@@ -363,21 +363,23 @@ reasoning_effort = "medium"
             workflow_recommendations=["Prefer workspace-local Python entrypoints via `uv run`."],
         )
         prompt = context.render_prompt()
-        self.assertIn("Do not rely on repository-level executor-specific instruction files", prompt)
         self.assertIn("Save every artifact inside the current workspace", prompt)
-        self.assertIn("CodeAct-style executor", prompt)
-        self.assertIn("Your public assistant identity is always HealthFlow.", prompt)
-        self.assertIn("Do not present MetaAgent, the evaluator, the reflector, or the executor backend name", prompt)
-        self.assertIn("answer as HealthFlow", prompt)
         self.assertIn("## Execution Environment", prompt)
-        self.assertIn("HealthFlow does not manage MCP servers", prompt)
         self.assertIn("## Available Project CLI Tools", prompt)
         self.assertIn("uv run oneehr", prompt)
-        self.assertIn("## EHR Safeguards", prompt)
         self.assertIn("## Workflow Recommendations", prompt)
-        self.assertIn("## Workflow Memory", prompt)
-        self.assertIn("explicitly approved project-local workflow", prompt)
-        self.assertIn("Keep execution narration out of the final user-facing reply", prompt)
+        self.assertIn("Treat surfaced project CLI tools as approved project-local workflows", prompt)
+        self.assertIn("Use planner workflow recommendations when they fit", prompt)
+        self.assertIn("## Execution Plan", prompt)
+        self.assertIn("### Objective", prompt)
+        self.assertNotIn("Do not rely on repository-level executor-specific instruction files", prompt)
+        self.assertNotIn("CodeAct-style executor", prompt)
+        self.assertNotIn("Your public assistant identity is always HealthFlow.", prompt)
+        self.assertNotIn("HealthFlow does not manage MCP servers", prompt)
+        self.assertNotIn("## EHR Safeguards", prompt)
+        self.assertNotIn("## Workflow Memories", prompt)
+        self.assertNotIn("## Dataset Anchors", prompt)
+        self.assertNotIn("## Execution Hints", prompt)
 
     def test_shared_executor_prompt_adds_report_guidance_without_requiring_executor_report_file(self):
         context = ExecutionContext(
@@ -401,7 +403,7 @@ reasoning_effort = "medium"
         self.assertIn("key artifacts you produced", prompt)
         self.assertNotIn("final_report.md", prompt)
 
-    def test_shared_executor_prompt_falls_back_when_no_project_cli_tools_are_surfaced(self):
+    def test_shared_executor_prompt_omits_empty_optional_sections(self):
         context = ExecutionContext(
             user_request="Summarize the workspace.",
             plan=ExecutionPlan(
@@ -417,8 +419,30 @@ reasoning_effort = "medium"
 
         prompt = context.render_prompt()
 
-        self.assertIn("## Available Project CLI Tools", prompt)
-        self.assertIn("No task-specific project CLI tools were surfaced", prompt)
+        self.assertNotIn("## Available Project CLI Tools", prompt)
+        self.assertNotIn("## Workflow Recommendations", prompt)
+        self.assertNotIn("## EHR Safeguards", prompt)
+        self.assertNotIn("## Workflow Memories", prompt)
+        self.assertNotIn("## Dataset Anchors", prompt)
+        self.assertNotIn("## Execution Hints", prompt)
+        self.assertNotIn("## Feedback from Previous Attempt", prompt)
+
+    def test_shared_executor_prompt_renders_previous_feedback_only_when_present(self):
+        context = ExecutionContext(
+            user_request="Summarize the workspace.",
+            plan=ExecutionPlan(
+                objective="Summarize the workspace.",
+                recommended_steps=["Inspect the workspace.", "Summarize the findings."],
+            ),
+            execution_environment=EnvironmentConfig(),
+            prior_feedback="The previous attempt skipped the requested artifact.",
+        )
+
+        prompt = context.render_prompt()
+
+        self.assertIn("## Feedback from Previous Attempt", prompt)
+        self.assertIn("previous attempt skipped the requested artifact", prompt.lower())
+        self.assertIn("Address the previous attempt feedback explicitly", prompt)
 
     def test_repo_root_does_not_depend_on_claude_md(self):
         repo_root = Path(__file__).resolve().parents[1]

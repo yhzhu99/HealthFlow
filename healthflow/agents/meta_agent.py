@@ -34,42 +34,15 @@ class MetaAgent:
         Analyze the user request and generate a structured execution plan.
         """
         system_prompt = get_prompt("meta_agent_system")
-        safeguard_str = self._render_memory_block(
-            safeguard_experiences,
-            prefix="Guardrail",
-            fallback="No EHR safeguard memory was retrieved.",
-        )
-        workflow_str = self._render_memory_block(
-            workflow_experiences,
-            prefix="Workflow",
-            fallback="No workflow memory was retrieved.",
-        )
-        dataset_str = self._render_memory_block(
-            dataset_experiences,
-            prefix="Dataset",
-            fallback="No dataset anchor memory was retrieved.",
-        )
-        execution_str = self._render_memory_block(
-            execution_experiences,
-            prefix="Execution",
-            fallback="No execution memory was retrieved.",
-        )
-
-        feedback_str = ""
-        if previous_feedback:
-            feedback_str = f"**Feedback from Previous Failed Attempt (Must be addressed):**\n{previous_feedback}"
-
-        user_prompt = render_prompt(
-            "meta_agent_user",
+        user_prompt = self._build_user_prompt(
             user_request=user_request,
-            safeguard_experiences=safeguard_str,
-            workflow_experiences=workflow_str,
-            dataset_experiences=dataset_str,
-            execution_experiences=execution_str,
-            execution_environment="\n".join(f"- {item}" for item in execution_environment) or "- Use the default executor environment.",
-            workflow_recommendations="\n".join(f"- {item}" for item in workflow_recommendations)
-            or "- Prefer the most direct reproducible workflow available in the executor environment.",
-            feedback=feedback_str,
+            safeguard_experiences=safeguard_experiences,
+            workflow_experiences=workflow_experiences,
+            dataset_experiences=dataset_experiences,
+            execution_experiences=execution_experiences,
+            execution_environment=execution_environment,
+            workflow_recommendations=workflow_recommendations,
+            previous_feedback=previous_feedback,
         )
 
         messages = [
@@ -111,9 +84,36 @@ class MetaAgent:
                 success_signals=["The requested result is present in the workspace and summarized in the final answer."],
             )
 
-    def _render_memory_block(self, experiences: List[Experience], prefix: str, fallback: str) -> str:
+    def _build_user_prompt(
+        self,
+        *,
+        user_request: str,
+        safeguard_experiences: List[Experience],
+        workflow_experiences: List[Experience],
+        dataset_experiences: List[Experience],
+        execution_experiences: List[Experience],
+        execution_environment: List[str],
+        workflow_recommendations: List[str],
+        previous_feedback: Optional[str],
+    ) -> str:
+        sections = [
+            self._render_section("User request", user_request.strip()),
+            self._render_section(
+                "Execution environment",
+                self._render_bullet_list(execution_environment) or "- Use the default executor environment.",
+            ),
+            self._render_section("Workflow recommendations", self._render_bullet_list(workflow_recommendations)),
+            self._render_section("EHR safeguards", self._render_memory_block(safeguard_experiences, prefix="Guardrail")),
+            self._render_section("Workflow memories", self._render_memory_block(workflow_experiences, prefix="Workflow")),
+            self._render_section("Dataset memories", self._render_memory_block(dataset_experiences, prefix="Dataset")),
+            self._render_section("Execution memories", self._render_memory_block(execution_experiences, prefix="Execution")),
+            self._render_section("Feedback from Previous Failed Attempt", previous_feedback or ""),
+        ]
+        return render_prompt("meta_agent_user", context_blocks="\n\n".join(section for section in sections if section)).strip()
+
+    def _render_memory_block(self, experiences: List[Experience], prefix: str) -> str:
         if not experiences:
-            return fallback
+            return ""
         return "\n".join(
             (
                 f"- **{prefix}** [{exp.kind.value}/{exp.source_outcome.value}] {exp.category}\n"
@@ -121,3 +121,15 @@ class MetaAgent:
             )
             for exp in experiences
         )
+
+    def _render_bullet_list(self, items: List[str]) -> str:
+        cleaned_items = [item.strip() for item in items if item.strip()]
+        if not cleaned_items:
+            return ""
+        return "\n".join(f"- {item}" for item in cleaned_items)
+
+    def _render_section(self, title: str, body: str) -> str:
+        body = body.strip()
+        if not body:
+            return ""
+        return f"{title}:\n---\n{body}\n---"
