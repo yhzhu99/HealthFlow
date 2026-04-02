@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import re
 import sys
 import time
@@ -11,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from data.ehrflowbench.scripts import generate_tasks
@@ -45,6 +47,14 @@ DEFAULT_OUTPUT_ROOT = generate_tasks.DATASET_ROOT / "processed" / "papers" / "ta
 RAW_RESPONSE_DIRNAME = "raw_responses"
 PROMPT_OUTPUT_DIRNAME = "prompts"
 DEFAULT_RANK_STATUS = "eligible"
+ANTHROPIC_VERSION = "2023-06-01"
+ANTHROPIC_THINKING_MIN_BUDGET_TOKENS = 1024
+ANTHROPIC_THINKING_MIN_OUTPUT_HEADROOM = 256
+ANTHROPIC_THINKING_EFFORT_RATIOS = {
+    "low": 0.20,
+    "medium": 0.50,
+    "high": 0.80,
+}
 
 
 @dataclass(frozen=True)
@@ -64,6 +74,24 @@ class TaskScoreCandidate:
     @property
     def key(self) -> tuple[int, int]:
         return (self.paper_id, self.task_idx)
+
+
+@dataclass(frozen=True)
+class ScoringAPIResponse:
+    id: str | None
+    status: str | None
+    error: Any
+    incomplete_details: Any
+    usage: Any
+    output_text: str | None
+    output: Any
+
+
+class AnthropicMessagesRequestError(Exception):
+    def __init__(self, cause: Exception, attempts: int):
+        super().__init__(str(cause))
+        self.cause = cause
+        self.attempts = attempts
 
 
 class TaskScoreBreakdown(BaseModel):
@@ -214,6 +242,7 @@ def discover_task_candidates(tasks_path: Path) -> list[TaskScoreCandidate]:
 
 def build_candidate_prompt_payload(candidate: TaskScoreCandidate) -> dict[str, Any]:
     return {
+        "paper_id": candidate.paper_id,
         "task": candidate.task,
         "deliverables": list(candidate.deliverables),
     }
@@ -345,8 +374,15 @@ def response_debug_payload(
     prompt_text: str,
     derived_context: dict[str, Any],
     max_output_tokens: int,
-    reasoning_config: dict[str, Any],
+    reasoning_config: dict[str, Any] | None,
+    thinking_config: dict[str, Any] | None,
     request_attempts: int,
+    api_name: str,
+    fallback_chain: list[dict[str, Any]] | None = None,
+    thinking_status: str | None = None,
+    thinking_text: str | None = None,
+    thinking_blocks: list[dict[str, Any]] | None = None,
+    provider_response: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "response_id": getattr(response, "id", None),
@@ -360,9 +396,12 @@ def response_debug_payload(
         },
         "request": {
             "max_output_tokens": max_output_tokens,
+            "api": api_name,
             "reasoning": reasoning_config,
+            "thinking": thinking_config,
             "timeout_seconds": generate_tasks.DEFAULT_REQUEST_TIMEOUT_SECONDS,
             "attempts": request_attempts,
+            "fallback_chain": fallback_chain or [],
         },
         "prompt_text": prompt_text,
         "derived_context": derived_context,
@@ -370,36 +409,193 @@ def response_debug_payload(
         "error": to_jsonable(getattr(response, "error", None)),
         "incomplete_details": to_jsonable(getattr(response, "incomplete_details", None)),
         "usage": to_jsonable(getattr(response, "usage", None)),
+        "thinking_status": thinking_status,
+        "thinking_text": thinking_text,
+        "thinking_blocks": thinking_blocks,
         "output_text": getattr(response, "output_text", None),
         "output": to_jsonable(getattr(response, "output", None)),
+        "provider_response": provider_response,
     }
 
 
-def call_scoring_api(
+def is_anthropic_model(llm_config: generate_tasks.LLMConfig) -> bool:
+    return llm_config.model_name.startswith("anthropic/")
+
+
+def resolve_anthropic_messages_url(base_url: str) -> str | None:
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/api/v1"):
+        return f"{normalized[:-len('/api/v1')]}/api/anthropic/v1/messages"
+    return None
+
+
+def build_thinking_config(reasoning_effort: str, max_output_tokens: int) -> dict[str, Any] | None:
+    if max_output_tokens < ANTHROPIC_THINKING_MIN_BUDGET_TOKENS + ANTHROPIC_THINKING_MIN_OUTPUT_HEADROOM:
+        return None
+
+    effort_ratio = ANTHROPIC_THINKING_EFFORT_RATIOS.get(reasoning_effort, ANTHROPIC_THINKING_EFFORT_RATIOS["medium"])
+    max_budget = max_output_tokens - ANTHROPIC_THINKING_MIN_OUTPUT_HEADROOM
+    budget_tokens = int(max_output_tokens * effort_ratio)
+    budget_tokens = max(ANTHROPIC_THINKING_MIN_BUDGET_TOKENS, min(budget_tokens, max_budget))
+    return {"type": "enabled", "budget_tokens": budget_tokens}
+
+
+def join_nonempty_text(parts: list[str]) -> str | None:
+    cleaned = [part.strip() for part in parts if isinstance(part, str) and part.strip()]
+    if not cleaned:
+        return None
+    return "\n\n".join(cleaned)
+
+
+def normalize_anthropic_response(
+    payload: dict[str, Any],
+) -> tuple[ScoringAPIResponse, str | None, list[dict[str, Any]], str]:
+    content = payload.get("content")
+    if not isinstance(content, list):
+        content = []
+
+    text_parts: list[str] = []
+    thinking_parts: list[str] = []
+    thinking_blocks: list[dict[str, Any]] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        block_type = str(block.get("type") or "")
+        if block_type == "text":
+            text_value = block.get("text")
+            if isinstance(text_value, str):
+                text_parts.append(text_value)
+            continue
+        if block_type == "thinking":
+            thinking_blocks.append(block)
+            thinking_value = block.get("thinking")
+            if isinstance(thinking_value, str):
+                thinking_parts.append(thinking_value)
+
+    stop_reason = payload.get("stop_reason")
+    incomplete_details = None
+    if stop_reason not in (None, "end_turn"):
+        incomplete_details = {"reason": stop_reason}
+
+    response = ScoringAPIResponse(
+        id=str(payload.get("id")) if payload.get("id") is not None else None,
+        status="completed" if payload.get("type") == "message" else str(payload.get("type") or "unknown"),
+        error=payload.get("error"),
+        incomplete_details=incomplete_details,
+        usage=payload.get("usage"),
+        output_text=join_nonempty_text(text_parts),
+        output=content,
+    )
+    thinking_text = join_nonempty_text(thinking_parts)
+    thinking_status = "captured" if thinking_text else "missing"
+    return response, thinking_text, thinking_blocks, thinking_status
+
+
+def build_anthropic_request_payload(
+    llm_config: generate_tasks.LLMConfig,
+    prompt_text: str,
+    max_output_tokens: int,
+    thinking_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": llm_config.model_name,
+        "max_tokens": max_output_tokens,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt_text,
+            }
+        ],
+    }
+    if thinking_config is not None:
+        payload["thinking"] = thinking_config
+    return payload
+
+
+def describe_httpx_error(exc: Exception) -> str:
+    if isinstance(exc, AnthropicMessagesRequestError):
+        return describe_httpx_error(exc.cause)
+    if isinstance(exc, httpx.HTTPStatusError):
+        message = str(exc)
+        try:
+            payload = exc.response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            error_payload = payload.get("error")
+            if isinstance(error_payload, dict):
+                error_message = error_payload.get("message")
+                if isinstance(error_message, str) and error_message.strip():
+                    message = error_message.strip()
+        return f"HTTP {exc.response.status_code}: {message}"
+    return str(exc)
+
+
+def should_retry_httpx_exception(exc: Exception) -> bool:
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in generate_tasks.TRANSIENT_STATUS_CODES
+    return False
+
+
+def should_fallback_without_thinking(exc: Exception) -> bool:
+    if isinstance(exc, AnthropicMessagesRequestError):
+        exc = exc.cause
+    if should_retry_httpx_exception(exc):
+        return False
+    message = describe_httpx_error(exc).lower()
+    if "thinking" not in message and "budget_tokens" not in message:
+        return False
+    return True
+
+
+def append_fallback_step(
+    fallback_chain: list[dict[str, Any]],
+    *,
+    api_name: str,
+    thinking_config: dict[str, Any] | None,
+    outcome: str,
+    attempts: int,
+    error: str | None = None,
+) -> None:
+    step = {
+        "api": api_name,
+        "thinking": thinking_config,
+        "outcome": outcome,
+        "attempts": attempts,
+    }
+    if error is not None:
+        step["error"] = error
+    fallback_chain.append(step)
+
+
+def call_responses_scoring_api(
     *,
     client: Any,
     llm_config: generate_tasks.LLMConfig,
     candidate: TaskScoreCandidate,
-    prompt_text: str,
-    derived_context: dict[str, Any],
+    request_input: list[dict[str, Any]],
     max_output_tokens: int,
-) -> tuple[Any, dict[str, Any]]:
-    request_input = build_scoring_request_input(prompt_text)
-    reasoning_config = {"effort": llm_config.reasoning_effort}
-
+    reasoning_config: dict[str, Any] | None,
+) -> tuple[Any, int]:
     response = None
     last_exc: Exception | None = None
     for attempt in range(1, generate_tasks.DEFAULT_REQUEST_MAX_ATTEMPTS + 1):
         try:
+            request_kwargs: dict[str, Any] = {
+                "model": llm_config.model_name,
+                "input": request_input,
+                "max_output_tokens": max_output_tokens,
+                "store": False,
+                "timeout": generate_tasks.DEFAULT_REQUEST_TIMEOUT_SECONDS,
+            }
+            if reasoning_config is not None:
+                request_kwargs["reasoning"] = reasoning_config
             response = client.responses.create(
-                model=llm_config.model_name,
-                input=request_input,
-                reasoning=reasoning_config,
-                max_output_tokens=max_output_tokens,
-                store=False,
-                timeout=generate_tasks.DEFAULT_REQUEST_TIMEOUT_SECONDS,
+                **request_kwargs,
             )
-            break
+            return response, attempt
         except Exception as exc:
             last_exc = exc
             if not generate_tasks.should_retry_api_exception(exc) or attempt >= generate_tasks.DEFAULT_REQUEST_MAX_ATTEMPTS:
@@ -413,10 +609,249 @@ def call_scoring_api(
             )
             time.sleep(delay_seconds)
 
-    if response is None:
-        assert last_exc is not None
-        raise last_exc
+    assert last_exc is not None
+    raise last_exc
 
+
+def call_anthropic_messages_scoring_api(
+    *,
+    llm_config: generate_tasks.LLMConfig,
+    candidate: TaskScoreCandidate,
+    prompt_text: str,
+    max_output_tokens: int,
+    thinking_config: dict[str, Any] | None,
+) -> tuple[dict[str, Any], int]:
+    api_key = os.environ.get(llm_config.api_key_env)
+    if not api_key:
+        raise EnvironmentError(f"Environment variable {llm_config.api_key_env} is not set")
+
+    api_url = resolve_anthropic_messages_url(llm_config.base_url)
+    if api_url is None:
+        raise ValueError(f"Could not derive Anthropic Messages API URL from base URL: {llm_config.base_url}")
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "content-type": "application/json",
+    }
+    request_payload = build_anthropic_request_payload(
+        llm_config=llm_config,
+        prompt_text=prompt_text,
+        max_output_tokens=max_output_tokens,
+        thinking_config=thinking_config,
+    )
+
+    last_exc: Exception | None = None
+    for attempt in range(1, generate_tasks.DEFAULT_REQUEST_MAX_ATTEMPTS + 1):
+        try:
+            with httpx.Client(timeout=generate_tasks.DEFAULT_REQUEST_TIMEOUT_SECONDS) as http_client:
+                response = http_client.post(api_url, headers=headers, json=request_payload)
+                response.raise_for_status()
+                return response.json(), attempt
+        except Exception as exc:
+            last_exc = exc
+            if not should_retry_httpx_exception(exc) or attempt >= generate_tasks.DEFAULT_REQUEST_MAX_ATTEMPTS:
+                raise AnthropicMessagesRequestError(exc, attempt) from exc
+            delay_seconds = generate_tasks.retry_sleep_seconds(attempt)
+            log(
+                "transient API error for "
+                f"paper={candidate.paper_id} task={candidate.task_idx} "
+                f"attempt={attempt}/{generate_tasks.DEFAULT_REQUEST_MAX_ATTEMPTS}: {describe_httpx_error(exc)}; "
+                f"retrying in {delay_seconds:.1f}s"
+            )
+            time.sleep(delay_seconds)
+
+    assert last_exc is not None
+    raise AnthropicMessagesRequestError(last_exc, generate_tasks.DEFAULT_REQUEST_MAX_ATTEMPTS) from last_exc
+
+
+def call_scoring_api(
+    *,
+    client: Any,
+    llm_config: generate_tasks.LLMConfig,
+    candidate: TaskScoreCandidate,
+    prompt_text: str,
+    derived_context: dict[str, Any],
+    max_output_tokens: int,
+) -> tuple[Any, dict[str, Any]]:
+    request_input = build_scoring_request_input(prompt_text)
+    fallback_chain: list[dict[str, Any]] = []
+    reasoning_config: dict[str, Any] | None = {"effort": llm_config.reasoning_effort}
+    thinking_config: dict[str, Any] | None = None
+    thinking_status: str | None = None
+    thinking_text: str | None = None
+    thinking_blocks: list[dict[str, Any]] | None = None
+    provider_response: dict[str, Any] | None = None
+    api_name = "responses"
+    request_attempts = 0
+
+    if is_anthropic_model(llm_config):
+        thinking_config = build_thinking_config(llm_config.reasoning_effort, max_output_tokens)
+        reasoning_config = None
+        messages_response: dict[str, Any] | None = None
+        messages_attempts = 0
+        allow_messages_without_thinking = True
+
+        if thinking_config is None:
+            thinking_status = "disabled_budget_too_small"
+            append_fallback_step(
+                fallback_chain,
+                api_name="anthropic-messages",
+                thinking_config=None,
+                outcome="thinking_disabled_budget_too_small",
+                attempts=0,
+            )
+        else:
+            try:
+                messages_response, messages_attempts = call_anthropic_messages_scoring_api(
+                    llm_config=llm_config,
+                    candidate=candidate,
+                    prompt_text=prompt_text,
+                    max_output_tokens=max_output_tokens,
+                    thinking_config=thinking_config,
+                )
+            except Exception as exc:
+                attempts = exc.attempts if isinstance(exc, AnthropicMessagesRequestError) else 1
+                append_fallback_step(
+                    fallback_chain,
+                    api_name="anthropic-messages",
+                    thinking_config=thinking_config,
+                    outcome="error",
+                    attempts=attempts,
+                    error=describe_httpx_error(exc),
+                )
+                if should_fallback_without_thinking(exc):
+                    log(
+                        f"paper={candidate.paper_id} task={candidate.task_idx} Anthropic thinking failed; "
+                        "retrying without thinking"
+                    )
+                    thinking_status = "fallback_without_thinking"
+                else:
+                    allow_messages_without_thinking = False
+                    messages_attempts = 0
+                    log(
+                        f"paper={candidate.paper_id} task={candidate.task_idx} Anthropic Messages API failed; "
+                        "falling back to Responses API"
+                    )
+            else:
+                append_fallback_step(
+                    fallback_chain,
+                    api_name="anthropic-messages",
+                    thinking_config=thinking_config,
+                    outcome="success",
+                    attempts=messages_attempts,
+                )
+
+        if messages_response is None and allow_messages_without_thinking:
+            try:
+                messages_response, messages_attempts_without_thinking = call_anthropic_messages_scoring_api(
+                    llm_config=llm_config,
+                    candidate=candidate,
+                    prompt_text=prompt_text,
+                    max_output_tokens=max_output_tokens,
+                    thinking_config=None,
+                )
+            except Exception as exc:
+                attempts = exc.attempts if isinstance(exc, AnthropicMessagesRequestError) else 1
+                append_fallback_step(
+                    fallback_chain,
+                    api_name="anthropic-messages",
+                    thinking_config=None,
+                    outcome="error",
+                    attempts=attempts,
+                    error=describe_httpx_error(exc),
+                )
+                log(
+                    f"paper={candidate.paper_id} task={candidate.task_idx} Anthropic Messages API fallback failed; "
+                    "falling back to Responses API"
+                )
+            else:
+                messages_attempts += messages_attempts_without_thinking
+                append_fallback_step(
+                    fallback_chain,
+                    api_name="anthropic-messages",
+                    thinking_config=None,
+                    outcome="success",
+                    attempts=messages_attempts_without_thinking,
+                )
+                if thinking_status is None:
+                    thinking_status = "disabled_budget_too_small"
+
+        if messages_response is not None:
+            api_name = "anthropic-messages"
+            request_attempts = sum(int(step.get("attempts", 0)) for step in fallback_chain)
+            provider_response = messages_response
+            response, thinking_text, extracted_thinking_blocks, extracted_thinking_status = normalize_anthropic_response(
+                messages_response
+            )
+            thinking_blocks = extracted_thinking_blocks
+            if thinking_status is None:
+                thinking_status = extracted_thinking_status
+            sent_thinking_config = None
+            if thinking_status not in {"fallback_without_thinking", "disabled_budget_too_small"}:
+                sent_thinking_config = thinking_config
+            metadata = response_debug_payload(
+                response=response,
+                llm_config=llm_config,
+                candidate=candidate,
+                prompt_text=prompt_text,
+                derived_context=derived_context,
+                max_output_tokens=max_output_tokens,
+                reasoning_config=reasoning_config,
+                thinking_config=sent_thinking_config,
+                request_attempts=request_attempts,
+                api_name=api_name,
+                fallback_chain=fallback_chain,
+                thinking_status=thinking_status,
+                thinking_text=thinking_text,
+                thinking_blocks=thinking_blocks,
+                provider_response=provider_response,
+            )
+            return response, metadata
+
+        api_name = "responses"
+        thinking_status = "fallback_to_responses"
+        response, responses_attempts = call_responses_scoring_api(
+            client=client,
+            llm_config=llm_config,
+            candidate=candidate,
+            request_input=request_input,
+            max_output_tokens=max_output_tokens,
+            reasoning_config=None,
+        )
+        request_attempts = responses_attempts
+        append_fallback_step(
+            fallback_chain,
+            api_name="responses",
+            thinking_config=None,
+            outcome="success",
+            attempts=responses_attempts,
+        )
+        request_attempts = sum(int(step.get("attempts", 0)) for step in fallback_chain)
+        metadata = response_debug_payload(
+            response=response,
+            llm_config=llm_config,
+            candidate=candidate,
+            prompt_text=prompt_text,
+            derived_context=derived_context,
+            max_output_tokens=max_output_tokens,
+            reasoning_config=None,
+            thinking_config=None,
+            request_attempts=request_attempts,
+            api_name=api_name,
+            fallback_chain=fallback_chain,
+            thinking_status=thinking_status,
+        )
+        return response, metadata
+
+    response, request_attempts = call_responses_scoring_api(
+        client=client,
+        llm_config=llm_config,
+        candidate=candidate,
+        request_input=request_input,
+        max_output_tokens=max_output_tokens,
+        reasoning_config=reasoning_config,
+    )
     metadata = response_debug_payload(
         response=response,
         llm_config=llm_config,
@@ -425,7 +860,9 @@ def call_scoring_api(
         derived_context=derived_context,
         max_output_tokens=max_output_tokens,
         reasoning_config=reasoning_config,
-        request_attempts=attempt,
+        thinking_config=None,
+        request_attempts=request_attempts,
+        api_name=api_name,
     )
     return response, metadata
 
