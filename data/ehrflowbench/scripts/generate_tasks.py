@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pyarrow.parquet as pq
 from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -19,6 +20,17 @@ DEFAULT_MODEL_KEY = "openai/gpt-5.4"
 DEFAULT_TASK_COUNT = 2
 DEFAULT_MAX_OUTPUT_TOKENS = 65536
 DEFAULT_REASONING_EFFORT = "medium"
+TASK_TYPE = "report_generation"
+PROMPT_DATASET_METADATA_PLACEHOLDER = "{{DATASET_METADATA_BLOCK}}"
+PROMPT_TASK_ASSIGNMENT_PLACEHOLDER = "{{TASK_ASSIGNMENT_BLOCK}}"
+FIXED_REPORT_REQUIREMENTS = (
+    "State the objective and paper-inspired hypothesis.",
+    "Describe the input data used and preprocessing steps.",
+    "Explain the method or analysis design.",
+    "Report quantitative results.",
+    "Provide figure and/or table evidence.",
+    "State the final conclusion.",
+)
 
 
 def find_project_root() -> Path:
@@ -37,6 +49,53 @@ CONFIG_PATH = PROJECT_ROOT / "config.toml"
 DEFAULT_OUTPUT_ROOT = DATASET_ROOT / "processed" / "papers" / "generated_tasks"
 
 
+@dataclass(frozen=True)
+class DatasetPromptConfig:
+    key: str
+    display_name: str
+    parquet_path: Path
+    split_metadata_path: Path
+    required_inputs: tuple[str, ...]
+    value_reference_path: Path | None = None
+
+
+DATASET_PROMPT_CONFIGS = (
+    DatasetPromptConfig(
+        key="tjh",
+        display_name="TJH",
+        parquet_path=DATASET_ROOT / "processed" / "tjh" / "tjh_formatted_ehr.parquet",
+        split_metadata_path=DATASET_ROOT / "processed" / "tjh" / "split_metadata.json",
+        required_inputs=(
+            "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
+            "data/ehrflowbench/processed/tjh/split_metadata.json",
+        ),
+    ),
+    DatasetPromptConfig(
+        key="mimic_iv_demo",
+        display_name="MIMIC-IV-demo",
+        parquet_path=DATASET_ROOT / "processed" / "mimic_iv_demo" / "mimic_iv_demo_formatted_ehr.parquet",
+        split_metadata_path=DATASET_ROOT / "processed" / "mimic_iv_demo" / "split_metadata.json",
+        required_inputs=(
+            "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_formatted_ehr.parquet",
+            "data/ehrflowbench/processed/mimic_iv_demo/split_metadata.json",
+            "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_value_reference.md",
+        ),
+        value_reference_path=DATASET_ROOT / "processed" / "mimic_iv_demo" / "mimic_iv_demo_value_reference.md",
+    ),
+)
+
+
+class LLMGeneratedTask(BaseModel):
+    task_brief: str
+    focus_areas: list[str]
+    task: str
+    deliverables: list[str]
+
+
+class LLMGeneratedTaskBundle(BaseModel):
+    tasks: list[LLMGeneratedTask] = Field(min_length=DEFAULT_TASK_COUNT, max_length=DEFAULT_TASK_COUNT)
+
+
 class GeneratedTask(BaseModel):
     task_brief: str
     task_type: str
@@ -49,8 +108,8 @@ class GeneratedTask(BaseModel):
     @field_validator("task_type")
     @classmethod
     def validate_task_type(cls, value: str) -> str:
-        if value != "report_generation":
-            raise ValueError("task_type must be report_generation")
+        if value != TASK_TYPE:
+            raise ValueError(f"task_type must be {TASK_TYPE}")
         return value
 
 
@@ -81,7 +140,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--paper-id", type=int, help="Numeric paper id prefix from the markdown folder name, for example 1.")
     parser.add_argument("--paper-dir", type=str, help="Explicit paper directory under raw/papers/markdowns.")
     parser.add_argument("--model-key", default=DEFAULT_MODEL_KEY, help="LLM key under config.toml.")
-    parser.add_argument("--task-count", type=int, default=DEFAULT_TASK_COUNT, help="Number of tasks to request per paper.")
+    parser.add_argument(
+        "--task-count",
+        type=int,
+        default=DEFAULT_TASK_COUNT,
+        help="Fixed at 2 tasks per paper: task 1 uses TJH and task 2 uses MIMIC-IV-demo.",
+    )
     parser.add_argument("--max-output-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--overwrite", action="store_true")
@@ -105,28 +169,164 @@ def load_llm_config(config_path: Path, model_key: str) -> LLMConfig:
 
 
 def extract_prompt_body(prompt_path: Path) -> str:
-    text = prompt_path.read_text(encoding="utf-8")
-    match = re.search(r"```text\n(.*?)\n```", text, flags=re.DOTALL)
+    text = prompt_path.read_text(encoding="utf-8").strip()
+    match = re.fullmatch(r"```(?:[a-zA-Z0-9_+-]+)?\n(.*?)\n```", text, flags=re.DOTALL)
     if match:
         return match.group(1).strip()
-    return text.strip()
+    return text
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def ensure_path_exists(path: Path) -> Path:
+    if not path.exists():
+        raise FileNotFoundError(f"Required local metadata file does not exist: {path}")
+    return path
+
+
+def summarize_split_metadata(path: Path) -> dict[str, Any]:
+    payload = load_json(ensure_path_exists(path))
+    keys = (
+        "dataset",
+        "seed",
+        "key_column",
+        "label_column",
+        "split_ratios",
+        "key_count",
+        "row_count",
+        "label_distribution",
+        "split_key_counts",
+        "split_row_counts",
+    )
+    return {key: payload[key] for key in keys if key in payload}
+
+
+def summarize_parquet(path: Path) -> dict[str, Any]:
+    table = pq.read_table(ensure_path_exists(path))
+    sample_rows = table.slice(0, 1).to_pylist()
+    return {
+        "num_rows": table.num_rows,
+        "num_columns": table.num_columns,
+        "schema": [(field.name, str(field.type)) for field in table.schema],
+        "sample_rows": sample_rows,
+    }
+
+
+def extract_supported_targets(schema_fields: list[tuple[str, str]]) -> list[str]:
+    preferred_targets = ("Outcome", "LOS", "Readmission")
+    available = {name for name, _ in schema_fields}
+    return [name for name in preferred_targets if name in available]
+
+
+def build_dataset_metadata_block(dataset_configs: tuple[DatasetPromptConfig, ...]) -> str:
+    lines = [
+        "The following metadata was extracted locally by the Python pipeline and injected into this prompt.",
+        "You must rely on this metadata instead of trying to access repository files directly.",
+        "",
+    ]
+
+    for index, config in enumerate(dataset_configs, start=1):
+        parquet_summary = summarize_parquet(config.parquet_path)
+        split_summary = summarize_split_metadata(config.split_metadata_path)
+        supported_targets = extract_supported_targets(parquet_summary["schema"])
+
+        lines.append(f"### Dataset {index}: {config.display_name}")
+        lines.append(f"- Dataset key: `{config.key}`")
+        lines.append(f"- Canonical parquet path: `{config.required_inputs[0]}`")
+        lines.append(f"- Canonical split metadata path: `{config.required_inputs[1]}`")
+        if config.value_reference_path is not None:
+            lines.append(f"- Canonical value-reference path: `{config.required_inputs[2]}`")
+        lines.append(
+            f"- Table shape: {parquet_summary['num_rows']} rows x {parquet_summary['num_columns']} columns."
+        )
+        lines.append(f"- Key column: `{split_summary.get('key_column', 'unknown')}`")
+        if split_summary.get("label_column"):
+            lines.append(f"- Label column: `{split_summary['label_column']}`")
+        if supported_targets:
+            lines.append("- Directly visible target-like columns: " + ", ".join(f"`{value}`" for value in supported_targets))
+        if split_summary.get("split_ratios"):
+            lines.append(
+                "- Split ratios: "
+                + json.dumps(split_summary["split_ratios"], ensure_ascii=False, sort_keys=True)
+            )
+        if split_summary.get("split_key_counts"):
+            lines.append(
+                "- Split key counts: "
+                + json.dumps(split_summary["split_key_counts"], ensure_ascii=False, sort_keys=True)
+            )
+        if split_summary.get("split_row_counts"):
+            lines.append(
+                "- Split row counts: "
+                + json.dumps(split_summary["split_row_counts"], ensure_ascii=False, sort_keys=True)
+            )
+        if split_summary.get("label_distribution"):
+            lines.append(
+                "- Label distribution summary: "
+                + json.dumps(split_summary["label_distribution"], ensure_ascii=False, sort_keys=True)
+            )
+        lines.append("- Column schema:")
+        for field_name, field_type in parquet_summary["schema"]:
+            lines.append(f"  - `{field_name}`: `{field_type}`")
+        lines.append("- Sample row:")
+        lines.append("```json")
+        lines.append(json.dumps(parquet_summary["sample_rows"], ensure_ascii=False, indent=2))
+        lines.append("```")
+        if config.value_reference_path is not None:
+            value_reference = ensure_path_exists(config.value_reference_path).read_text(encoding="utf-8").strip()
+            lines.append("- Value-reference content:")
+            lines.append("```markdown")
+            lines.append(value_reference)
+            lines.append("```")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def build_task_assignment_block(dataset_configs: tuple[DatasetPromptConfig, ...]) -> str:
+    if len(dataset_configs) != DEFAULT_TASK_COUNT:
+        raise ValueError(
+            f"EhrFlowBench task generation is fixed to {DEFAULT_TASK_COUNT} tasks; "
+            f"received {len(dataset_configs)} dataset assignment configs"
+        )
+
+    lines = [f"Generate exactly {DEFAULT_TASK_COUNT} tasks in this exact order:"]
+    for index, config in enumerate(dataset_configs, start=1):
+        lines.append(f"{index}. Task {index} must use `{config.display_name}` only.")
+        lines.append(
+            "   The local pipeline will append these fixed `required_inputs` after parsing: "
+            + ", ".join(f"`{path}`" for path in config.required_inputs)
+        )
+        lines.append("   Do not ask this task to access or compare against the other dataset.")
+    lines.append("Return the `tasks` array in the same order as the numbered assignment above.")
+    return "\n".join(lines)
+
+
+def inject_prompt_block(prompt: str, placeholder: str, block: str, title: str) -> str:
+    if placeholder in prompt:
+        return prompt.replace(placeholder, block)
+    return f"{prompt.rstrip()}\n\n## {title}\n\n{block}\n"
 
 
 def adapt_prompt(prompt_body: str, task_count: int) -> str:
-    prompt = prompt_body
-    prompt = re.sub(
-        r"Your first step is to read the research paper markdown at:\n`[^`]+`",
-        "Your first step is to read the uploaded research paper PDF provided in this API request. Use the uploaded PDF as the source paper for task generation.",
-        prompt,
-        count=1,
+    if task_count != DEFAULT_TASK_COUNT:
+        raise ValueError(
+            f"EhrFlowBench task generation is fixed to {DEFAULT_TASK_COUNT} tasks "
+            f"(one TJH task and one MIMIC-IV-demo task); received {task_count}"
+        )
+
+    prompt = inject_prompt_block(
+        prompt_body,
+        PROMPT_DATASET_METADATA_PLACEHOLDER,
+        build_dataset_metadata_block(DATASET_PROMPT_CONFIGS),
+        "Injected Local EHR Metadata",
     )
-    prompt = re.sub(r"generate `3-5`", f"generate `{task_count}`", prompt)
-    prompt = re.sub(r"The `3-5` tasks", f"The `{task_count}` tasks", prompt)
-    prompt = re.sub(
-        r"Now read the paper at `[^`]+` and return the JSON object only\.",
-        "Now read the uploaded PDF and return the JSON object only.",
+    prompt = inject_prompt_block(
         prompt,
-        count=1,
+        PROMPT_TASK_ASSIGNMENT_PLACEHOLDER,
+        build_task_assignment_block(DATASET_PROMPT_CONFIGS),
+        "Injected Task Allocation",
     )
     prompt += (
         "\n\nAdditional API-run constraints:\n"
@@ -136,6 +336,7 @@ def adapt_prompt(prompt_body: str, task_count: int) -> str:
         "- Do not assume diagnosis-category labels, symptom-dialogue annotations, medications, code systems, or event-token schemas exist unless they are plainly available in the processed inputs.\n"
         "- When the paper is about diagnosis dialogue or other unavailable supervision, rewrite the task around stable targets that are commonly visible in the processed tables, such as `Outcome`, `LOS`, `Readmission`, or directly derived descriptive quantities.\n"
         "- Prefer lightweight tabular or longitudinal analyses over sequence-generation or token-level setups unless the processed schema clearly supports them.\n"
+        "- Do not mention `task_type`, `required_inputs`, or `report_requirements` in the JSON output; those fields are injected locally after parsing.\n"
         "- Return valid JSON that matches the required schema exactly.\n"
     )
     return prompt
@@ -230,6 +431,79 @@ def model_to_jsonable(value: Any) -> Any:
 def encode_pdf_as_base64(pdf_path: Path) -> str:
     encoded = base64.b64encode(pdf_path.read_bytes()).decode("utf-8")
     return f"data:application/pdf;base64,{encoded}"
+
+
+def normalize_string_list(values: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = str(value).strip()
+        if not normalized or normalized in seen:
+            continue
+        cleaned.append(normalized)
+        seen.add(normalized)
+    return cleaned
+
+
+def normalize_focus_areas(values: list[str]) -> list[str]:
+    cleaned = normalize_string_list(values)
+    if not 2 <= len(cleaned) <= 4:
+        raise ValueError(f"focus_areas must contain 2-4 unique non-empty values, received {cleaned!r}")
+    return cleaned
+
+
+def normalize_deliverables(values: list[str]) -> list[str]:
+    cleaned = normalize_string_list(values)
+    if "report.md" not in cleaned:
+        cleaned.insert(0, "report.md")
+    return cleaned
+
+
+def task_mentions_other_dataset(task: LLMGeneratedTask, assigned_dataset_key: str) -> bool:
+    text = " ".join(
+        [
+            task.task_brief,
+            " ".join(task.focus_areas),
+            task.task,
+            " ".join(task.deliverables),
+        ]
+    ).lower()
+    forbidden_markers = {
+        "tjh": ("mimic", "mimic-iv", "mimic iv", "mimic_iv_demo"),
+        "mimic_iv_demo": ("tjh", "tongji"),
+    }
+    return any(marker in text for marker in forbidden_markers[assigned_dataset_key])
+
+
+def enrich_generated_task(task: LLMGeneratedTask, dataset_config: DatasetPromptConfig) -> GeneratedTask:
+    if task_mentions_other_dataset(task, dataset_config.key):
+        raise ValueError(
+            f"Task assigned to {dataset_config.display_name} mentions the other dataset; "
+            "single-task single-dataset contract violated"
+        )
+
+    return GeneratedTask(
+        task_brief=task.task_brief.strip(),
+        task_type=TASK_TYPE,
+        focus_areas=normalize_focus_areas(task.focus_areas),
+        task=task.task.strip(),
+        required_inputs=list(dataset_config.required_inputs),
+        deliverables=normalize_deliverables(task.deliverables),
+        report_requirements=list(FIXED_REPORT_REQUIREMENTS),
+    )
+
+
+def enrich_generated_bundle(bundle: LLMGeneratedTaskBundle) -> GeneratedTaskBundle:
+    if len(bundle.tasks) != len(DATASET_PROMPT_CONFIGS):
+        raise ValueError(
+            f"Expected {len(DATASET_PROMPT_CONFIGS)} tasks from the model, received {len(bundle.tasks)}"
+        )
+    return GeneratedTaskBundle(
+        tasks=[
+            enrich_generated_task(task, dataset_config)
+            for task, dataset_config in zip(bundle.tasks, DATASET_PROMPT_CONFIGS, strict=True)
+        ]
+    )
 
 
 def response_debug_payload(
@@ -331,7 +605,7 @@ def call_generation_api(
         model=llm_config.model_name,
         input=request_input,
         reasoning=reasoning_config,
-        text_format=GeneratedTaskBundle,
+        text_format=LLMGeneratedTaskBundle,
         max_output_tokens=max_output_tokens,
         store=False,
     )
@@ -347,6 +621,8 @@ def call_generation_api(
         )
         raise ValueError(f"The model response did not contain a parsed payload ({describe_response_state(response)})")
 
+    result = enrich_generated_bundle(parsed)
+
     metadata = {
         "response_id": response.id,
         "model": llm_config.model_name,
@@ -358,8 +634,9 @@ def call_generation_api(
         "estimated_cost": estimate_cost(response.usage, llm_config),
         "output_text": response.output_text,
         "uploaded_via": "responses.input_file.file_data",
+        "task_dataset_assignments": [config.key for config in DATASET_PROMPT_CONFIGS],
     }
-    return parsed, metadata
+    return result, metadata
 
 
 def write_outputs(output_dir: Path, paper_paths: PaperPaths, result: GeneratedTaskBundle, metadata: dict[str, Any], overwrite: bool) -> tuple[Path, Path]:
