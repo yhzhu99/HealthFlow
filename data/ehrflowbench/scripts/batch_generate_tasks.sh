@@ -181,8 +181,7 @@ run_generator_for_paper() {
   local paper_id="$1"
   uv run python "$PYTHON_SCRIPT" \
     --paper-id "$paper_id" \
-    --output-dir "$OUTPUT_ROOT" \
-    --overwrite
+    --output-dir "$OUTPUT_ROOT"
 }
 
 worker_main() {
