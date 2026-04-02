@@ -146,6 +146,7 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_TASK_COUNT,
         help="Fixed at 2 tasks per paper: task 1 uses TJH and task 2 uses MIMIC-IV-demo.",
     )
+    parser.add_argument("--output-prompt-only", action="store_true")
     parser.add_argument("--max-output-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--overwrite", action="store_true")
@@ -221,11 +222,7 @@ def extract_supported_targets(schema_fields: list[tuple[str, str]]) -> list[str]
 
 
 def build_dataset_metadata_block(dataset_configs: tuple[DatasetPromptConfig, ...]) -> str:
-    lines = [
-        "The following metadata was extracted locally by the Python pipeline and injected into this prompt.",
-        "You must rely on this metadata instead of trying to access repository files directly.",
-        "",
-    ]
+    lines = []
 
     for index, config in enumerate(dataset_configs, start=1):
         parquet_summary = summarize_parquet(config.parquet_path)
@@ -255,11 +252,6 @@ def build_dataset_metadata_block(dataset_configs: tuple[DatasetPromptConfig, ...
             lines.append(
                 "- Split key counts: "
                 + json.dumps(split_summary["split_key_counts"], ensure_ascii=False, sort_keys=True)
-            )
-        if split_summary.get("split_row_counts"):
-            lines.append(
-                "- Split row counts: "
-                + json.dumps(split_summary["split_row_counts"], ensure_ascii=False, sort_keys=True)
             )
         if split_summary.get("label_distribution"):
             lines.append(
@@ -294,11 +286,7 @@ def build_task_assignment_block(dataset_configs: tuple[DatasetPromptConfig, ...]
     lines = [f"Generate exactly {DEFAULT_TASK_COUNT} tasks in this exact order:"]
     for index, config in enumerate(dataset_configs, start=1):
         lines.append(f"{index}. Task {index} must use `{config.display_name}` only.")
-        lines.append(
-            "   The local pipeline will append these fixed `required_inputs` after parsing: "
-            + ", ".join(f"`{path}`" for path in config.required_inputs)
-        )
-        lines.append("   Do not ask this task to access or compare against the other dataset.")
+        lines.append(" Do not ask this task to access or compare against the other dataset.")
     lines.append("Return the `tasks` array in the same order as the numbered assignment above.")
     return "\n".join(lines)
 
@@ -327,17 +315,6 @@ def adapt_prompt(prompt_body: str, task_count: int) -> str:
         PROMPT_TASK_ASSIGNMENT_PLACEHOLDER,
         build_task_assignment_block(DATASET_PROMPT_CONFIGS),
         "Injected Task Allocation",
-    )
-    prompt += (
-        "\n\nAdditional API-run constraints:\n"
-        f"- Generate exactly {task_count} tasks.\n"
-        "- The uploaded PDF is the only paper file available to you in this request.\n"
-        "- The generated tasks must stay grounded in targets and variables that are directly available in the processed EHR tables.\n"
-        "- Do not assume diagnosis-category labels, symptom-dialogue annotations, medications, code systems, or event-token schemas exist unless they are plainly available in the processed inputs.\n"
-        "- When the paper is about diagnosis dialogue or other unavailable supervision, rewrite the task around stable targets that are commonly visible in the processed tables, such as `Outcome`, `LOS`, `Readmission`, or directly derived descriptive quantities.\n"
-        "- Prefer lightweight tabular or longitudinal analyses over sequence-generation or token-level setups unless the processed schema clearly supports them.\n"
-        "- Do not mention `task_type`, `required_inputs`, or `report_requirements` in the JSON output; those fields are injected locally after parsing.\n"
-        "- Return valid JSON that matches the required schema exactly.\n"
     )
     return prompt
 
@@ -431,6 +408,22 @@ def model_to_jsonable(value: Any) -> Any:
 def encode_pdf_as_base64(pdf_path: Path) -> str:
     encoded = base64.b64encode(pdf_path.read_bytes()).decode("utf-8")
     return f"data:application/pdf;base64,{encoded}"
+
+
+def build_generation_request_input(prompt_text: str, paper_paths: PaperPaths) -> list[dict[str, Any]]:
+    return [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt_text},
+                {
+                    "type": "input_file",
+                    "filename": paper_paths.pdf_path.name,
+                    "file_data": encode_pdf_as_base64(paper_paths.pdf_path),
+                },
+            ],
+        }
+    ]
 
 
 def normalize_string_list(values: list[str]) -> list[str]:
@@ -584,19 +577,7 @@ def call_generation_api(
     paper_paths: PaperPaths,
     max_output_tokens: int,
 ) -> tuple[GeneratedTaskBundle, dict[str, Any]]:
-    request_input = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": prompt_text},
-                {
-                    "type": "input_file",
-                    "filename": paper_paths.pdf_path.name,
-                    "file_data": encode_pdf_as_base64(paper_paths.pdf_path),
-                },
-            ],
-        }
-    ]
+    request_input = build_generation_request_input(prompt_text, paper_paths)
     reasoning_config = {
         "effort": llm_config.reasoning_effort
     }
@@ -639,6 +620,29 @@ def call_generation_api(
     return result, metadata
 
 
+def write_prompt_output(output_dir: Path, paper_paths: PaperPaths, prompt_text: str, overwrite: bool) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    prompt_path = output_dir / f"{paper_paths.paper_id}_prompt.md"
+    if not overwrite and prompt_path.exists():
+        raise FileExistsError(f"Prompt output already exists for paper {paper_paths.paper_id}; use --overwrite")
+
+    prompt_sections = [
+        "# Prompt Input",
+        "",
+        f"- paper_id: {paper_paths.paper_id}",
+        f"- paper_dir: `{paper_paths.paper_dir}`",
+        f"- pdf_path: `{paper_paths.pdf_path}`",
+        f"- markdown_path: `{paper_paths.markdown_path}`" if paper_paths.markdown_path else "- markdown_path: null",
+        "",
+        "## Prompt Text",
+        "",
+        prompt_text.rstrip(),
+        "",
+    ]
+    prompt_path.write_text("\n".join(prompt_sections), encoding="utf-8")
+    return prompt_path
+
+
 def write_outputs(output_dir: Path, paper_paths: PaperPaths, result: GeneratedTaskBundle, metadata: dict[str, Any], overwrite: bool) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     tasks_path = output_dir / f"{paper_paths.paper_id}_tasks.json"
@@ -652,10 +656,24 @@ def write_outputs(output_dir: Path, paper_paths: PaperPaths, result: GeneratedTa
 
 
 def main() -> None:
-    llm_config = load_llm_config(CONFIG_PATH, ARGS.model_key)
     paper_paths = resolve_paper_paths(MARKDOWN_ROOT, ARGS.paper_id, ARGS.paper_dir)
     prompt_body = extract_prompt_body(PROMPT_PATH)
     prompt_text = adapt_prompt(prompt_body, ARGS.task_count)
+    if ARGS.output_prompt_only:
+        prompt_path = write_prompt_output(ARGS.output_dir, paper_paths, prompt_text, ARGS.overwrite)
+        print(json.dumps(
+            {
+                "paper_id": paper_paths.paper_id,
+                "paper_dir": str(paper_paths.paper_dir),
+                "pdf_path": str(paper_paths.pdf_path),
+                "prompt_path": str(prompt_path),
+                "output_prompt_only": True,
+            },
+            indent=2,
+        ))
+        return
+
+    llm_config = load_llm_config(CONFIG_PATH, ARGS.model_key)
     client = build_client(llm_config)
     result, metadata = call_generation_api(
         client=client,

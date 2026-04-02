@@ -1,11 +1,15 @@
+import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from data.ehrflowbench.scripts import generate_tasks
 from data.ehrflowbench.scripts.generate_tasks import DatasetPromptConfig
 from data.ehrflowbench.scripts.generate_tasks import LLMGeneratedTask
 from data.ehrflowbench.scripts.generate_tasks import LLMGeneratedTaskBundle
+from data.ehrflowbench.scripts.generate_tasks import PaperPaths
 
 
 FAKE_DATASET_CONFIGS = (
@@ -55,8 +59,8 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
 
         self.assertIn("DATASET BLOCK", adapted)
         self.assertIn("ASSIGNMENT BLOCK", adapted)
-        self.assertIn("Generate exactly 2 tasks.", adapted)
-        self.assertIn("Do not mention `task_type`, `required_inputs`, or `report_requirements`", adapted)
+        self.assertNotIn(generate_tasks.PROMPT_DATASET_METADATA_PLACEHOLDER, adapted)
+        self.assertNotIn(generate_tasks.PROMPT_TASK_ASSIGNMENT_PLACEHOLDER, adapted)
 
     def test_enrich_generated_bundle_appends_fixed_fields(self) -> None:
         bundle = LLMGeneratedTaskBundle(
@@ -106,3 +110,74 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
         with patch.object(generate_tasks, "DATASET_PROMPT_CONFIGS", FAKE_DATASET_CONFIGS):
             with self.assertRaisesRegex(ValueError, "single-task single-dataset contract violated"):
                 generate_tasks.enrich_generated_bundle(bundle)
+
+    def test_write_prompt_output_writes_prompt_file(self) -> None:
+        paper_paths = PaperPaths(
+            paper_id=7,
+            paper_dir=Path("/tmp/7_paper"),
+            pdf_path=Path("/tmp/7_paper/paper.pdf"),
+            markdown_path=Path("/tmp/7_paper/full.md"),
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            prompt_path = generate_tasks.write_prompt_output(
+                Path(tmpdir),
+                paper_paths,
+                "Prompt body for local inspection.",
+                overwrite=False,
+            )
+
+            self.assertEqual(prompt_path.name, "7_prompt.md")
+            content = prompt_path.read_text(encoding="utf-8")
+            self.assertIn("# Prompt Input", content)
+            self.assertIn("- pdf_path: `/tmp/7_paper/paper.pdf`", content)
+            self.assertIn("## Prompt Text", content)
+            self.assertIn("Prompt body for local inspection.", content)
+
+    def test_main_output_prompt_only_skips_api_calls(self) -> None:
+        args = SimpleNamespace(
+            paper_id=7,
+            paper_dir=None,
+            model_key="unused",
+            task_count=2,
+            output_prompt_only=True,
+            max_output_tokens=123,
+            output_dir=Path("/tmp/generated_tasks"),
+            overwrite=False,
+        )
+        paper_paths = PaperPaths(
+            paper_id=7,
+            paper_dir=Path("/tmp/7_paper"),
+            pdf_path=Path("/tmp/7_paper/paper.pdf"),
+            markdown_path=None,
+        )
+
+        with patch.object(generate_tasks, "ARGS", args, create=True):
+            with patch.object(generate_tasks, "resolve_paper_paths", return_value=paper_paths):
+                with patch.object(generate_tasks, "extract_prompt_body", return_value="prompt template"):
+                    with patch.object(generate_tasks, "adapt_prompt", return_value="final prompt"):
+                        with patch.object(
+                            generate_tasks,
+                            "write_prompt_output",
+                            return_value=Path("/tmp/generated_tasks/7_prompt.md"),
+                        ) as write_prompt_output:
+                            with patch.object(generate_tasks, "load_llm_config", side_effect=AssertionError("unexpected")):
+                                with patch.object(generate_tasks, "build_client", side_effect=AssertionError("unexpected")):
+                                    with patch.object(
+                                        generate_tasks,
+                                        "call_generation_api",
+                                        side_effect=AssertionError("unexpected"),
+                                    ):
+                                        with patch("builtins.print") as mock_print:
+                                            generate_tasks.main()
+
+        write_prompt_output.assert_called_once_with(
+            Path("/tmp/generated_tasks"),
+            paper_paths,
+            "final prompt",
+            False,
+        )
+        payload = json.loads(mock_print.call_args.args[0])
+        self.assertEqual(payload["paper_id"], 7)
+        self.assertEqual(payload["prompt_path"], "/tmp/generated_tasks/7_prompt.md")
+        self.assertTrue(payload["output_prompt_only"])
