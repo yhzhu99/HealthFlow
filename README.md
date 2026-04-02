@@ -48,6 +48,7 @@ Dataset preparation and benchmark evaluation assets remain under `data/`; they a
 Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 
 - `<backend>_execution.log`
+- `<backend>_prompt.md`
 - `task_list_v*.md`
 - `full_history.json`
 - `memory_context.json`
@@ -284,7 +285,9 @@ Legacy tool-registration sections are intentionally unsupported. If you previous
 
 ### External CLI Recipes
 
-HealthFlow may recommend selected external CLIs when the task warrants them, but it does not install, register, or invoke them directly.
+HealthFlow may surface selected external CLIs when they are available in the project environment, but it does not install, register, or invoke them directly.
+In orchestrated runs, the planner and executor prompts always receive the supported local CLI contracts that HealthFlow can resolve from the project environment today: `oneehr` and `tu` / `tooluniverse`.
+Applicability still matters: `oneehr` is mainly useful for EHR workflows, while ToolUniverse is mainly useful for biomedical tool lookup and execution.
 
 ToolUniverse CLI examples:
 
@@ -293,6 +296,8 @@ uv run tu list
 uv run tu find "pathway analysis"
 uv run tu info <tool-name>
 uv run tu run <tool-name> --help
+uv run tu status
+uv run tu serve
 ```
 
 ToolUniverse also supports a local `.tooluniverse/profile.yaml` workspace and can launch its own MCP server with `tu serve`, but HealthFlow does not manage that MCP surface.
@@ -307,8 +312,6 @@ uv run oneehr analyze --help
 uv run oneehr plot --help
 uv run oneehr convert --help
 ```
-
-The OneEHR workflow is only surfaced as a recommendation for EHR modeling tasks, and only when the executor environment already provides the CLI.
 
 ### Single Task
 

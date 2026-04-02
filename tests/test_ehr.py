@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
 from healthflow.ehr import detect_risk_findings, profile_workspace_data
 from healthflow.execution import WorkflowRecommendationBroker
 
@@ -110,6 +112,36 @@ class EHRProfilingTests(unittest.TestCase):
         self.assertIn("oneehr", discovered)
         self.assertIn("tooluniverse", discovered)
         self.assertEqual(discovered.count("tooluniverse"), 1)
+
+    def test_profile_workspace_data_reads_request_referenced_external_excel_inputs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            dataset_path = root / "time_series_375_prerpocess_en.xlsx"
+            pd.DataFrame(
+                {
+                    "patient_id": [1, 1, 2],
+                    "event_time": ["2024-01-01", "2024-01-02", "2024-01-01"],
+                    "outcome": [0, 0, 1],
+                    "heart_rate": [82, 85, 90],
+                }
+            ).to_excel(dataset_path, index=False)
+
+            request = f"帮我预测一下 {dataset_path} 这个ehr数据集 使用MCGRU在outcome上的auroc性能"
+            profile = profile_workspace_data(workspace, request)
+
+            self.assertEqual(profile.task_family, "time_series_modeling")
+            self.assertEqual(profile.domain_focus, "ehr")
+            self.assertIn("request", profile.domain_signals)
+            self.assertIn("schema", profile.domain_signals)
+            self.assertIn("structured_tabular", profile.modalities)
+            self.assertIn("patient_id", profile.patient_id_columns)
+            self.assertIn("outcome", profile.target_columns)
+            self.assertIn("event_time", profile.time_columns)
+            self.assertTrue(profile.schemas)
+            self.assertEqual(profile.schemas[0].file_name, dataset_path.name)
+            self.assertGreater(profile.row_count, 0)
 
 
 if __name__ == "__main__":
