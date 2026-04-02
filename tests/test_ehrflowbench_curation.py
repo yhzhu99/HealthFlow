@@ -8,6 +8,8 @@ from data.ehrflowbench.scripts.curate_generated_tasks import allocate_bucket_quo
 from data.ehrflowbench.scripts.curate_generated_tasks import assign_qids
 from data.ehrflowbench.scripts.curate_generated_tasks import assign_splits
 from data.ehrflowbench.scripts.curate_generated_tasks import build_dataset_row
+from data.ehrflowbench.scripts.curate_generated_tasks import build_task_prompt
+from data.ehrflowbench.scripts.curate_generated_tasks import classify_required_input_set
 from data.ehrflowbench.scripts.curate_generated_tasks import select_best_task_per_paper
 
 
@@ -17,11 +19,24 @@ def make_reviewed_task(
     task_idx: int,
     bucket: str,
     quality_score: int,
+    input_dataset: str = "tjh",
     method_family: str = "prediction",
     target_family: str = "outcome_prediction",
     has_target_fallback: bool = False,
     explicit_common_target: bool = True,
 ) -> ReviewedTask:
+    required_inputs = {
+        "tjh": (
+            "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
+            "data/ehrflowbench/processed/tjh/split_metadata.json",
+        ),
+        "mimic_iv_demo": (
+            "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_formatted_ehr.parquet",
+            "data/ehrflowbench/processed/mimic_iv_demo/split_metadata.json",
+            "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_value_reference.md",
+        ),
+    }[input_dataset]
+
     candidate = GeneratedTaskCandidate(
         paper_id=paper_id,
         paper_title=f"Paper {paper_id}",
@@ -30,12 +45,7 @@ def make_reviewed_task(
         task_type="report_generation",
         focus_areas=("focus",),
         task="Build a deterministic benchmark with report.md and metrics.json.",
-        required_inputs=(
-            "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
-            "data/ehrflowbench/processed/tjh/split_metadata.json",
-            "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_formatted_ehr.parquet",
-            "data/ehrflowbench/processed/mimic_iv_demo/split_metadata.json",
-        ),
+        required_inputs=required_inputs,
         deliverables=("report.md", "metrics.json", "tables/results.csv"),
         report_requirements=("Report metrics.",) * 6,
         tasks_path=Path("/tmp") / f"{paper_id}_tasks.json",
@@ -56,12 +66,39 @@ def make_reviewed_task(
         has_target_fallback=has_target_fallback,
         has_figure_or_table_artifact=True,
         has_numeric_artifact=True,
-        has_dual_dataset_inputs=True,
+        input_dataset=input_dataset,
+        has_valid_single_dataset_inputs=True,
         has_split_metadata_inputs=True,
     )
 
 
 class EHRFlowBenchCurationTests(unittest.TestCase):
+    def test_classify_required_input_set_accepts_single_dataset_and_rejects_mixed(self):
+        matched_dataset, is_valid, has_split, is_mixed = classify_required_input_set(
+            (
+                "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
+                "data/ehrflowbench/processed/tjh/split_metadata.json",
+            )
+        )
+
+        self.assertEqual(matched_dataset, "tjh")
+        self.assertTrue(is_valid)
+        self.assertTrue(has_split)
+        self.assertFalse(is_mixed)
+
+        matched_dataset, is_valid, has_split, is_mixed = classify_required_input_set(
+            (
+                "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
+                "data/ehrflowbench/processed/tjh/split_metadata.json",
+                "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_formatted_ehr.parquet",
+            )
+        )
+
+        self.assertIsNone(matched_dataset)
+        self.assertFalse(is_valid)
+        self.assertFalse(has_split)
+        self.assertTrue(is_mixed)
+
     def test_allocate_bucket_quotas_preserves_total_and_minimums(self):
         quotas = allocate_bucket_quotas(
             Counter(
@@ -142,6 +179,20 @@ class EHRFlowBenchCurationTests(unittest.TestCase):
 
         self.assertEqual(row["qid"], 1)
         self.assertEqual(row["reference_answer"], "expected/1/task_manifest.json")
+
+    def test_build_task_prompt_mentions_single_assigned_dataset(self):
+        task = make_reviewed_task(
+            paper_id=31,
+            task_idx=1,
+            bucket="prediction",
+            quality_score=9,
+            input_dataset="mimic_iv_demo",
+        )
+
+        prompt = build_task_prompt(task)
+
+        self.assertIn("MIMIC-IV-demo only", prompt)
+        self.assertNotIn("both TJH and MIMIC-IV-demo", prompt)
 
 
 if __name__ == "__main__":

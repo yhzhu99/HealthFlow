@@ -47,15 +47,27 @@ TRAIN_COVERAGE_BUCKETS = (
     "interpretability",
 )
 
-CORE_REQUIRED_INPUTS = {
-    "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
-    "data/ehrflowbench/processed/tjh/split_metadata.json",
-    "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_formatted_ehr.parquet",
-    "data/ehrflowbench/processed/mimic_iv_demo/split_metadata.json",
+DATASET_DISPLAY_NAMES = {
+    "tjh": "TJH",
+    "mimic_iv_demo": "MIMIC-IV-demo",
 }
 
-OPTIONAL_REQUIRED_INPUTS = {
-    "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_value_reference.md",
+DATASET_CORE_REQUIRED_INPUTS = {
+    "tjh": {
+        "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
+        "data/ehrflowbench/processed/tjh/split_metadata.json",
+    },
+    "mimic_iv_demo": {
+        "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_formatted_ehr.parquet",
+        "data/ehrflowbench/processed/mimic_iv_demo/split_metadata.json",
+    },
+}
+
+DATASET_OPTIONAL_REQUIRED_INPUTS = {
+    "tjh": set(),
+    "mimic_iv_demo": {
+        "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_value_reference.md",
+    },
 }
 
 NUMERIC_SUFFIXES = {".json", ".csv", ".parquet", ".tsv", ".xlsx"}
@@ -260,7 +272,9 @@ class ReviewedTask:
     has_numeric_artifact: bool = False
     has_figure_or_table_artifact: bool = False
     has_text_dependency: bool = False
-    has_dual_dataset_inputs: bool = False
+    input_dataset: str | None = None
+    has_valid_single_dataset_inputs: bool = False
+    has_mixed_dataset_inputs: bool = False
     has_split_metadata_inputs: bool = False
     lightweight_hint: bool = False
     selected: bool = False
@@ -515,14 +529,31 @@ def looks_like_figure_or_table(path: str) -> bool:
     return suffix in NUMERIC_SUFFIXES or suffix in VISUAL_SUFFIXES
 
 
-def is_dual_dataset_input_set(required_inputs: tuple[str, ...]) -> tuple[bool, bool]:
+def classify_required_input_set(required_inputs: tuple[str, ...]) -> tuple[str | None, bool, bool, bool]:
     input_set = set(required_inputs)
-    has_core = CORE_REQUIRED_INPUTS.issubset(input_set)
-    has_split_inputs = {
-        "data/ehrflowbench/processed/tjh/split_metadata.json",
-        "data/ehrflowbench/processed/mimic_iv_demo/split_metadata.json",
-    }.issubset(input_set)
-    return has_core, has_split_inputs
+    touched_datasets = {
+        dataset_key
+        for dataset_key in DATASET_CORE_REQUIRED_INPUTS
+        if input_set & (
+            DATASET_CORE_REQUIRED_INPUTS[dataset_key]
+            | DATASET_OPTIONAL_REQUIRED_INPUTS.get(dataset_key, set())
+        )
+    }
+    has_mixed_dataset_inputs = len(touched_datasets) > 1
+
+    matched_dataset: str | None = None
+    for dataset_key, core_inputs in DATASET_CORE_REQUIRED_INPUTS.items():
+        allowed_inputs = core_inputs | DATASET_OPTIONAL_REQUIRED_INPUTS.get(dataset_key, set())
+        if core_inputs.issubset(input_set) and input_set.issubset(allowed_inputs):
+            matched_dataset = dataset_key
+            break
+
+    has_valid_single_dataset_inputs = matched_dataset is not None
+    has_split_inputs = bool(
+        matched_dataset
+        and any(path.endswith("/split_metadata.json") for path in DATASET_CORE_REQUIRED_INPUTS[matched_dataset] & input_set)
+    )
+    return matched_dataset, has_valid_single_dataset_inputs, has_split_inputs, has_mixed_dataset_inputs
 
 
 def contains_forbidden_dependency(text: str) -> list[str]:
@@ -588,7 +619,12 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
     reviewed.lightweight_hint = contains_any(normalized_blob, LIGHTWEIGHT_PATTERNS)
     reviewed.has_numeric_artifact = any(looks_like_numeric_artifact(path) for path in candidate.deliverables)
     reviewed.has_figure_or_table_artifact = any(looks_like_figure_or_table(path) for path in candidate.deliverables)
-    reviewed.has_dual_dataset_inputs, reviewed.has_split_metadata_inputs = is_dual_dataset_input_set(candidate.required_inputs)
+    (
+        reviewed.input_dataset,
+        reviewed.has_valid_single_dataset_inputs,
+        reviewed.has_split_metadata_inputs,
+        reviewed.has_mixed_dataset_inputs,
+    ) = classify_required_input_set(candidate.required_inputs)
 
     if reviewed.explicit_common_target:
         reviewed.flags.append("explicit_common_target")
@@ -598,6 +634,8 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
         reviewed.flags.append("text_dependency")
     if reviewed.lightweight_hint:
         reviewed.flags.append("lightweight")
+    if reviewed.input_dataset:
+        reviewed.flags.append(f"input_dataset:{reviewed.input_dataset}")
     if reviewed.method_family == "graph":
         reviewed.flags.append("graph_method")
     if reviewed.method_family == "unsupervised":
@@ -609,15 +647,17 @@ def review_candidate(candidate: GeneratedTaskCandidate) -> ReviewedTask:
         reviewed.hard_reject_reasons.append("missing_report_deliverable")
     if not reviewed.has_numeric_artifact:
         reviewed.hard_reject_reasons.append("missing_numeric_artifact")
-    if not reviewed.has_dual_dataset_inputs:
-        reviewed.hard_reject_reasons.append("missing_dual_dataset_inputs")
+    if reviewed.has_mixed_dataset_inputs:
+        reviewed.hard_reject_reasons.append("mixed_dataset_inputs")
+    if not reviewed.has_valid_single_dataset_inputs:
+        reviewed.hard_reject_reasons.append("invalid_single_dataset_inputs")
     reviewed.hard_reject_reasons.extend(contains_forbidden_dependency(normalized_blob))
 
     if requires_heavy_execution(normalized_blob):
         reviewed.flags.append("heavy_execution_reference")
 
     reviewed.feasibility_score = 0
-    if reviewed.has_dual_dataset_inputs:
+    if reviewed.has_valid_single_dataset_inputs:
         reviewed.feasibility_score += 1
     if reviewed.has_split_metadata_inputs:
         reviewed.feasibility_score += 1
@@ -984,7 +1024,14 @@ def guess_media_type(path: str) -> str:
     return "text"
 
 
+def dataset_display_name(dataset_key: str | None) -> str:
+    if dataset_key is None:
+        return "the assigned dataset"
+    return DATASET_DISPLAY_NAMES.get(dataset_key, dataset_key)
+
+
 def build_task_prompt(task: ReviewedTask) -> str:
+    input_dataset_label = dataset_display_name(task.input_dataset)
     lines = [
         "Complete this EHRFlowBench report-generation project using only the repository-local processed EHR assets.",
         "",
@@ -1006,7 +1053,7 @@ def build_task_prompt(task: ReviewedTask) -> str:
     lines.append("Execution constraints:")
     lines.append("- Use `uv run python` for Python execution.")
     lines.append("- Do not use any code under `healthflow/`.")
-    lines.append("- Keep the workflow executable on both TJH and MIMIC-IV-demo.")
+    lines.append(f"- Keep the workflow executable on {input_dataset_label} only.")
     return "\n".join(lines).strip()
 
 
@@ -1016,6 +1063,7 @@ def build_dataset_row(task: ReviewedTask) -> dict[str, Any]:
         "task": build_task_prompt(task),
         "task_brief": task.source.task_brief,
         "task_type": task.source.task_type,
+        "input_dataset": task.input_dataset,
         "focus_areas": list(task.source.focus_areas),
         "paper_id": task.paper_id,
         "paper_title": task.paper_title,
@@ -1033,6 +1081,7 @@ def build_task_manifest(task: ReviewedTask) -> dict[str, Any]:
         "split": task.split,
         "dataset": "ehrflowbench",
         "task_type": task.source.task_type,
+        "input_dataset": task.input_dataset,
         "task_brief": task.source.task_brief,
         "paper_id": task.paper_id,
         "paper_title": task.paper_title,
