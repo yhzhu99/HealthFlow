@@ -510,7 +510,6 @@ class HealthFlowSystem:
             safeguard_experiences = retrieval_result.safeguard_experiences
             workflow_experiences = retrieval_result.workflow_experiences
             dataset_experiences = retrieval_result.dataset_experiences
-            execution_experiences = retrieval_result.execution_experiences
             retrieval_audit = retrieval_result.audit.model_dump(mode="json")
             self._write_json(attempt_paths.retrieval_result_path, retrieval_audit)
             trajectory["memory_context_path"] = paths.relative_path(attempt_paths.retrieval_result_path)
@@ -539,7 +538,6 @@ class HealthFlowSystem:
                 safeguard_experiences=safeguard_experiences,
                 workflow_experiences=workflow_experiences,
                 dataset_experiences=dataset_experiences,
-                execution_experiences=execution_experiences,
                 execution_environment=self.config.environment.summary_lines(),
                 available_project_cli_tools=available_project_cli_tools,
                 workflow_recommendations=workflow_recommendations,
@@ -582,7 +580,6 @@ class HealthFlowSystem:
                 safeguard_memory=self._format_memory_lines(safeguard_experiences),
                 workflow_memory=self._format_memory_lines(workflow_experiences),
                 dataset_memory=self._format_memory_lines(dataset_experiences),
-                execution_memory=self._format_memory_lines(execution_experiences),
                 prior_feedback=previous_feedback,
                 executor_artifact_dir=attempt_paths.executor_dir,
             )
@@ -689,7 +686,6 @@ class HealthFlowSystem:
                     "safeguards": [exp.model_dump(mode="json") for exp in safeguard_experiences],
                     "workflows": [exp.model_dump(mode="json") for exp in workflow_experiences],
                     "datasets": [exp.model_dump(mode="json") for exp in dataset_experiences],
-                    "execution": [exp.model_dump(mode="json") for exp in execution_experiences],
                 },
                 "plan": plan.model_dump(mode="json"),
                 "plan_markdown": plan_markdown,
@@ -1095,7 +1091,6 @@ class HealthFlowSystem:
                 "safeguards": [],
                 "workflows": [],
                 "datasets": [],
-                "execution": [],
             },
             "plan": {},
             "plan_markdown": "",
@@ -1516,7 +1511,11 @@ class HealthFlowSystem:
             domain_focus=data_profile.domain_focus,
             dataset_signature=data_profile.dataset_signature,
             schema_tags=self._schema_tags_for_profile(data_profile),
-            risk_tags=[finding.category for finding in risk_findings],
+            risk_tags=[
+                finding.category
+                for finding in risk_findings
+                if getattr(finding, "severity", None) not in {"info", "low"}
+            ],
             prior_failure_modes=prior_failure_modes,
         )
 

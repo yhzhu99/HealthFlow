@@ -21,7 +21,6 @@ class ExecutionContext:
     safeguard_memory: List[str] = field(default_factory=list)
     workflow_memory: List[str] = field(default_factory=list)
     dataset_memory: List[str] = field(default_factory=list)
-    execution_memory: List[str] = field(default_factory=list)
     prior_feedback: Optional[str] = None
     executor_artifact_dir: Path | None = None
 
@@ -43,7 +42,6 @@ class ExecutionContext:
         self._append_optional_section(prompt, "## EHR Safeguards", self.safeguard_memory)
         self._append_optional_section(prompt, "## Workflow Memories", self.workflow_memory)
         self._append_optional_section(prompt, "## Dataset Anchors", self.dataset_memory)
-        self._append_optional_section(prompt, "## Execution Hints", self.execution_memory)
         has_project_cli_tools = self._has_content(self.available_project_cli_tools)
         has_workflow_recommendations = self._has_content(self.workflow_recommendations)
         has_safeguards = self._has_content(self.safeguard_memory)
@@ -68,7 +66,8 @@ class ExecutionContext:
         if has_workflow_recommendations:
             rules.append("Use planner workflow recommendations when they fit, but adapt if execution reality requires a better path.")
         if has_safeguards:
-            rules.append("Treat safeguard memories as constraints that override softer workflow preferences.")
+            rules.append("Treat safeguard memories as task-bounded constraints that override softer workflow preferences.")
+            rules.append("Safeguards do not authorize extra deliverables or extra data transformations beyond what the user explicitly requested.")
         if has_prior_feedback:
             rules.append("Address the previous attempt feedback explicitly when choosing the next path.")
         prompt.extend(["", "## Execution Rules", *[f"- {rule}" for rule in rules]])
