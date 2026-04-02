@@ -17,8 +17,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 DEFAULT_MODEL_KEY = "openai/gpt-5.4"
 DEFAULT_TASK_COUNT = 2
-DEFAULT_MAX_OUTPUT_TOKENS = 8000
-DEFAULT_MAX_REASONING_TOKENS = 6000
+DEFAULT_MAX_OUTPUT_TOKENS = 65536
 
 
 def find_project_root() -> Path:
@@ -324,32 +323,17 @@ def call_generation_api(
         }
     ]
     reasoning_config = {
-        "effort": llm_config.reasoning_effort,
-        "max_tokens": DEFAULT_MAX_REASONING_TOKENS,
+        "effort": llm_config.reasoning_effort
     }
 
-    try:
-        response = client.responses.parse(
-            model=llm_config.model_name,
-            input=request_input,
-            reasoning=reasoning_config,
-            text_format=GeneratedTaskBundle,
-            max_output_tokens=max_output_tokens,
-            store=False,
-        )
-    except Exception as exc:
-        if not should_retry_without_reasoning_max_tokens(exc):
-            raise
-        reasoning_config = {"effort": llm_config.reasoning_effort}
-        print("warning: provider rejected reasoning.max_tokens; retrying without it", file=sys.stderr)
-        response = client.responses.parse(
-            model=llm_config.model_name,
-            input=request_input,
-            reasoning=reasoning_config,
-            text_format=GeneratedTaskBundle,
-            max_output_tokens=max_output_tokens,
-            store=False,
-        )
+    response = client.responses.parse(
+        model=llm_config.model_name,
+        input=request_input,
+        reasoning=reasoning_config,
+        text_format=GeneratedTaskBundle,
+        max_output_tokens=max_output_tokens,
+        store=False,
+    )
 
     parsed = response.output_parsed
     if parsed is None:
