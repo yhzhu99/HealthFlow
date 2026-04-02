@@ -66,14 +66,12 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
 
     def test_extract_generated_task_appends_fixed_fields(self) -> None:
         bundle = LLMGeneratedTaskBundle(
-            tasks=[
-                LLMGeneratedTask(
-                    task_brief="Analyze temporal severity progression in TJH.",
-                    focus_areas=["temporal modeling", "outcome analysis"],
-                    task="Build a deterministic longitudinal analysis on the assigned dataset only.",
-                    deliverables=["metrics.json", "figures/trajectory.png"],
-                )
-            ]
+            task=LLMGeneratedTask(
+                task_brief="Analyze temporal severity progression in TJH.",
+                focus_areas=["temporal modeling", "outcome analysis"],
+                task="Build a deterministic longitudinal analysis on the assigned dataset only.",
+                deliverables=["metrics.json", "figures/trajectory.png"],
+            )
         )
 
         enriched = generate_tasks.extract_generated_task(bundle, FAKE_DATASET_CONFIGS[0])
@@ -85,18 +83,62 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
 
     def test_extract_generated_task_rejects_cross_dataset_mentions(self) -> None:
         bundle = LLMGeneratedTaskBundle(
-            tasks=[
-                LLMGeneratedTask(
-                    task_brief="Analyze TJH and MIMIC together.",
-                    focus_areas=["prediction", "comparison"],
-                    task="Run the same workflow on TJH and MIMIC-IV-demo and compare them.",
-                    deliverables=["report.md", "metrics.json"],
-                )
-            ]
+            task=LLMGeneratedTask(
+                task_brief="Analyze TJH and MIMIC together.",
+                focus_areas=["prediction", "comparison"],
+                task="Run the same workflow on TJH and MIMIC-IV-demo and compare them.",
+                deliverables=["report.md", "metrics.json"],
+            )
         )
 
         with self.assertRaisesRegex(ValueError, "single-task single-dataset contract violated"):
             generate_tasks.extract_generated_task(bundle, FAKE_DATASET_CONFIGS[0])
+
+    def test_call_generation_api_uses_bundle_text_format(self) -> None:
+        parsed_bundle = LLMGeneratedTaskBundle(
+            task=LLMGeneratedTask(
+                task_brief="Analyze temporal severity progression in TJH.",
+                focus_areas=["temporal modeling", "outcome analysis"],
+                task="Build a deterministic longitudinal analysis on the assigned dataset only.",
+                deliverables=["metrics.json", "figures/trajectory.png"],
+            )
+        )
+        response = SimpleNamespace(
+            id="resp-1",
+            output_parsed=parsed_bundle,
+            usage=SimpleNamespace(input_tokens=10, output_tokens=20),
+            output_text='{"task":{}}',
+        )
+        client = SimpleNamespace(responses=SimpleNamespace(parse=lambda **kwargs: response))
+        llm_config = generate_tasks.LLMConfig(
+            api_key_env="OPENAI_API_KEY",
+            base_url="https://example.com/v1",
+            model_name="test-model",
+            reasoning_effort="medium",
+            input_cost_per_million_tokens=1.0,
+            output_cost_per_million_tokens=2.0,
+        )
+        paper_paths = PaperPaths(
+            paper_id=7,
+            paper_dir=Path("/tmp/7_paper"),
+            pdf_path=Path("/tmp/7_paper/paper.pdf"),
+            markdown_path=None,
+        )
+
+        with patch.object(generate_tasks, "build_generation_request_input", return_value=[{"role": "user"}]):
+            with patch.object(client.responses, "parse", return_value=response) as parse:
+                task, metadata = generate_tasks.call_generation_api(
+                    client=client,
+                    llm_config=llm_config,
+                    prompt_text="prompt",
+                    paper_paths=paper_paths,
+                    dataset_config=FAKE_DATASET_CONFIGS[0],
+                    max_output_tokens=123,
+                )
+
+        self.assertEqual(task.task_brief, "Analyze temporal severity progression in TJH.")
+        self.assertEqual(metadata["response_id"], "resp-1")
+        self.assertEqual(parse.call_args.kwargs["text_format"], LLMGeneratedTaskBundle)
 
     def test_write_prompt_outputs_writes_one_file_per_dataset(self) -> None:
         paper_paths = PaperPaths(

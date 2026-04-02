@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 DEFAULT_MODEL_KEY = "openai/gpt-5.4"
 DEFAULT_TASK_COUNT = 2
-TASKS_PER_API_CALL = 1
 DEFAULT_MAX_OUTPUT_TOKENS = 65536
 DEFAULT_REASONING_EFFORT = "medium"
 TASK_TYPE = "report_generation"
@@ -481,12 +480,7 @@ def enrich_generated_task(task: LLMGeneratedTask, dataset_config: DatasetPromptC
 
 
 def extract_generated_task(bundle: LLMGeneratedTaskBundle, dataset_config: DatasetPromptConfig) -> GeneratedTask:
-    if len(bundle.tasks) != TASKS_PER_API_CALL:
-        raise ValueError(
-            f"Expected {TASKS_PER_API_CALL} task from the model for {dataset_config.display_name}, "
-            f"received {len(bundle.tasks)}"
-        )
-    return enrich_generated_task(bundle.tasks[0], dataset_config)
+    return enrich_generated_task(bundle.task, dataset_config)
 
 
 def response_debug_payload(
