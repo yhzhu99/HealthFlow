@@ -898,7 +898,17 @@ def eligible_for_train(task: ReviewedTask) -> bool:
     return True
 
 
-def assign_splits(selected_tasks: list[ReviewedTask], train_size: int, test_size: int) -> tuple[list[ReviewedTask], list[ReviewedTask]]:
+def assign_splits(
+    selected_tasks: list[ReviewedTask],
+    train_size: int,
+    test_size: int | None = None,
+    eval_size: int | None = None,
+) -> tuple[list[ReviewedTask], list[ReviewedTask]]:
+    if test_size is None and eval_size is None:
+        raise TypeError("assign_splits() requires either test_size or eval_size")
+    if test_size is not None and eval_size is not None and test_size != eval_size:
+        raise ValueError("assign_splits() received conflicting test_size and eval_size values")
+    test_size = test_size if test_size is not None else eval_size
     if len(selected_tasks) != train_size + test_size:
         raise ValueError("Split sizes do not sum to the number of selected tasks")
 
