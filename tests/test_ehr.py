@@ -43,6 +43,13 @@ class EHRProfilingTests(unittest.TestCase):
             self.assertIn("split", recommendation_text)
             self.assertIn("leakage", recommendation_text)
 
+            tool_contracts = WorkflowRecommendationBroker().available_project_cli_tools(request, profile)
+            contract_text = " ".join(tool_contracts).lower()
+            self.assertIn("oneehr", contract_text)
+            self.assertIn("uv run oneehr", contract_text)
+            self.assertIn("preprocess", contract_text)
+            self.assertIn("convert", contract_text)
+
     def test_general_modeling_request_stays_general_without_ehr_overlay(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
@@ -69,6 +76,9 @@ class EHRProfilingTests(unittest.TestCase):
             self.assertNotIn("oneehr", recommendation_text)
             self.assertIn("uv run", recommendation_text)
 
+            tool_contracts = WorkflowRecommendationBroker().available_project_cli_tools(request, profile)
+            self.assertEqual(tool_contracts, [])
+
     def test_tooluniverse_is_only_suggested_for_explicit_tool_lookup_requests(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
@@ -80,6 +90,13 @@ class EHRProfilingTests(unittest.TestCase):
 
             self.assertIn("tooluniverse", recommendation_text)
             self.assertIn("tu", recommendation_text)
+
+            tool_contracts = WorkflowRecommendationBroker().available_project_cli_tools(request, profile)
+            contract_text = " ".join(tool_contracts).lower()
+            self.assertIn("tooluniverse", contract_text)
+            self.assertIn("uv run tu", contract_text)
+            self.assertIn("find", contract_text)
+            self.assertIn("serve", contract_text)
 
 
 if __name__ == "__main__":

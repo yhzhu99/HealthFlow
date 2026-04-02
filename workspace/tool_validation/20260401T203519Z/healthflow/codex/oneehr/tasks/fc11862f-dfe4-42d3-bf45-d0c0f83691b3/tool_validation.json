@@ -1,0 +1,17 @@
+{
+  "tool": "oneehr",
+  "commands": [
+    {
+      "command": "uv run oneehr --help",
+      "exit_code": 0
+    }
+  ],
+  "observed_subcommands": [
+    "preprocess",
+    "train",
+    "test",
+    "analyze",
+    "plot",
+    "convert"
+  ]
+}

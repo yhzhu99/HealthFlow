@@ -1,0 +1,18 @@
+version:         1.1.11
+tools loaded:    2214
+gated tools:     51
+categories:      507
+workspace:       /home/yhzhu/projects/HealthFlow/workspace/tool_validation/20260401T203849Z/healthflow/codex/tooluniverse/tasks/da69d582-02c0-4114-98ef-ee903359a0ba/.tooluniverse
+profile active:  no
+
+top categories:
+  fda_drug_label       156
+  opentarget           55
+  rcsb_pdb             39
+  software_bioinformatics 37
+  ChEMBL               29
+  euhealth             21
+  ensembl              21
+  reactome             20
+  software_genomics    20
+  software_machine_learning 20

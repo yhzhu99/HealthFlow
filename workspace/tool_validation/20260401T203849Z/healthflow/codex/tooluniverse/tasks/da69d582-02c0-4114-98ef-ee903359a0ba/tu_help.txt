@@ -1,0 +1,36 @@
+usage: tu [-h] [--version] [--quiet] [--verbose] COMMAND ...
+
+ToolUniverse CLI — discover and run scientific tools
+
+positional arguments:
+  COMMAND
+    list         List available tools
+    grep         Search tools by text or regex pattern
+    info         Get tool details
+    find         Find tools by natural-language query
+    run          Execute a tool
+    test         Test a tool with example inputs and report pass/fail
+    status       Show ToolUniverse status
+    build        Rebuild the static tool registry (run after adding new built-
+                 in tools)
+    serve        Start the MCP stdio server (identical to `tooluniverse`)
+
+options:
+  -h, --help     show this help message and exit
+  --version      show program's version number and exit
+  --quiet, -q    Suppress informational warnings (default: on, kept for
+                 backwards compat)
+  --verbose, -v  Show informational warnings (e.g. missing API key notices)
+
+Examples:
+  tu list
+  tu list --categories uniprot
+  tu grep protein --field description
+  tu find 'protein structure analysis' --limit 5
+  tu info UniProt_get_entry_by_accession
+  tu run UniProt_get_entry_by_accession accession=P12345
+  tu run UniProt_get_entry_by_accession '{"accession": "P12345"}'
+  tu test Dryad_search_datasets
+  tu test MyAPI_search '{"q": "test"}'
+  tu status
+  tu build

@@ -54,6 +54,25 @@ class WorkflowRecommendationBroker:
         deduped = list(dict.fromkeys(recommendations))
         return deduped[: self.max_recommendations]
 
+    def available_project_cli_tools(self, user_request: str, data_profile: DataProfile) -> list[str]:
+        tool_contracts: list[str] = []
+
+        if self._should_recommend_oneehr(data_profile):
+            tool_contracts.append(
+                "`oneehr`: Available in the project environment for EHR modeling pipelines. "
+                "Prefer `uv run oneehr <subcommand>` from the repo root. "
+                "Supported stages: `preprocess`, `train`, `test`, `analyze`, `plot`, `convert`."
+            )
+
+        if self._should_recommend_tooluniverse(user_request):
+            tool_contracts.append(
+                "`tu` / `tooluniverse`: Available in the project environment for biomedical tool discovery or execution. "
+                "Prefer `uv run tu <command>` from the repo root. "
+                "Useful commands: `find`, `info`, `run`, `serve`."
+            )
+
+        return tool_contracts
+
     def _should_recommend_oneehr(self, data_profile: DataProfile) -> bool:
         return data_profile.domain_focus == "ehr" and data_profile.task_family in _ONEEHR_TASK_FAMILIES
 

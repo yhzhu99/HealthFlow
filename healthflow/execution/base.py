@@ -16,6 +16,7 @@ class ExecutionContext:
     plan: ExecutionPlan
     execution_environment: EnvironmentConfig
     workflow_recommendations: List[str] = field(default_factory=list)
+    available_project_cli_tools: List[str] = field(default_factory=list)
     report_requested: bool = False
     safeguard_memory: List[str] = field(default_factory=list)
     workflow_memory: List[str] = field(default_factory=list)
@@ -47,6 +48,10 @@ class ExecutionContext:
             "\n".join(f"- {item}" for item in self.workflow_recommendations)
             or "- No workflow recommendations were provided for this run."
         )
+        project_cli_tools_block = (
+            "\n".join(f"- {item}" for item in self.available_project_cli_tools)
+            or "- No task-specific project CLI tools were surfaced for this run."
+        )
 
         prompt = [
             "# HealthFlow Executor Brief",
@@ -65,6 +70,9 @@ class ExecutionContext:
             "",
             "## Execution Environment",
             environment_block,
+            "",
+            "## Available Project CLI Tools",
+            project_cli_tools_block,
             "",
             "## Workflow Recommendations",
             workflow_recommendation_block,
@@ -93,6 +101,7 @@ class ExecutionContext:
                 "- Inspect the workspace and any task inputs before committing to an implementation path.",
                 "- Save every artifact inside the current workspace. Do not write files outside it.",
                 "- Prefer reproducible Python and CLI workflows, usually through the configured run prefix when it fits.",
+                "- Treat any tool listed under 'Available Project CLI Tools' as an explicitly approved project-local workflow for this run.",
                 "- Use the planner's recommended workflows when they fit, but adapt if execution reality requires a better path.",
                 "- Only rely on CLI tools or services that are already available in your executor environment; verify availability before depending on them.",
                 "- Treat safeguard memories as high-priority guardrails when choosing and validating your approach.",

@@ -154,13 +154,58 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(result["success"])
             self.assertTrue(result["cancelled"])
             self.assertEqual(result["evaluation_status"], "cancelled")
+            self.assertEqual(result["available_project_cli_tools"], [])
             self.assertTrue(Path(result["run_result_path"]).exists())
             self.assertTrue(Path(result["run_manifest_path"]).exists())
             manifest_text = Path(result["run_manifest_path"]).read_text(encoding="utf-8")
             self.assertIn('"cancelled": true', manifest_text)
             self.assertIn('"cancel_reason": "Execution cancelled by user."', manifest_text)
+            self.assertIn('"available_project_cli_tools": []', manifest_text)
             self.assertTrue(Path(result["evaluation_path"]).exists())
             self.assertTrue(Path(result["log_path"]).exists())
+
+    async def test_healthflow_cancelled_ehr_run_persists_oneehr_tool_contracts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = HealthFlowConfig(
+                planner_llm_name="test-llm",
+                evaluator_llm_name="test-llm",
+                reflector_llm_name="test-llm",
+                executor_llm_name="test-llm",
+                active_executor_name="claude_code",
+                llm_registry={
+                    "test-llm": LLMProviderConfig(
+                        api_key="key",
+                        base_url="https://example.com/v1",
+                        model_name="test-model",
+                    ),
+                },
+                system=SystemConfig(max_attempts=1, workspace_dir=str(workspace_dir)),
+                environment=EnvironmentConfig(),
+                executor=ExecutorConfig(active_backend="claude_code"),
+                memory=MemoryConfig(write_policy="append"),
+                evaluation=EvaluationConfig(success_threshold=0.8),
+                logging=LoggingConfig(),
+            )
+            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            system.meta_agent = _FakeMetaAgent()
+            system.evaluator = _UnexpectedCallEvaluator()
+            system.reflector = _UnexpectedCallReflector()
+            system.executor = _CancellingExecutor()
+
+            result = await system.run_task(
+                "Train an EHR mortality prediction model from the uploaded cohort.",
+                uploaded_files={
+                    "patients.csv": b"subject_id,mortality,label,event_time\n1,0,0,2020-01-01\n2,1,1,2020-01-02\n"
+                },
+            )
+
+            self.assertTrue(result["cancelled"])
+            self.assertTrue(result["available_project_cli_tools"])
+            self.assertIn("oneehr", " ".join(result["available_project_cli_tools"]).lower())
+            manifest_text = Path(result["run_manifest_path"]).read_text(encoding="utf-8").lower()
+            self.assertIn("oneehr", manifest_text)
 
 
 if __name__ == "__main__":
