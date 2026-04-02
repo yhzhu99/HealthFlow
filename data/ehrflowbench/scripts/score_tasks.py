@@ -214,19 +214,8 @@ def discover_task_candidates(tasks_path: Path) -> list[TaskScoreCandidate]:
 
 def build_candidate_prompt_payload(candidate: TaskScoreCandidate) -> dict[str, Any]:
     return {
-        "paper_id": candidate.paper_id,
-        "paper_title": candidate.paper_title,
-        "task_idx": candidate.task_idx,
-        "task_brief": candidate.task_brief,
-        "task_type": candidate.task_type,
-        "focus_areas": list(candidate.focus_areas),
         "task": candidate.task,
-        "required_inputs": list(candidate.required_inputs),
         "deliverables": list(candidate.deliverables),
-        "report_requirements": list(candidate.report_requirements),
-        "source_paths": {
-            "generated_tasks": relative_path(candidate.tasks_path),
-        },
     }
 
 
