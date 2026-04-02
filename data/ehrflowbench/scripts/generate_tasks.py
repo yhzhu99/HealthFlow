@@ -17,7 +17,8 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 DEFAULT_MODEL_KEY = "openai/gpt-5.4"
 DEFAULT_TASK_COUNT = 2
-DEFAULT_MAX_OUTPUT_TOKENS = 6000
+DEFAULT_MAX_OUTPUT_TOKENS = 65536
+DEFAULT_REASONING_EFFORT = "medium"
 
 
 def find_project_root() -> Path:
@@ -97,7 +98,7 @@ def load_llm_config(config_path: Path, model_key: str) -> LLMConfig:
         api_key_env=model_payload["api_key_env"],
         base_url=model_payload["base_url"],
         model_name=model_payload["model_name"],
-        reasoning_effort=model_payload["reasoning_effort"],
+        reasoning_effort=DEFAULT_REASONING_EFFORT,
         input_cost_per_million_tokens=model_payload.get("input_cost_per_million_tokens"),
         output_cost_per_million_tokens=model_payload.get("output_cost_per_million_tokens"),
     )
@@ -227,8 +228,78 @@ def model_to_jsonable(value: Any) -> Any:
 
 
 def encode_pdf_as_base64(pdf_path: Path) -> str:
-    encoded = base64.b64encode(pdf_path.read_bytes()).decode("ascii")
+    encoded = base64.b64encode(pdf_path.read_bytes()).decode("utf-8")
     return f"data:application/pdf;base64,{encoded}"
+
+
+def response_debug_payload(
+    *,
+    response: Any,
+    llm_config: LLMConfig,
+    paper_paths: PaperPaths,
+    max_output_tokens: int,
+    reasoning_config: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "response_id": getattr(response, "id", None),
+        "model": llm_config.model_name,
+        "paper_id": paper_paths.paper_id,
+        "paper_dir": str(paper_paths.paper_dir),
+        "pdf_path": str(paper_paths.pdf_path),
+        "request": {
+            "max_output_tokens": max_output_tokens,
+            "reasoning": reasoning_config,
+        },
+        "status": getattr(response, "status", None),
+        "error": model_to_jsonable(getattr(response, "error", None)),
+        "incomplete_details": model_to_jsonable(getattr(response, "incomplete_details", None)),
+        "usage": model_to_jsonable(getattr(response, "usage", None)),
+        "output_text": getattr(response, "output_text", None),
+        "output": model_to_jsonable(getattr(response, "output", None)),
+    }
+
+
+def log_response_debug(
+    *,
+    response: Any,
+    llm_config: LLMConfig,
+    paper_paths: PaperPaths,
+    max_output_tokens: int,
+    reasoning_config: dict[str, Any],
+) -> None:
+    payload = response_debug_payload(
+        response=response,
+        llm_config=llm_config,
+        paper_paths=paper_paths,
+        max_output_tokens=max_output_tokens,
+        reasoning_config=reasoning_config,
+    )
+    print("response_debug_begin", file=sys.stderr)
+    print(json.dumps(payload, indent=2, ensure_ascii=False), file=sys.stderr)
+    print("response_debug_end", file=sys.stderr)
+
+
+def describe_response_state(response: Any) -> str:
+    status = getattr(response, "status", None) or "unknown"
+    incomplete_details = model_to_jsonable(getattr(response, "incomplete_details", None))
+    if isinstance(incomplete_details, dict) and incomplete_details.get("reason"):
+        return f"status={status}, incomplete_reason={incomplete_details['reason']}"
+    return f"status={status}"
+
+
+def should_retry_without_reasoning_max_tokens(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "reasoning.max_tokens" not in message:
+        return False
+
+    unsupported_markers = (
+        "unknown parameter",
+        "unsupported",
+        "not allowed",
+        "not supported",
+        "invalid",
+    )
+    return any(marker in message for marker in unsupported_markers)
 
 
 def call_generation_api(
@@ -239,22 +310,27 @@ def call_generation_api(
     paper_paths: PaperPaths,
     max_output_tokens: int,
 ) -> tuple[GeneratedTaskBundle, dict[str, Any]]:
+    request_input = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt_text},
+                {
+                    "type": "input_file",
+                    "filename": paper_paths.pdf_path.name,
+                    "file_data": encode_pdf_as_base64(paper_paths.pdf_path),
+                },
+            ],
+        }
+    ]
+    reasoning_config = {
+        "effort": llm_config.reasoning_effort
+    }
+
     response = client.responses.parse(
         model=llm_config.model_name,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": prompt_text},
-                    {
-                        "type": "input_file",
-                        "filename": paper_paths.pdf_path.name,
-                        "file_data": encode_pdf_as_base64(paper_paths.pdf_path),
-                    },
-                ],
-            }
-        ],
-        reasoning={"effort": llm_config.reasoning_effort},
+        input=request_input,
+        reasoning=reasoning_config,
         text_format=GeneratedTaskBundle,
         max_output_tokens=max_output_tokens,
         store=False,
@@ -262,7 +338,14 @@ def call_generation_api(
 
     parsed = response.output_parsed
     if parsed is None:
-        raise ValueError("The model response did not contain a parsed payload")
+        log_response_debug(
+            response=response,
+            llm_config=llm_config,
+            paper_paths=paper_paths,
+            max_output_tokens=max_output_tokens,
+            reasoning_config=reasoning_config,
+        )
+        raise ValueError(f"The model response did not contain a parsed payload ({describe_response_state(response)})")
 
     metadata = {
         "response_id": response.id,

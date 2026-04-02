@@ -35,10 +35,21 @@ Dataset sources described in the paper:
 - `python data/ehrflowbench/scripts/prepare_raw.py --include-markdowns`
 - `uv run python data/ehrflowbench/scripts/prepare_ehr/prepare_tjh.py`
 - `uv run python data/ehrflowbench/scripts/prepare_ehr/prepare_mimic_iv_demo.py`
+- `uv run python data/ehrflowbench/scripts/generate_tasks_via_api.py --paper-id 1`
+- `uv run python data/ehrflowbench/scripts/curate_generated_tasks.py`
+- `uv run python data/ehrflowbench/scripts/curate_generated_tasks.py --allow-incomplete`
 
 `prepare_raw.py` refreshes selected paper IDs and extracted task files. It also refreshes `raw/papers/paper_titles.csv` and can materialize `raw/papers/markdowns/` when the optional upstream markdown mirror is available locally. Other benchmark build/evaluation flows should stay under `data/` and evolve independently from `healthflow/`.
 
 The reusable manual prompt for advanced tool-enabled models such as GPT-5.4 lives at `data/ehrflowbench/scripts/upstream/extract_task/prompt_gpt54_ehrflowbench.md`. It is intended for the paper-to-task stage and emits structured task objects only, not reference answers.
+
+`curate_generated_tasks.py` is the local curation entrypoint that:
+
+- waits for parseable `*_tasks.json` + `*_response.json` bundles under `processed/papers/generated_tasks/`
+- scores candidate tasks, keeps at most one task per paper, applies bucket quotas and near-duplicate filtering
+- writes the canonical `train.jsonl` / `eval.jsonl`, provenance CSVs, and `processed/expected/<qid>/task_manifest.json`
+
+By default the curation step refuses to freeze an incomplete paper pool. Use `--allow-incomplete` only for provisional local rebuilds while generation is still running.
 
 ## Task Generation Contract
 
@@ -84,3 +95,7 @@ These outputs are produced locally by dataset-specific workflow scripts and are 
 - source task eligibility (`proxy_candidate`)
 - proxy constraint flags
 - current review status (`seeded_for_human_review`)
+
+`processed/train.jsonl` and `processed/eval.jsonl` use the standard HealthFlow task schema with `qid`, `task`, and `reference_answer`, plus benchmark metadata such as `task_brief`, `paper_id`, and `primary_bucket`.
+
+`reference_answer` points to `processed/expected/<qid>/task_manifest.json`. These manifests freeze the task contract, deliverable list, provenance, and review metadata before reference answers are generated.
