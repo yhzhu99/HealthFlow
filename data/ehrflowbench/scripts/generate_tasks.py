@@ -658,6 +658,24 @@ def prompt_output_path(output_dir: Path, paper_paths: PaperPaths, dataset_config
     return output_dir / f"{paper_paths.paper_id}_{dataset_config.key}_prompt.md"
 
 
+def generated_output_paths(output_dir: Path, paper_paths: PaperPaths) -> tuple[Path, Path]:
+    return (
+        output_dir / f"{paper_paths.paper_id}_tasks.json",
+        output_dir / f"{paper_paths.paper_id}_response.json",
+    )
+
+
+def existing_output_paths(output_dir: Path, paper_paths: PaperPaths, output_prompt_only: bool) -> list[Path]:
+    if output_prompt_only:
+        candidate_paths = [
+            prompt_output_path(output_dir, paper_paths, dataset_config)
+            for dataset_config in DATASET_PROMPT_CONFIGS
+        ]
+    else:
+        candidate_paths = list(generated_output_paths(output_dir, paper_paths))
+    return [path for path in candidate_paths if path.exists()]
+
+
 def write_prompt_outputs(
     output_dir: Path,
     paper_paths: PaperPaths,
@@ -696,8 +714,7 @@ def write_prompt_outputs(
 
 def write_outputs(output_dir: Path, paper_paths: PaperPaths, result: GeneratedTaskBundle, metadata: dict[str, Any], overwrite: bool) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    tasks_path = output_dir / f"{paper_paths.paper_id}_tasks.json"
-    metadata_path = output_dir / f"{paper_paths.paper_id}_response.json"
+    tasks_path, metadata_path = generated_output_paths(output_dir, paper_paths)
     if not overwrite and (tasks_path.exists() or metadata_path.exists()):
         raise FileExistsError(f"Output already exists for paper {paper_paths.paper_id}; use --overwrite")
 
@@ -708,6 +725,22 @@ def write_outputs(output_dir: Path, paper_paths: PaperPaths, result: GeneratedTa
 
 def main() -> None:
     paper_paths = resolve_paper_paths(MARKDOWN_ROOT, ARGS.paper_id, ARGS.paper_dir)
+    if not ARGS.overwrite:
+        existing_paths = existing_output_paths(ARGS.output_dir, paper_paths, ARGS.output_prompt_only)
+        if existing_paths:
+            print(json.dumps(
+                {
+                    "paper_id": paper_paths.paper_id,
+                    "paper_dir": str(paper_paths.paper_dir),
+                    "pdf_path": str(paper_paths.pdf_path),
+                    "output_prompt_only": ARGS.output_prompt_only,
+                    "skipped": True,
+                    "existing_paths": [str(path) for path in existing_paths],
+                },
+                indent=2,
+            ))
+            return
+
     prompt_body = extract_prompt_body(PROMPT_PATH)
     prompt_payloads = [
         (dataset_config, adapt_prompt(prompt_body, ARGS.task_count, dataset_config))

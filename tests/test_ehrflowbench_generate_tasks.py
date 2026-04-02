@@ -230,6 +230,80 @@ class EHRFlowBenchGenerateTasksTests(TestCase):
         )
         self.assertTrue(payload["output_prompt_only"])
 
+    def test_main_skips_existing_outputs_without_overwrite(self) -> None:
+        args = SimpleNamespace(
+            paper_id=7,
+            paper_dir=None,
+            model_key="unused",
+            task_count=2,
+            output_prompt_only=False,
+            max_output_tokens=123,
+            output_dir=Path("/tmp/generated_tasks"),
+            overwrite=False,
+        )
+        paper_paths = PaperPaths(
+            paper_id=7,
+            paper_dir=Path("/tmp/7_paper"),
+            pdf_path=Path("/tmp/7_paper/paper.pdf"),
+            markdown_path=None,
+        )
+
+        with patch.object(generate_tasks, "ARGS", args, create=True):
+            with patch.object(generate_tasks, "resolve_paper_paths", return_value=paper_paths):
+                with patch.object(
+                    generate_tasks,
+                    "existing_output_paths",
+                    return_value=[Path("/tmp/generated_tasks/7_tasks.json")],
+                ) as existing_output_paths:
+                    with patch.object(generate_tasks, "extract_prompt_body", side_effect=AssertionError("unexpected")):
+                        with patch.object(generate_tasks, "load_llm_config", side_effect=AssertionError("unexpected")):
+                            with patch.object(generate_tasks, "build_client", side_effect=AssertionError("unexpected")):
+                                with patch.object(generate_tasks, "call_generation_api", side_effect=AssertionError("unexpected")):
+                                    with patch("builtins.print") as mock_print:
+                                        generate_tasks.main()
+
+        existing_output_paths.assert_called_once_with(Path("/tmp/generated_tasks"), paper_paths, False)
+        payload = json.loads(mock_print.call_args.args[0])
+        self.assertTrue(payload["skipped"])
+        self.assertEqual(payload["existing_paths"], ["/tmp/generated_tasks/7_tasks.json"])
+        self.assertFalse(payload["output_prompt_only"])
+
+    def test_main_skips_existing_prompt_outputs_without_overwrite(self) -> None:
+        args = SimpleNamespace(
+            paper_id=7,
+            paper_dir=None,
+            model_key="unused",
+            task_count=2,
+            output_prompt_only=True,
+            max_output_tokens=123,
+            output_dir=Path("/tmp/generated_tasks"),
+            overwrite=False,
+        )
+        paper_paths = PaperPaths(
+            paper_id=7,
+            paper_dir=Path("/tmp/7_paper"),
+            pdf_path=Path("/tmp/7_paper/paper.pdf"),
+            markdown_path=None,
+        )
+
+        with patch.object(generate_tasks, "ARGS", args, create=True):
+            with patch.object(generate_tasks, "resolve_paper_paths", return_value=paper_paths):
+                with patch.object(
+                    generate_tasks,
+                    "existing_output_paths",
+                    return_value=[Path("/tmp/generated_tasks/7_tjh_prompt.md")],
+                ) as existing_output_paths:
+                    with patch.object(generate_tasks, "extract_prompt_body", side_effect=AssertionError("unexpected")):
+                        with patch.object(generate_tasks, "write_prompt_outputs", side_effect=AssertionError("unexpected")):
+                            with patch("builtins.print") as mock_print:
+                                generate_tasks.main()
+
+        existing_output_paths.assert_called_once_with(Path("/tmp/generated_tasks"), paper_paths, True)
+        payload = json.loads(mock_print.call_args.args[0])
+        self.assertTrue(payload["skipped"])
+        self.assertEqual(payload["existing_paths"], ["/tmp/generated_tasks/7_tjh_prompt.md"])
+        self.assertTrue(payload["output_prompt_only"])
+
     def test_main_calls_api_twice_and_combines_tasks(self) -> None:
         args = SimpleNamespace(
             paper_id=7,
