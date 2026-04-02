@@ -33,8 +33,17 @@ class _FakeMetaAgent:
             recommended_workflows=["Use reproducible Python scripts.", "Persist cohort and validation artifacts."],
             avoidances=["Do not skip the final answer."],
             success_signals=["The expected artifacts exist in the workspace."],
-            executor_brief="Use a simple reproducible implementation path.",
         )
+
+
+class _CapturingMetaAgent(_FakeMetaAgent):
+    def __init__(self):
+        super().__init__()
+        self.calls: list[dict] = []
+
+    async def generate_plan(self, **kwargs) -> ExecutionPlan:
+        self.calls.append(kwargs)
+        return await super().generate_plan(**kwargs)
 
 
 class _FakeEvaluator:
@@ -303,14 +312,16 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result["report_requested"])
             self.assertTrue(result["report_generated"])
             self.assertTrue(Path(result["report_path"]).exists())
-            self.assertTrue(Path(result["run_result_path"]).exists())
-            self.assertTrue(Path(result["run_manifest_path"]).exists())
-            self.assertTrue(Path(result["memory_context_path"]).exists())
-            self.assertTrue(Path(result["evaluation_path"]).exists())
-            self.assertTrue(Path(result["cost_analysis_path"]).exists())
+            self.assertTrue(Path(result["runtime_index_path"]).exists())
+            self.assertTrue(Path(result["run_summary_path"]).exists())
+            self.assertTrue(Path(result["run_trajectory_path"]).exists())
+            self.assertTrue(Path(result["final_evaluation_path"]).exists())
+            self.assertTrue(Path(result["run_costs_path"]).exists())
             self.assertEqual(Path(result["workspace_path"]).parent, workspace_dir)
             self.assertTrue(experience_path.parent.exists())
-            self.assertTrue((Path(result["workspace_path"]) / "task_state.json").exists())
+            self.assertTrue(Path(result["task_state_path"]).exists())
+            self.assertTrue(Path(result["sandbox_path"]).exists())
+            self.assertTrue(Path(result["runtime_path"]).exists())
             self.assertEqual(result["cost_summary"]["llm_estimated_cost_usd"], 0.0021)
             self.assertEqual(result["cost_summary"]["executor_estimated_cost_usd"], 0.1234)
             self.assertEqual(result["cost_summary"]["total_estimated_cost_usd"], 0.1255)
@@ -321,33 +332,28 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result["available_project_cli_tools"])
             self.assertIn("oneehr", " ".join(result["available_project_cli_tools"]).lower())
 
-            memory_context = json.loads(Path(result["memory_context_path"]).read_text(encoding="utf-8"))
-            self.assertEqual(memory_context["task_family"], "predictive_modeling")
-            self.assertEqual(memory_context["domain_focus"], "ehr")
+            trajectory = json.loads(Path(result["run_trajectory_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(trajectory["data_profile"]["task_family"], "predictive_modeling")
+            self.assertEqual(trajectory["data_profile"]["domain_focus"], "ehr")
+            self.assertEqual(trajectory["attempts"][0]["memory"]["retrieval"]["task_family"], "predictive_modeling")
+            self.assertEqual(trajectory["attempts"][0]["memory"]["retrieval"]["domain_focus"], "ehr")
 
-            run_result = json.loads(Path(result["run_result_path"]).read_text(encoding="utf-8"))
-            self.assertEqual(run_result["backend"], "claude_code")
-            self.assertEqual(run_result["executor_model"], "test-model")
-            self.assertEqual(run_result["memory_write_policy"], "append")
-            self.assertEqual(run_result["execution_environment"]["run_prefix"], "uv run")
-            self.assertEqual(run_result["cost_summary"]["executor_estimated_cost_usd"], 0.1234)
-            self.assertEqual(run_result["evaluation_status"], "success")
-            self.assertTrue(run_result["report_requested"])
-            self.assertTrue(run_result["report_generated"])
-            self.assertEqual(Path(run_result["report_path"]).name, "report.md")
-            self.assertTrue(run_result["available_project_cli_tools"])
-            self.assertIn("oneehr", " ".join(run_result["available_project_cli_tools"]).lower())
+            runtime_index = json.loads(Path(result["runtime_index_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(runtime_index["backend"], "claude_code")
+            self.assertEqual(runtime_index["models"]["executor"], "test-model")
+            self.assertEqual(runtime_index["memory_write_policy"], "append")
+            self.assertEqual(runtime_index["usage_summary"]["execution"]["estimated_cost_usd"], 0.1234)
+            self.assertTrue(runtime_index["available_project_cli_tools"])
+            self.assertIn("oneehr", " ".join(runtime_index["available_project_cli_tools"]).lower())
 
-            run_manifest = json.loads(Path(result["run_manifest_path"]).read_text(encoding="utf-8"))
-            self.assertTrue(run_manifest["report_requested"])
-            self.assertTrue(run_manifest["report_generated"])
-            self.assertEqual(Path(run_manifest["report_path"]).name, "report.md")
-            self.assertEqual(run_manifest["execution_environment"]["python_version"], "3.12")
-            self.assertTrue(run_manifest["workflow_recommendations"])
-            self.assertTrue(run_manifest["available_project_cli_tools"])
-            self.assertIn("oneehr", " ".join(run_manifest["available_project_cli_tools"]).lower())
+            run_summary = json.loads(Path(result["run_summary_path"]).read_text(encoding="utf-8"))
+            self.assertTrue(run_summary["success"])
+            self.assertEqual(run_summary["evaluation_status"], "success")
+            self.assertEqual(run_summary["attempt_count"], 1)
+            self.assertTrue(run_summary["available_project_cli_tools"])
+            self.assertIn("oneehr", " ".join(run_summary["available_project_cli_tools"]).lower())
 
-            cost_analysis = json.loads(Path(result["cost_analysis_path"]).read_text(encoding="utf-8"))
+            cost_analysis = json.loads(Path(result["run_costs_path"]).read_text(encoding="utf-8"))
             self.assertEqual(cost_analysis["attempts"][0]["execution"]["estimated_cost_usd"], 0.1234)
             self.assertEqual(cost_analysis["attempts"][0]["attempt_total_estimated_cost_usd"], 0.1252)
             self.assertEqual(cost_analysis["run_total"]["reflection"]["estimated_cost_usd"], 0.0003)
@@ -355,8 +361,29 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
             report_text = Path(result["report_path"]).read_text(encoding="utf-8")
             self.assertIn("# HealthFlow Report", report_text)
-            self.assertIn("[final_report.md](final_report.md)", report_text)
+            self.assertIn("[final_report.md](../sandbox/final_report.md)", report_text)
             self.assertNotIn(str(Path(result["workspace_path"])), report_text)
+
+    async def test_run_task_passes_supported_project_cli_tools_to_planner_for_general_runs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = _build_test_config(workspace_dir)
+            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            system.meta_agent = _CapturingMetaAgent()
+            system.evaluator = _FakeEvaluator()
+            system.reflector = _FakeReflector()
+            system.executor = _FakeExecutor()
+
+            result = await system.run_task("Summarize the uploaded sales cohort and save a short note.")
+
+            self.assertTrue(result["success"])
+            self.assertTrue(result["available_project_cli_tools"])
+            planner_call = system.meta_agent.calls[-1]
+            self.assertTrue(planner_call["available_project_cli_tools"])
+            planner_tools = " ".join(planner_call["available_project_cli_tools"]).lower()
+            self.assertIn("oneehr", planner_tools)
+            self.assertIn("tooluniverse", planner_tools)
 
     async def test_run_task_normalizes_contradictory_success_verdicts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -467,16 +494,16 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["evaluation_score"], 1.0)
             self.assertIn("HealthFlow", result["answer"])
             self.assertEqual(result["available_project_cli_tools"], [])
-            self.assertTrue(Path(result["evaluation_path"]).exists())
-            self.assertTrue(Path(result["memory_context_path"]).exists())
-            history = json.loads((Path(result["workspace_path"]) / "full_history.json").read_text(encoding="utf-8"))
+            self.assertTrue(Path(result["final_evaluation_path"]).exists())
+            self.assertTrue(Path(result["run_trajectory_path"]).exists())
+            history = json.loads(Path(result["run_trajectory_path"]).read_text(encoding="utf-8"))
             self.assertEqual(history["attempts"], [])
             self.assertEqual(history["response_mode"], "direct_response")
             self.assertEqual(history["available_project_cli_tools"], [])
-            run_result = json.loads(Path(result["run_result_path"]).read_text(encoding="utf-8"))
-            self.assertEqual(run_result["available_project_cli_tools"], [])
-            run_manifest = json.loads(Path(result["run_manifest_path"]).read_text(encoding="utf-8"))
-            self.assertEqual(run_manifest["available_project_cli_tools"], [])
+            runtime_index = json.loads(Path(result["runtime_index_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(runtime_index["available_project_cli_tools"], [])
+            run_summary = json.loads(Path(result["run_summary_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(run_summary["available_project_cli_tools"], [])
 
     async def test_run_task_uses_direct_response_path_for_name_question(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -507,7 +534,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("HealthFlow", result["answer"])
             self.assertNotIn("MetaAgent", result["answer"])
             self.assertEqual(result["available_project_cli_tools"], [])
-            history = json.loads((Path(result["workspace_path"]) / "full_history.json").read_text(encoding="utf-8"))
+            history = json.loads(Path(result["run_trajectory_path"]).read_text(encoding="utf-8"))
             self.assertEqual(history["direct_response_category"], "identity")
             self.assertEqual(history["response_mode"], "direct_response")
             self.assertEqual(history["available_project_cli_tools"], [])

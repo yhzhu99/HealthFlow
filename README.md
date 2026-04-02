@@ -47,21 +47,25 @@ Dataset preparation and benchmark evaluation assets remain under `data/`; they a
 
 Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 
-- `<backend>_execution.log`
-- `task_list_v*.md`
-- `full_history.json`
-- `memory_context.json`
-- `evaluation.json`
-- `cost_analysis.json`
-- `run_manifest.json`
-- `run_result.json`
+- `sandbox/`
+  - executor-visible inputs and produced deliverables only
+- `runtime/index.json`
+- `runtime/events.jsonl`
+- `runtime/run/summary.json`
+- `runtime/run/trajectory.json`
+- `runtime/run/costs.json`
+- `runtime/run/final_evaluation.json`
+- `runtime/attempts/attempt_*/`
+  - `planner/`: input messages, raw output, parsed output, call metadata, repair trace, plan markdown
+  - `executor/`: prompt, command, stdout, stderr, combined log, telemetry, usage, artifact index
+  - `evaluator/`: input messages, raw output, parsed output, call metadata, repair trace
 
 When `healthflow run ... --report` is enabled, the same workspace also writes:
 
-- `report.md`
+- `runtime/report.md`
 
 These files are the main source of truth for rebuttal-oriented inspection.
-`report.md` is a standard HealthFlow-generated markdown report that summarizes the run, links produced artifacts with relative paths, embeds a small number of images inline, and keeps runtime JSON/log files in a separate audit section.
+`runtime/report.md` is a standard HealthFlow-generated markdown report that summarizes the run, links sandbox deliverables with relative paths, embeds a small number of images inline, and keeps runtime JSON/log files in a separate audit section.
 
 ## Runtime Boundary
 
@@ -87,7 +91,7 @@ Retrieval is inspectable:
 - contradictory memories are tracked by `conflict_slot`
 - safeguard memories suppress conflicting workflow or execution memories before planning
 - dataset memories act as anchors without replacing workflow guidance
-- the retrieval audit is saved to `memory_context.json`
+- the retrieval audit is saved per attempt under `runtime/attempts/attempt_*/memory/retrieval_result.json`
 
 Writeback behavior:
 
@@ -284,7 +288,9 @@ Legacy tool-registration sections are intentionally unsupported. If you previous
 
 ### External CLI Recipes
 
-HealthFlow may recommend selected external CLIs when the task warrants them, but it does not install, register, or invoke them directly.
+HealthFlow may surface selected external CLIs when they are available in the project environment, but it does not install, register, or invoke them directly.
+In orchestrated runs, the planner and executor prompts always receive the supported local CLI contracts that HealthFlow can resolve from the project environment today: `oneehr` and `tu` / `tooluniverse`.
+Applicability still matters: `oneehr` is mainly useful for EHR workflows, while ToolUniverse is mainly useful for biomedical tool lookup and execution.
 
 ToolUniverse CLI examples:
 
@@ -293,6 +299,8 @@ uv run tu list
 uv run tu find "pathway analysis"
 uv run tu info <tool-name>
 uv run tu run <tool-name> --help
+uv run tu status
+uv run tu serve
 ```
 
 ToolUniverse also supports a local `.tooluniverse/profile.yaml` workspace and can launch its own MCP server with `tu serve`, but HealthFlow does not manage that MCP surface.
@@ -308,8 +316,6 @@ uv run oneehr plot --help
 uv run oneehr convert --help
 ```
 
-The OneEHR workflow is only surfaced as a recommendation for EHR modeling tasks, and only when the executor environment already provides the CLI.
-
 ### Single Task
 
 ```bash
@@ -320,7 +326,7 @@ python run_healthflow.py run \
 ```
 
 The same CLI can also run EHR-focused prompts used in the paper and arbitrary external-CLI-driven workflows.
-When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single markdown artifact before exporting it to PDF or other formats.
+When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/runtime/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single markdown artifact before exporting it to PDF or other formats.
 
 To override the configured runtime models from the CLI, pass any subset of:
 `--planner-llm`, `--evaluator-llm`, `--reflector-llm`, `--executor-llm`.

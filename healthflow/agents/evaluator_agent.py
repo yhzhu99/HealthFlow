@@ -18,6 +18,7 @@ class EvaluatorAgent:
         self.last_usage: dict = {}
         self.last_model_name: str = llm_provider.model_name
         self.last_estimated_cost_usd: float | None = None
+        self.last_trace: dict = {}
 
     async def evaluate(
         self,
@@ -64,6 +65,12 @@ class EvaluatorAgent:
             verdict.usage = response.usage
             verdict.judge_model = response.model_name
             verdict.estimated_cost_usd = response.estimated_cost_usd
+            self.last_trace = self._build_trace(
+                messages=messages,
+                raw_output=response.content,
+                parsed_output=verdict.model_dump(mode="json"),
+                error=None,
+            )
             logger.info(f"Evaluation received successfully. Score: {verdict.score}")
             return verdict
         except (StructuredResponseError, ValueError) as e:
@@ -75,7 +82,7 @@ class EvaluatorAgent:
             logger.error(f"Failed to parse valid evaluation from LLM. Error: {e}")
             if response is not None:
                 logger.debug(f"Invalid JSON response from LLM: {response.content}")
-            return EvaluationVerdict(
+            fallback_verdict = EvaluationVerdict(
                 status="failed",
                 score=0.0,
                 failure_type="evaluator_malformed_response",
@@ -88,6 +95,13 @@ class EvaluatorAgent:
                 judge_model=response.model_name if response is not None else None,
                 estimated_cost_usd=response.estimated_cost_usd if response is not None else None,
             )
+            self.last_trace = self._build_trace(
+                messages=messages,
+                raw_output=response.content if response is not None else "",
+                parsed_output=fallback_verdict.model_dump(mode="json"),
+                error=str(e),
+            )
+            return fallback_verdict
 
     def _sanitize_execution_log(self, execution_log: str, max_chars: int = 12000) -> str:
         normalized = _ANSI_ESCAPE_RE.sub("", execution_log).strip() or "No execution log was captured."
@@ -102,3 +116,27 @@ class EvaluatorAgent:
             f"... [truncated {omitted} characters from the middle of the execution log] ...\n\n"
             f"{normalized[-tail_chars:].lstrip()}"
         )
+
+    def _build_trace(
+        self,
+        *,
+        messages: list[LLMMessage],
+        raw_output: str,
+        parsed_output: dict,
+        error: str | None,
+    ) -> dict:
+        provider_trace = getattr(self.llm_provider, "last_structured_trace", {}) or {}
+        return {
+            "input_messages": [message.model_dump() for message in messages],
+            "output_raw": raw_output,
+            "output_parsed": parsed_output,
+            "call": {
+                "model_name": self.last_model_name,
+                "usage": self.last_usage,
+                "estimated_cost_usd": self.last_estimated_cost_usd,
+                "local_attempt_count": provider_trace.get("local_attempt_count", 0),
+                "duration_seconds": provider_trace.get("duration_seconds"),
+                "error": error,
+            },
+            "repair_trace": provider_trace,
+        }

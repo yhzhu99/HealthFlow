@@ -25,43 +25,36 @@ _CODE_EXTENSIONS = {
 }
 _DATA_EXTENSIONS = {".csv", ".tsv", ".json", ".jsonl", ".parquet", ".feather", ".xlsx", ".xls", ".arrow"}
 _TEXT_EXTENSIONS = _REPORT_EXTENSIONS | _CODE_EXTENSIONS | _DATA_EXTENSIONS | {".yaml", ".yml", ".toml"}
-_EXCLUDED_RUNTIME_FILES = {
-    "report.md",
-    "task_state.json",
-    "memory_context.json",
-    "evaluation.json",
-    "cost_analysis.json",
-    "run_manifest.json",
-    "run_result.json",
-    "full_history.json",
-}
+_EXCLUDED_RUNTIME_FILES = {"report.md"}
 _COMMENT_PREFIXES = ("#", "//", "--", ";", "/*", "*")
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
 def generate_task_report(task_workspace: Path) -> Path:
-    run_manifest = _read_json(task_workspace / "run_manifest.json")
-    run_result = _read_json(task_workspace / "run_result.json")
-    full_history = _read_json(task_workspace / "full_history.json")
-    evaluation = _read_json(task_workspace / "evaluation.json")
-    cost_analysis = _read_json(task_workspace / "cost_analysis.json")
+    runtime_dir = task_workspace / "runtime"
+    sandbox_dir = task_workspace / "sandbox"
+    index = _read_json(runtime_dir / "index.json")
+    run_summary = _read_json(runtime_dir / "run" / "summary.json")
+    trajectory = _read_json(runtime_dir / "run" / "trajectory.json")
+    evaluation = _read_json(runtime_dir / "run" / "final_evaluation.json")
+    cost_analysis = _read_json(runtime_dir / "run" / "costs.json")
 
-    prompt_relative_path = _relative_runtime_path(run_result.get("prompt_path"), task_workspace)
-    runtime_paths = _runtime_artifact_paths(task_workspace, run_result.get("backend"), prompt_relative_path)
-    deliverables = _collect_deliverables(task_workspace, runtime_paths)
+    runtime_paths = _runtime_artifact_paths(runtime_dir)
+    deliverables = _collect_deliverables(sandbox_dir)
 
     report_markdown = _render_report(
         task_workspace=task_workspace,
-        run_manifest=run_manifest,
-        run_result=run_result,
-        full_history=full_history,
+        runtime_dir=runtime_dir,
+        index=index,
+        run_summary=run_summary,
+        trajectory=trajectory,
         evaluation=evaluation,
         cost_analysis=cost_analysis,
         deliverables=deliverables,
         runtime_paths=runtime_paths,
     )
 
-    report_path = task_workspace / "report.md"
+    report_path = runtime_dir / "report.md"
     temp_path = report_path.with_suffix(".md.tmp")
     temp_path.write_text(report_markdown, encoding="utf-8")
     temp_path.replace(report_path)
@@ -70,41 +63,42 @@ def generate_task_report(task_workspace: Path) -> Path:
 
 def _render_report(
     task_workspace: Path,
-    run_manifest: dict[str, Any],
-    run_result: dict[str, Any],
-    full_history: dict[str, Any],
+    runtime_dir: Path,
+    index: dict[str, Any],
+    run_summary: dict[str, Any],
+    trajectory: dict[str, Any],
     evaluation: dict[str, Any],
     cost_analysis: dict[str, Any],
     deliverables: list[dict[str, Any]],
     runtime_paths: list[str],
 ) -> str:
-    attempts = full_history.get("attempts", [])
-    final_status = str(run_result.get("evaluation_status") or evaluation.get("status") or "unknown")
-    final_score = run_result.get("evaluation_score")
-    task_id = str(run_manifest.get("task_id") or task_workspace.name)
-    summary = _sanitize_text(str(run_result.get("final_summary") or "No final summary was recorded."), task_workspace)
-    user_request = _sanitize_text(str(run_manifest.get("user_request") or full_history.get("user_request") or ""), task_workspace)
+    attempts = trajectory.get("attempts", [])
+    final_status = str(run_summary.get("evaluation_status") or evaluation.get("status") or "unknown")
+    final_score = run_summary.get("evaluation_score")
+    task_id = str(index.get("task_id") or task_workspace.name)
+    summary = _sanitize_text(str(run_summary.get("final_summary") or "No final summary was recorded."), task_workspace)
+    user_request = _sanitize_text(str(index.get("user_request") or trajectory.get("user_request") or ""), task_workspace)
     feedback = _sanitize_text(str(evaluation.get("feedback") or "No evaluator feedback was recorded."), task_workspace)
     reasoning = _sanitize_text(str(evaluation.get("reasoning") or "No evaluator reasoning was recorded."), task_workspace)
-    llm_role_models = run_result.get("llm_role_models") or run_manifest.get("llm_role_models") or {}
-    runtime_llm_keys = run_result.get("runtime_llm_keys") or run_manifest.get("runtime_llm_keys") or {}
-    execution_time = run_result.get("execution_time")
+    llm_role_models = index.get("models") or {}
+    runtime_llm_keys = index.get("runtime_llm_keys") or {}
+    execution_time = index.get("execution_time")
 
     lines = [
         "# HealthFlow Report",
         "",
         f"- Task ID: `{task_id}`",
         f"- Outcome: `{final_status}`",
-        f"- Success: `{bool(run_result.get('success', False))}`",
+        f"- Success: `{bool(run_summary.get('success', False))}`",
         f"- Evaluation Score: `{_format_scalar(final_score)}`",
         f"- Attempts: `{len(attempts)}`",
-        f"- Backend: `{_format_scalar(run_result.get('backend') or run_manifest.get('backend'))}`",
-        f"- Executor Model: `{_format_scalar(run_result.get('executor_model') or run_manifest.get('executor_model'))}`",
-        f"- Executor Provider: `{_format_scalar(run_result.get('executor_provider') or run_manifest.get('executor_provider'))}`",
-        f"- Planner Model: `{_format_scalar(run_result.get('planner_model') or run_manifest.get('planner_model'))}`",
+        f"- Backend: `{_format_scalar(index.get('backend'))}`",
+        f"- Executor Model: `{_format_scalar(llm_role_models.get('executor'))}`",
+        f"- Executor Provider: `{_format_scalar(index.get('executor_provider'))}`",
+        f"- Planner Model: `{_format_scalar(llm_role_models.get('planner'))}`",
         f"- Role Models: `{_format_role_models(llm_role_models)}`",
         f"- Runtime LLM Keys: `{_format_role_models(runtime_llm_keys)}`",
-        f"- Memory Write Policy: `{_format_scalar(run_result.get('memory_write_policy') or run_manifest.get('memory_write_policy'))}`",
+        f"- Memory Write Policy: `{_format_scalar(index.get('memory_write_policy'))}`",
         f"- Execution Time: `{_format_duration(execution_time)}`",
         "",
         "## Abstract",
@@ -168,10 +162,10 @@ def _render_report(
             f"- Executor Estimated Cost (USD): `{_format_scalar(cost_analysis.get('run_total', {}).get('executor_estimated_cost_usd'))}`",
         ]
     )
-    lines.extend(_render_usage_analysis(run_result.get("usage_summary") or {}))
+    lines.extend(_render_usage_analysis(index.get("usage_summary") or {}))
 
     lines.extend(["", "## Runtime Artifacts"])
-    lines.extend(_render_runtime_artifacts(task_workspace, runtime_paths))
+    lines.extend(_render_runtime_artifacts(runtime_dir, runtime_paths))
 
     lines.extend(["", "## Appendix: Full Artifact Inventory"])
     if deliverables:
@@ -211,7 +205,7 @@ def _render_attempts(attempts: list[dict[str, Any]], task_workspace: Path) -> li
         plan = attempt.get("plan", {})
         execution = attempt.get("execution", {})
         evaluation = attempt.get("evaluation", {})
-        artifacts = attempt.get("artifacts", {}).get("workspace_paths", [])
+        artifacts = attempt.get("artifacts", {}).get("sandbox_paths", [])
         lines.extend(
             [
                 f"### Attempt {attempt_id}",
@@ -295,18 +289,19 @@ def _render_inventory(deliverables: list[dict[str, Any]]) -> list[str]:
     ]
 
 
-def _collect_deliverables(task_workspace: Path, runtime_paths: list[str]) -> list[dict[str, Any]]:
-    runtime_set = set(runtime_paths)
+def _collect_deliverables(sandbox_dir: Path) -> list[dict[str, Any]]:
     deliverables: list[dict[str, Any]] = []
-    for path in sorted(task_workspace.rglob("*")):
+    if not sandbox_dir.exists():
+        return deliverables
+    for path in sorted(sandbox_dir.rglob("*")):
         if not path.is_file():
             continue
-        relative_path = path.relative_to(task_workspace).as_posix()
-        if relative_path in runtime_set or _is_runtime_path(relative_path):
+        relative_path = path.relative_to(sandbox_dir).as_posix()
+        if _is_runtime_path(relative_path):
             continue
         deliverables.append(
             {
-                "path": relative_path,
+                "path": (Path("..") / "sandbox" / relative_path).as_posix(),
                 "category": _categorize_artifact(path),
                 "descriptor": _artifact_descriptor(path),
                 "size_bytes": path.stat().st_size,
@@ -315,22 +310,17 @@ def _collect_deliverables(task_workspace: Path, runtime_paths: list[str]) -> lis
     return deliverables
 
 
-def _runtime_artifact_paths(task_workspace: Path, backend: Any, prompt_relative_path: str | None) -> list[str]:
-    backend_name = str(backend or "executor")
-    latest_task_list = _latest_versioned_file(task_workspace, "task_list_v*.md")
-    runtime_paths = [
-        f"{backend_name}_execution.log",
-        latest_task_list or "task_list_v*.md",
-        "full_history.json",
-        "memory_context.json",
-        "evaluation.json",
-        "cost_analysis.json",
-        "run_manifest.json",
-        "run_result.json",
-    ]
-    if prompt_relative_path:
-        runtime_paths.append(prompt_relative_path)
-    return runtime_paths
+def _runtime_artifact_paths(runtime_dir: Path) -> list[str]:
+    paths: list[str] = []
+    if not runtime_dir.exists():
+        return paths
+    for path in sorted(runtime_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.name == "report.md":
+            continue
+        paths.append(path.relative_to(runtime_dir).as_posix())
+    return paths
 
 
 def _latest_versioned_file(task_workspace: Path, pattern: str) -> str | None:
@@ -568,10 +558,6 @@ def _is_runtime_path(relative_path: str) -> bool:
         return True
     if path.name in _EXCLUDED_RUNTIME_FILES:
         return True
-    if path.name.startswith("memory_context_v") and path.suffix == ".json":
-        return True
-    if path.name.startswith("task_list_v") and path.suffix == ".md":
-        return True
-    if path.name.endswith("_execution.log"):
+    if path.parts and path.parts[0] == ".healthflow_pi_agent":
         return True
     return False

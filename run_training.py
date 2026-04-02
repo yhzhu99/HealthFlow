@@ -95,8 +95,14 @@ class TrainingRunner:
                         "evaluation_status": result.get("evaluation_status"),
                         "evaluation_score": result.get("evaluation_score"),
                         "execution_time": result.get("execution_time", 0.0),
-                        "memory_context_path": result.get("memory_context_path"),
-                        "evaluation_path": result.get("evaluation_path"),
+                        "sandbox_path": result.get("sandbox_path"),
+                        "runtime_path": result.get("runtime_path"),
+                        "task_state_path": result.get("task_state_path"),
+                        "runtime_index_path": result.get("runtime_index_path"),
+                        "run_summary_path": result.get("run_summary_path"),
+                        "run_trajectory_path": result.get("run_trajectory_path"),
+                        "run_costs_path": result.get("run_costs_path"),
+                        "final_evaluation_path": result.get("final_evaluation_path"),
                         "report_requested": result.get("report_requested", False),
                         "report_generated": result.get("report_generated", False),
                         "report_path": result.get("report_path"),
@@ -130,8 +136,14 @@ class TrainingRunner:
                         "evaluation_status": "failed",
                         "evaluation_score": 0.0,
                         "execution_time": 0.0,
-                        "memory_context_path": None,
-                        "evaluation_path": None,
+                        "sandbox_path": None,
+                        "runtime_path": None,
+                        "task_state_path": None,
+                        "runtime_index_path": None,
+                        "run_summary_path": None,
+                        "run_trajectory_path": None,
+                        "run_costs_path": None,
+                        "final_evaluation_path": None,
                         "report_requested": False,
                         "report_generated": False,
                         "report_path": None,
@@ -195,17 +207,20 @@ class TrainingRunner:
     def _extract_score_from_result(self, result: Dict[str, Any]) -> float:
         """Extract evaluation score from result."""
         try:
-            # The result structure should be checked from the actual logs
-            # Let's try to find the score from the workspace full_history.json
-            workspace_path = result.get("workspace_path")
-            if workspace_path:
-                history_file = Path(workspace_path) / "full_history.json"
-                if history_file.exists():
-                    with open(history_file, 'r') as f:
-                        history = json.loads(f.read())
-                        attempts = history.get("attempts", [])
-                        if attempts and "evaluation" in attempts[-1]:
-                            return attempts[-1]["evaluation"].get("score", 0.0)
+            trajectory_path = result.get("run_trajectory_path")
+            if trajectory_path:
+                history_file = Path(trajectory_path)
+            else:
+                workspace_path = result.get("workspace_path")
+                if not workspace_path:
+                    return 0.0
+                history_file = Path(workspace_path) / "runtime" / "run" / "trajectory.json"
+            if history_file.exists():
+                with open(history_file, 'r') as f:
+                    history = json.loads(f.read())
+                    attempts = history.get("attempts", [])
+                    if attempts and "evaluation" in attempts[-1]:
+                        return attempts[-1]["evaluation"].get("score", 0.0)
             return 0.0
         except (KeyError, IndexError, TypeError, json.JSONDecodeError, FileNotFoundError):
             return 0.0
