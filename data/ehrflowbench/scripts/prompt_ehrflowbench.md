@@ -40,7 +40,7 @@ This task must be grounded in the local EHR metadata provided inside this prompt
    - Display math: `\\[ ... \\]`
 
 7. Single-dataset exclusivity:
-   Generate exactly 1 task, and it must use only the dataset identified in the injected task-allocation block. Do not compare against, combine with, or mention any other dataset.
+   Generate exactly 1 task, and it must use only the dataset identified in the injected local EHR metadata block. Do not compare against, combine with, or mention any other dataset.
 
 8.  Verifiable deliverables:
     Each task must ask for at least one structured numeric artifact such as `metrics.json` or `tables/*.csv`, and at least one figure or table artifact when visualization is relevant. The task should be easy to evaluate from produced files, not only from free-form prose.
