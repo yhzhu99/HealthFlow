@@ -65,7 +65,7 @@ When `healthflow run ... --report` is enabled, the same workspace also writes:
 - `runtime/report.md`
 
 These files are the main source of truth for rebuttal-oriented inspection.
-`runtime/report.md` is a standard HealthFlow-generated markdown report that summarizes the run, links sandbox deliverables with relative paths, embeds a small number of images inline, and keeps runtime JSON/log files in a separate audit section.
+`runtime/report.md` is a HealthFlow-generated markdown report designed for end users such as Health Data Scientists. It renders the run as a short-paper-style narrative with sections such as Abstract, Problem, HealthFlow Analysis, Execution, Results, and Conclusion, while keeping runtime JSON/log links in a compact audit appendix.
 
 ## Runtime Boundary
 
@@ -326,7 +326,7 @@ python run_healthflow.py run \
 ```
 
 The same CLI can also run EHR-focused prompts used in the paper and arbitrary external-CLI-driven workflows.
-When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/runtime/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single markdown artifact before exporting it to PDF or other formats.
+When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/runtime/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single paper-style markdown artifact before exporting it to PDF or other formats.
 
 To override the configured runtime models from the CLI, pass any subset of:
 `--planner-llm`, `--evaluator-llm`, `--reflector-llm`, `--executor-llm`.

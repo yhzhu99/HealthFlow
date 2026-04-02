@@ -361,7 +361,11 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
             report_text = Path(result["report_path"]).read_text(encoding="utf-8")
             self.assertIn("# HealthFlow Report", report_text)
+            self.assertIn("## Results", report_text)
+            self.assertIn("## Appendix: Reproducibility and Audit", report_text)
             self.assertIn("[final_report.md](../sandbox/final_report.md)", report_text)
+            self.assertIn("| Auroc | 0.8100 |", report_text)
+            self.assertIn("[trajectory.json](run/trajectory.json)", report_text)
             self.assertNotIn(str(Path(result["workspace_path"])), report_text)
 
     async def test_run_task_passes_supported_project_cli_tools_to_planner_for_general_runs(self):
@@ -421,6 +425,8 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result["report_generated"])
             self.assertTrue(Path(result["report_path"]).exists())
             report_text = Path(result["report_path"]).read_text(encoding="utf-8")
+            self.assertIn("## Results", report_text)
+            self.assertIn("## Appendix: Reproducibility and Audit", report_text)
             self.assertIn("`failed`", report_text)
             self.assertIn("The task did not satisfy the requested deliverable.", report_text)
 
