@@ -95,40 +95,17 @@ class AnthropicMessagesRequestError(Exception):
 
 
 class TaskScoreBreakdown(BaseModel):
-    feasibility: int = Field(ge=0, le=3)
-    specificity: int = Field(ge=0, le=2)
-    evaluability: int = Field(ge=0, le=2)
-    practicality: int = Field(ge=0, le=2)
-    novelty: int = Field(ge=0, le=1)
+    feasibility: int = Field(ge=0, le=5)
+    specificity: int = Field(ge=0, le=5)
+    evaluability: int = Field(ge=0, le=5)
+    practicality: int = Field(ge=0, le=5)
+    novelty: int = Field(ge=0, le=5)
 
 
 class LLMTaskScorePayload(BaseModel):
     hard_reject: bool
     hard_reject_reasons: list[str] = Field(default_factory=list)
     scores: TaskScoreBreakdown
-    flags: list[str] = Field(default_factory=list)
-    rationale: str
-
-    @field_validator("hard_reject_reasons", "flags")
-    @classmethod
-    def normalize_string_list(cls, value: list[str]) -> list[str]:
-        cleaned: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            normalized = str(item).strip()
-            if not normalized or normalized in seen:
-                continue
-            cleaned.append(normalized)
-            seen.add(normalized)
-        return cleaned
-
-    @field_validator("rationale")
-    @classmethod
-    def validate_rationale(cls, value: str) -> str:
-        normalized = str(value).strip()
-        if not normalized:
-            raise ValueError("rationale must be non-empty")
-        return normalized
 
 
 def parse_args() -> argparse.Namespace:
@@ -902,8 +879,6 @@ def task_record_from_payload(
         "scores": scores,
         "final_score": final_score,
         "rank_status": rank_status,
-        "flags": payload.flags,
-        "rationale": payload.rationale,
         "raw_response_path": relative_path(raw_response_path),
         "parse_status": "parsed",
     }
@@ -941,8 +916,6 @@ def task_record_for_parse_failure(
         "scores": None,
         "final_score": None,
         "rank_status": "parse_failed",
-        "flags": [],
-        "rationale": "",
         "parse_error": str(parse_error),
         "raw_response_path": relative_path(raw_response_path),
         "parse_status": "parse_failed",
