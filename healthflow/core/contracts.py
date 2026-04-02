@@ -27,47 +27,58 @@ class ExecutionPlan(BaseModel):
         default_factory=list,
         description="Observable signs that the attempt is on track to succeed.",
     )
-    executor_brief: str = Field(
-        default="",
-        description="Concise guidance for the executor about how to interpret and apply the plan.",
-    )
 
-    def to_markdown(self) -> str:
+    def to_markdown(self, title_level: int = 1) -> str:
+        title_level = max(1, title_level)
+        title_prefix = "#" * title_level
+        section_prefix = "#" * (title_level + 1)
         sections = [
-            "# Execution Plan",
+            f"{title_prefix} Execution Plan",
             "",
-            "## Objective",
+            f"{section_prefix} Objective",
             self.objective.strip() or "No objective provided.",
-            "",
-            "## Assumptions To Check",
-            *self._render_bullets(self.assumptions_to_check, "No explicit assumptions were listed."),
-            "",
-            "## Recommended Steps",
-            *self._render_numbered(self.recommended_steps, "Inspect the environment and act directly."),
-            "",
-            "## Recommended Workflows",
-            *self._render_bullets(self.recommended_workflows, "No workflow recommendations were specified."),
-            "",
-            "## Avoidances",
-            *self._render_bullets(self.avoidances, "No explicit avoidances were listed."),
-            "",
-            "## Success Signals",
-            *self._render_bullets(self.success_signals, "No explicit success signals were listed."),
-            "",
-            "## Executor Brief",
-            self.executor_brief.strip() or "Use the most direct reproducible path to satisfy the task.",
         ]
+        self._append_list_section(
+            sections,
+            heading=f"{section_prefix} Assumptions To Check",
+            items=self.assumptions_to_check,
+            ordered=False,
+        )
+        self._append_list_section(
+            sections,
+            heading=f"{section_prefix} Recommended Steps",
+            items=self.recommended_steps,
+            ordered=True,
+        )
+        self._append_list_section(
+            sections,
+            heading=f"{section_prefix} Recommended Workflows",
+            items=self.recommended_workflows,
+            ordered=False,
+        )
+        self._append_list_section(
+            sections,
+            heading=f"{section_prefix} Avoidances",
+            items=self.avoidances,
+            ordered=False,
+        )
+        self._append_list_section(
+            sections,
+            heading=f"{section_prefix} Success Signals",
+            items=self.success_signals,
+            ordered=False,
+        )
         return "\n".join(sections).strip()
 
-    def _render_bullets(self, items: list[str], fallback: str) -> list[str]:
-        if not items:
-            return [f"- {fallback}"]
-        return [f"- {item}" for item in items]
-
-    def _render_numbered(self, items: list[str], fallback: str) -> list[str]:
-        if not items:
-            return [f"1. {fallback}"]
-        return [f"{index}. {item}" for index, item in enumerate(items, start=1)]
+    def _append_list_section(self, sections: list[str], heading: str, items: list[str], *, ordered: bool) -> None:
+        cleaned_items = [item.strip() for item in items if item.strip()]
+        if not cleaned_items:
+            return
+        sections.extend(["", heading])
+        if ordered:
+            sections.extend(f"{index}. {item}" for index, item in enumerate(cleaned_items, start=1))
+            return
+        sections.extend(f"- {item}" for item in cleaned_items)
 
 
 class EvaluationVerdict(BaseModel):

@@ -33,7 +33,6 @@ class _FakeMetaAgent:
             recommended_workflows=["Use reproducible commands."],
             avoidances=["Do not skip artifact logging."],
             success_signals=["The workspace contains inspectable artifacts."],
-            executor_brief="Keep the run minimal.",
         )
 
 
@@ -98,7 +97,6 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
                 recommended_workflows=["Use the Python executable."],
                 avoidances=["Do not skip stdout."],
                 success_signals=["stdout contains hello."],
-                executor_brief="Write to stdout, then sleep.",
             ),
             execution_environment=EnvironmentConfig(),
         )

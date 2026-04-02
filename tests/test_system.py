@@ -33,7 +33,6 @@ class _FakeMetaAgent:
             recommended_workflows=["Use reproducible Python scripts.", "Persist cohort and validation artifacts."],
             avoidances=["Do not skip the final answer."],
             success_signals=["The expected artifacts exist in the workspace."],
-            executor_brief="Use a simple reproducible implementation path.",
         )
 
 

@@ -20,6 +20,26 @@ from healthflow.execution.opencode_parser import parse_opencode_json_events
 
 
 class ExecutionFactoryTests(unittest.TestCase):
+    def test_execution_plan_markdown_omits_empty_sections_and_supports_nested_heading_levels(self):
+        plan = ExecutionPlan(
+            objective="Build a cohort table.",
+            recommended_steps=["Inspect the workspace.", "Write the cohort artifact."],
+            success_signals=["A cohort artifact exists in the workspace."],
+        )
+
+        top_level_markdown = plan.to_markdown()
+        nested_markdown = plan.to_markdown(title_level=2)
+
+        self.assertIn("# Execution Plan", top_level_markdown)
+        self.assertIn("## Objective", top_level_markdown)
+        self.assertIn("## Recommended Steps", top_level_markdown)
+        self.assertNotIn("## Assumptions To Check", top_level_markdown)
+        self.assertNotIn("## Recommended Workflows", top_level_markdown)
+        self.assertNotIn("## Avoidances", top_level_markdown)
+        self.assertIn("## Execution Plan", nested_markdown)
+        self.assertIn("### Objective", nested_markdown)
+        self.assertIn("### Recommended Steps", nested_markdown)
+
     def test_claude_code_uses_specialized_executor(self):
         executor = create_executor_adapter(
             "claude_code",
@@ -335,7 +355,6 @@ reasoning_effort = "medium"
                 recommended_workflows=["Use reproducible Python scripts.", "Persist a cohort artifact."],
                 avoidances=["Do not write outside the workspace."],
                 success_signals=["A cohort artifact exists in the workspace."],
-                executor_brief="Prefer a small reproducible script if the logic is non-trivial.",
             ),
             execution_environment=EnvironmentConfig(),
             available_project_cli_tools=[
@@ -370,7 +389,6 @@ reasoning_effort = "medium"
                 recommended_workflows=["Prefer reproducible Python scripts."],
                 avoidances=["Do not write outside the workspace."],
                 success_signals=["A cohort artifact exists in the workspace."],
-                executor_brief="Prefer a small reproducible script if the logic is non-trivial.",
             ),
             execution_environment=EnvironmentConfig(),
             workflow_recommendations=["Prefer workspace-local Python entrypoints via `uv run`."],
@@ -393,7 +411,6 @@ reasoning_effort = "medium"
                 recommended_workflows=["Prefer reproducible Python scripts."],
                 avoidances=["Do not write outside the workspace."],
                 success_signals=["A concise summary is returned."],
-                executor_brief="Inspect the workspace before responding.",
             ),
             execution_environment=EnvironmentConfig(),
         )

@@ -109,7 +109,6 @@ class MetaAgent:
                 recommended_workflows=workflow_recommendations[:3],
                 avoidances=["Do not ignore relevant safeguards or previous feedback."],
                 success_signals=["The requested result is present in the workspace and summarized in the final answer."],
-                executor_brief="The planner fallback triggered. Execute conservatively and keep the attempt reproducible.",
             )
 
     def _render_memory_block(self, experiences: List[Experience], prefix: str, fallback: str) -> str:
