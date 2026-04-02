@@ -7,7 +7,7 @@ from healthflow.reporting import generate_task_report
 
 
 class ReportingTests(unittest.TestCase):
-    def test_report_uses_relative_links_and_avoids_absolute_workspace_paths(self):
+    def test_report_uses_relative_links_and_renders_paper_sections(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir) / "task"
             workspace.mkdir(parents=True, exist_ok=True)
@@ -24,13 +24,22 @@ class ReportingTests(unittest.TestCase):
             report_path = generate_task_report(workspace)
             report = report_path.read_text(encoding="utf-8")
 
+            self.assertIn("## Abstract", report)
+            self.assertIn("## Problem", report)
+            self.assertIn("## HealthFlow Analysis", report)
+            self.assertIn("## Execution", report)
+            self.assertIn("## Results", report)
+            self.assertIn("## Conclusion", report)
+            self.assertIn("## Appendix: Reproducibility and Audit", report)
             self.assertIn("[analysis.md](../sandbox/analysis.md)", report)
             self.assertIn("[roc.png](../sandbox/plots/roc.png)", report)
             self.assertIn("![roc.png](../sandbox/plots/roc.png)", report)
             self.assertIn("[train.py](../sandbox/code/train.py)", report)
+            self.assertIn("| Metric | Value |", report)
+            self.assertIn("| Auroc | 0.8100 |", report)
             self.assertNotIn(str(workspace), report)
 
-    def test_report_embeds_only_first_five_images(self):
+    def test_report_embeds_all_user_facing_images(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir) / "task"
             workspace.mkdir(parents=True, exist_ok=True)
@@ -42,9 +51,8 @@ class ReportingTests(unittest.TestCase):
 
             report = generate_task_report(workspace).read_text(encoding="utf-8")
 
-            self.assertEqual(report.count("!["), 5)
-            self.assertIn("[fig6.png](../sandbox/figures/fig6.png)", report)
-            self.assertNotIn("![fig6.png](../sandbox/figures/fig6.png)", report)
+            self.assertEqual(report.count("!["), 6)
+            self.assertIn("![fig6.png](../sandbox/figures/fig6.png)", report)
 
     def test_report_extracts_descriptors_from_markdown_and_code(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -81,7 +89,83 @@ class ReportingTests(unittest.TestCase):
             self.assertIn("[final_report.md](../sandbox/final_report.md)", report)
             self.assertIn("[trajectory.json](run/trajectory.json)", report)
             self.assertNotIn(".healthflow_pi_agent", report)
-            self.assertIn("Found `1` non-runtime deliverable(s)", report)
+            self.assertIn("### Generated Outputs", report)
+
+    def test_report_handles_direct_response_without_attempts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "task"
+            workspace.mkdir(parents=True, exist_ok=True)
+            self._write_runtime_files(workspace)
+            runtime = workspace / "runtime"
+
+            (runtime / "run" / "trajectory.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "task-demo",
+                        "user_request": "Say hello and explain that the request used a direct response path.",
+                        "response_mode": "direct",
+                        "direct_response_reason": "The prompt was lightweight and did not require a full execution attempt.",
+                        "attempts": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (runtime / "run" / "direct_response.json").write_text(
+                json.dumps(
+                    {
+                        "mode": "direct",
+                        "answer": "HealthFlow returned a built-in response.",
+                        "reason": "The prompt was lightweight.",
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (runtime / "run" / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "success": True,
+                        "evaluation_status": "success",
+                        "evaluation_score": 1.0,
+                        "attempt_count": 0,
+                        "final_summary": "Returned a built-in direct response.",
+                        "answer": "HealthFlow returned a built-in response.",
+                        "available_project_cli_tools": [],
+                        "workflow_recommendations": [],
+                        "paths": {
+                            "direct_response": "run/direct_response.json",
+                            "trajectory": "run/trajectory.json",
+                            "costs": "run/costs.json",
+                            "final_evaluation": "run/final_evaluation.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (runtime / "run" / "final_evaluation.json").write_text(
+                json.dumps(
+                    {
+                        "status": "success",
+                        "score": 1.0,
+                        "feedback": "Returned a built-in direct response.",
+                        "reasoning": "No execution attempt was needed for this lightweight prompt.",
+                        "repair_instructions": [],
+                        "violated_constraints": [],
+                        "repair_hypotheses": [],
+                        "memory_worthy_insights": [],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = generate_task_report(workspace).read_text(encoding="utf-8")
+
+            self.assertIn("HealthFlow returned a built-in response.", report)
+            self.assertIn("[direct_response.json](run/direct_response.json)", report)
+            self.assertIn("## Results", report)
 
     def _write_runtime_files(self, workspace: Path) -> None:
         sandbox = workspace / "sandbox"
@@ -172,6 +256,7 @@ class ReportingTests(unittest.TestCase):
                     "evaluation_score": 0.91,
                     "attempt_count": 1,
                     "final_summary": "Task completed successfully.",
+                    "answer": "The analysis determined that the cohort-level result was summarized in the generated artifacts, including an AUROC of 0.81.",
                     "available_project_cli_tools": [],
                     "workflow_recommendations": [],
                 },
