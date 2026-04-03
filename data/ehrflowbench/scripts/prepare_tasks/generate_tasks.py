@@ -450,6 +450,13 @@ def normalize_deliverables(values: list[str]) -> list[str]:
     return cleaned
 
 
+def safe_file_size(path: Path) -> int | None:
+    try:
+        return path.stat().st_size
+    except FileNotFoundError:
+        return None
+
+
 def task_mentions_other_dataset(task: LLMGeneratedTask, assigned_dataset_key: str) -> bool:
     text = " ".join(
         [
@@ -479,6 +486,11 @@ def enrich_generated_task(task: LLMGeneratedTask, dataset_config: DatasetPromptC
 
 
 def extract_generated_task(bundle: LLMGeneratedTaskBundle, dataset_config: DatasetPromptConfig) -> GeneratedTask:
+    if task_mentions_other_dataset(bundle.task, dataset_config.key):
+        raise ValueError(
+            "single-task single-dataset contract violated: "
+            f"generated task mentions a dataset other than {dataset_config.display_name}"
+        )
     return enrich_generated_task(bundle.task, dataset_config)
 
 
@@ -536,7 +548,7 @@ def response_debug_payload(
         "paper_source": {
             "mode": "pdf_file",
             "path": str(paper_paths.pdf_path),
-            "file_size_bytes": paper_paths.pdf_path.stat().st_size,
+            "file_size_bytes": safe_file_size(paper_paths.pdf_path),
         },
         "request": {
             "max_output_tokens": max_output_tokens,
@@ -693,7 +705,7 @@ def call_generation_api(
         "paper_source": {
             "mode": "pdf_file",
             "path": str(paper_paths.pdf_path),
-            "file_size_bytes": paper_paths.pdf_path.stat().st_size,
+            "file_size_bytes": safe_file_size(paper_paths.pdf_path),
         },
         "uploaded_via": "responses.input_file.file_data",
         "task_dataset_assignment": dataset_config.key,
