@@ -1,68 +1,68 @@
 # EHRFlowBench
 
-This benchmark is rebuilt from extracted paper tasks into reproducible local-data proxy tasks.
-Dataset-specific preparation and curation workflows belong under `data/ehrflowbench/` and are intentionally decoupled from the `healthflow/` runtime package. `raw/`, `processed/`, and `scripts/upstream/extract_task/assets/` are local-only and gitignored.
+EHRFlowBench rebuilds paper-inspired EHR projects into repository-local `report_generation` tasks for TJH and MIMIC-IV-demo.
+The benchmark artifacts under `data/ehrflowbench/processed/` are local rebuild outputs and are not committed to git.
 
-The canonical grading source of truth is:
+The current canonical processed subset uses a MedAgentBoard-like storage contract:
 
-- `processed/eval.jsonl` / `processed/train.jsonl`
-- `processed/expected/<qid>/`
-- the task manifests and subset manifest
+- `processed/ehrflowbench.jsonl`
+- `processed/train.jsonl`
+- `processed/test.jsonl`
+- `processed/reference_answers/<split>/<qid>/answer_manifest.json`
+- `processed/subset_manifest.json`
 
-The original papers provide provenance and task motivation only.
+At the moment EHRFlowBench does not ship real reference answers yet. The `reference_answers/` tree is manifest-only and freezes task contracts plus future output paths.
 
 ## Raw
 
 These inputs are prepared locally and are not committed to git.
 
-- `raw/papers/selected_ids.txt`
-- `raw/papers/extracted_tasks/`
 - `raw/papers/paper_titles.csv`
-- `raw/papers/markdowns/` (optional local audit mirror; not required for canonical rebuilds)
+- `raw/papers/markdowns/`
 - `raw/tjh/`
 - `raw/mimic_iv_demo/`
-- `raw/source_manifest.json`
 
-Dataset sources described in the paper:
+Dataset sources described by the benchmark papers:
 
 - TJH: https://github.com/HAIRLAB/Pre_Surv_COVID_19
 - MIMIC-IV demo: https://physionet.org/content/mimic-iv-demo/2.2/
-- Extracted-paper corpus: `data/ehrflowbench/scripts/upstream/filter_paper/results/`, `data/ehrflowbench/scripts/upstream/extract_task/tasks/`, and an optional local markdown mirror under `data/ehrflowbench/scripts/upstream/extract_task/assets/markdowns/` (local cache only, not committed)
 
 ## Scripts
 
-- `python data/ehrflowbench/scripts/prepare_raw.py`
-- `python data/ehrflowbench/scripts/prepare_raw.py --include-markdowns`
-- `uv run python data/ehrflowbench/scripts/prepare_ehr/prepare_tjh.py`
-- `uv run python data/ehrflowbench/scripts/prepare_ehr/prepare_mimic_iv_demo.py`
-- `uv run python data/ehrflowbench/scripts/generate_tasks_via_api.py --paper-id 1`
+- `uv run python data/ehrflowbench/scripts/generate_tasks.py --paper-id 1`
 - `uv run python data/ehrflowbench/scripts/curate_generated_tasks.py`
-- `uv run python data/ehrflowbench/scripts/curate_generated_tasks.py --allow-incomplete`
 
-`prepare_raw.py` refreshes selected paper IDs and extracted task files. It also refreshes `raw/papers/paper_titles.csv` and can materialize `raw/papers/markdowns/` when the optional upstream markdown mirror is available locally. Other benchmark build/evaluation flows should stay under `data/` and evolve independently from `healthflow/`.
+`generate_tasks.py` is the public entrypoint for paper-to-task generation. It writes intermediate `*_tasks.json` and `*_response.json` bundles under `processed/papers/generated_tasks/`.
 
-The reusable manual prompt for advanced tool-enabled models such as GPT-5.4 lives at `data/ehrflowbench/scripts/upstream/extract_task/prompt_gpt54_ehrflowbench.md`. It is intended for the paper-to-task stage and emits structured task objects only, not reference answers.
+`curate_generated_tasks.py` is the public entrypoint for subset export. It:
 
-`curate_generated_tasks.py` is the local curation entrypoint that:
+- reads parseable `*_tasks.json` bundles from `processed/papers/generated_tasks/`
+- classifies each generated task to exactly one dataset using `required_inputs`
+- samples a fixed 110-task subset with `seed=42`
+- enforces a balanced dataset mix of `55` TJH tasks and `55` MIMIC-IV-demo tasks
+- splits that subset into `10` train tasks and `100` test tasks
+- writes the canonical JSONL files, manifest-only `reference_answers/`, and `subset_manifest.json`
 
-- waits for parseable `*_tasks.json` + `*_response.json` bundles under `processed/papers/generated_tasks/`
-- scores candidate tasks, keeps at most one task per paper, applies bucket quotas and near-duplicate filtering
-- writes the canonical `train.jsonl` / `eval.jsonl`, provenance CSVs, and `processed/expected/<qid>/task_manifest.json`
+Default export policy:
 
-By default the curation step refuses to freeze an incomplete paper pool. Use `--allow-incomplete` only for provisional local rebuilds while generation is still running.
+- `sample_count_per_dataset = 55`
+- `train_count_per_dataset = 5`
+- `test_count_per_dataset = 50`
+- `seed = 42`
 
 ## Task Generation Contract
 
-The paper-to-task stage emits intermediate task objects, not final benchmark rows. Each generated object is expected to:
+The paper-to-task stage emits intermediate task objects, not final benchmark rows.
+Each generated object is expected to:
 
 - use English only
 - be serialized under a single JSON object with root key `tasks`
 - keep `task_type` fixed to `report_generation`
-- represent one end-to-end project that includes data preparation, analysis or modeling, quantitative evidence, and a final `report.md`
-- be executable on both TJH and MIMIC-IV-demo, using the local raw assets and, when needed, the canonical prepared tables under `processed/tjh/` and `processed/mimic_iv_demo/`
-- remain fully self-contained and avoid paper-internal references such as section, figure, table, or equation numbers
+- represent one end-to-end local-data project with a required final `report.md`
+- use exactly one dataset, either TJH or MIMIC-IV-demo
+- stay self-contained and avoid paper-internal references such as section, figure, table, or equation numbers
 
-The canonical structured fields for these intermediate objects are:
+The canonical structured fields for intermediate generated tasks are:
 
 - `task_brief`
 - `task_type`
@@ -72,30 +72,91 @@ The canonical structured fields for these intermediate objects are:
 - `deliverables`
 - `report_requirements`
 
-Reference answers are generated later, after candidate tasks are accepted into the benchmark curation flow.
-
 ## Processed
 
-These outputs are produced locally by dataset-specific workflow scripts and are not committed to git.
+These outputs are produced locally and are not committed to git.
 
-- `processed/eval.jsonl`
+- `processed/ehrflowbench.jsonl`
+  - Combined 110-task subset with global `qid=1..110`
 - `processed/train.jsonl`
-- `processed/paper_map.csv`
-- `processed/rejected_tasks.csv`
-- `processed/task_manifest_eval.jsonl`
-- `processed/task_manifest_train.jsonl`
+  - Training subset with split-local `qid=1..10`
+- `processed/test.jsonl`
+  - Test subset with split-local `qid=1..100`
 - `processed/subset_manifest.json`
-- `processed/runtime/`
-- `processed/expected/`
+  - Sampling metadata, dataset balance, split policy, and global-to-split qid remapping
+- `processed/reference_answers/train/<qid>/answer_manifest.json`
+- `processed/reference_answers/test/<qid>/answer_manifest.json`
+  - Manifest-only task contracts for split-local task ids
 
-`processed/paper_map.csv` records one provenance row per canonical task, including:
+The default subset composition is:
 
-- source paper identifiers
-- source task linkage mode (`task_proxy`)
-- source task eligibility (`proxy_candidate`)
-- proxy constraint flags
-- current review status (`seeded_for_human_review`)
+- `110` tasks total
+- `55` TJH tasks
+- `55` MIMIC-IV-demo tasks
+- `10` train tasks
+- `100` test tasks
 
-`processed/train.jsonl` and `processed/eval.jsonl` use the standard HealthFlow task schema with `qid`, `task`, and `reference_answer`, plus benchmark metadata such as `task_brief`, `paper_id`, and `primary_bucket`.
+### JSONL Row Contract
 
-`reference_answer` points to `processed/expected/<qid>/task_manifest.json`. These manifests freeze the task contract, deliverable list, provenance, and review metadata before reference answers are generated.
+Each row in `processed/ehrflowbench.jsonl`, `processed/train.jsonl`, and `processed/test.jsonl` contains:
+
+- `qid`
+- `task`
+- `task_brief`
+- `dataset`
+- `task_type`
+- `reference_answer`
+- `paper_id`
+- `paper_title`
+- `source_task_idx`
+- `focus_areas`
+- `primary_bucket`
+
+`reference_answer` always points to `reference_answers/<split>/<qid>/answer_manifest.json`.
+
+### Reference Manifest Contract
+
+Each `answer_manifest.json` records:
+
+- `contract_version`
+- `qid`
+- `dataset`
+- `task_type`
+- `judge_prompt_type`
+- `score_scale`
+- `required_inputs`
+- `required_outputs`
+- `all_outputs`
+- `paper_id`
+- `paper_title`
+- `source_task_idx`
+- `focus_areas`
+- `primary_bucket`
+- `report_requirements`
+
+`required_outputs` is derived directly from the generated task `deliverables`.
+Because reference answers are not available yet, the manifest freezes only future output paths and metadata; it does not create the referenced files themselves.
+
+## Local Execution Notes
+
+`data/ehrflowbench/scripts/local_codex_exec/run_codex_ehrflowbench.py` consumes:
+
+- `processed/train.jsonl`
+- `processed/test.jsonl`
+- each row's `reference_answer` manifest
+
+The local runner relies on:
+
+- `required_inputs`
+- `required_outputs`
+
+from each `answer_manifest.json`.
+
+## Current Limitation
+
+EHRFlowBench currently has task manifests but no canonical reference answers.
+That means:
+
+- the subset can be sampled and executed locally
+- required output filenames are frozen
+- automatic answer judging for `report_generation` is not finalized yet
