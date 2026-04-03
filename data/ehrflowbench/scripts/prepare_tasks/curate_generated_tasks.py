@@ -352,16 +352,11 @@ def build_required_outputs(task: SampledTask) -> list[dict[str, Any]]:
 def build_answer_manifest(task: SampledTask) -> dict[str, Any]:
     required_outputs = build_required_outputs(task)
     return {
-        "contract_version": CONTRACT_VERSION,
         "qid": task.split_qid,
         "dataset": task.dataset,
         "task_type": task.source.task_type,
         "required_inputs": list(task.source.required_inputs),
         "required_outputs": required_outputs,
-        "all_outputs": [item["reference_path"] for item in required_outputs],
-        "paper_id": task.paper_id,
-        "paper_title": task.paper_title,
-        "source_task_idx": task.task_idx,
     }
 
 
