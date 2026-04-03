@@ -46,7 +46,7 @@ This task must be grounded in the local EHR metadata provided inside this prompt
     Each task must ask for at least one structured numeric artifact such as `metrics.json` or `tables/*.csv`, and at least one figure or table artifact when visualization is relevant. The task should be easy to evaluate from produced files, not only from free-form prose.
 
 9.  Report contract awareness:
-    Every task must culminate in a `report.md`, covering objective, data, method, results, evidence, and conclusion in that order.
+    Every task must culminate in a `report.md`, covering introduction, method, results, and conclusion in that order.
 
 10. Task-only output:
     Do not generate answers, reference answers, grader hints, or evaluation scripts. Only generate the structured task objects.
