@@ -372,16 +372,11 @@ def build_answer_manifest(task: dict[str, Any], *, qid: int, split: str) -> dict
         for file_name in task["deliverables"]
     ]
     return {
-        "contract_version": CONTRACT_VERSION,
         "qid": qid,
         "dataset": task["dataset"],
         "task_type": task["task_type"],
         "required_inputs": list(task["required_inputs"]),
         "required_outputs": required_outputs,
-        "all_outputs": required_outputs,
-        "paper_id": task["paper_id"],
-        "paper_title": task["paper_title"],
-        "source_task_idx": task["source_task_idx"],
         "primary_category": PRIMARY_CATEGORY_META[task["primary_category"]]["label"],
     }
 
