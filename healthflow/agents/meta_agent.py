@@ -26,7 +26,6 @@ class MetaAgent:
         safeguard_experiences: List[Experience],
         workflow_experiences: List[Experience],
         dataset_experiences: List[Experience],
-        execution_experiences: List[Experience],
         execution_environment: List[str],
         available_project_cli_tools: List[str],
         workflow_recommendations: List[str],
@@ -41,7 +40,6 @@ class MetaAgent:
             safeguard_experiences=safeguard_experiences,
             workflow_experiences=workflow_experiences,
             dataset_experiences=dataset_experiences,
-            execution_experiences=execution_experiences,
             execution_environment=execution_environment,
             available_project_cli_tools=available_project_cli_tools,
             workflow_recommendations=workflow_recommendations,
@@ -108,7 +106,6 @@ class MetaAgent:
         safeguard_experiences: List[Experience],
         workflow_experiences: List[Experience],
         dataset_experiences: List[Experience],
-        execution_experiences: List[Experience],
         execution_environment: List[str],
         available_project_cli_tools: List[str],
         workflow_recommendations: List[str],
@@ -125,7 +122,6 @@ class MetaAgent:
             self._render_section("EHR safeguards", self._render_memory_block(safeguard_experiences, prefix="Guardrail")),
             self._render_section("Workflow memories", self._render_memory_block(workflow_experiences, prefix="Workflow")),
             self._render_section("Dataset memories", self._render_memory_block(dataset_experiences, prefix="Dataset")),
-            self._render_section("Execution memories", self._render_memory_block(execution_experiences, prefix="Execution")),
             self._render_section("Feedback from Previous Failed Attempt", previous_feedback or ""),
         ]
         return render_prompt("meta_agent_user", context_blocks="\n\n".join(section for section in sections if section)).strip()

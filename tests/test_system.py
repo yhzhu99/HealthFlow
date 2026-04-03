@@ -361,10 +361,14 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
 
             report_text = Path(result["report_path"]).read_text(encoding="utf-8")
             self.assertIn("# HealthFlow Report", report_text)
+            self.assertIn("## Results", report_text)
+            self.assertIn("## Appendix: Reproducibility and Audit", report_text)
             self.assertIn("[final_report.md](../sandbox/final_report.md)", report_text)
+            self.assertIn("| Auroc | 0.8100 |", report_text)
+            self.assertIn("[trajectory.json](run/trajectory.json)", report_text)
             self.assertNotIn(str(Path(result["workspace_path"])), report_text)
 
-    async def test_run_task_passes_supported_project_cli_tools_to_planner_for_general_runs(self):
+    async def test_run_task_passes_task_applicable_project_cli_tools_to_planner_for_general_runs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"
             workspace_dir = workspace_root / "tasks"
@@ -382,7 +386,7 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             planner_call = system.meta_agent.calls[-1]
             self.assertTrue(planner_call["available_project_cli_tools"])
             planner_tools = " ".join(planner_call["available_project_cli_tools"]).lower()
-            self.assertIn("oneehr", planner_tools)
+            self.assertNotIn("oneehr", planner_tools)
             self.assertIn("tooluniverse", planner_tools)
 
     async def test_run_task_normalizes_contradictory_success_verdicts(self):
@@ -421,6 +425,8 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result["report_generated"])
             self.assertTrue(Path(result["report_path"]).exists())
             report_text = Path(result["report_path"]).read_text(encoding="utf-8")
+            self.assertIn("## Results", report_text)
+            self.assertIn("## Appendix: Reproducibility and Audit", report_text)
             self.assertIn("`failed`", report_text)
             self.assertIn("The task did not satisfy the requested deliverable.", report_text)
 

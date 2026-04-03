@@ -162,7 +162,7 @@ class CancellationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(Path(result["final_evaluation_path"]).exists())
             self.assertTrue(Path(result["last_executor_log_path"]).exists())
             self.assertTrue(result["available_project_cli_tools"])
-            self.assertIn("oneehr", " ".join(result["available_project_cli_tools"]).lower())
+            self.assertNotIn("oneehr", " ".join(result["available_project_cli_tools"]).lower())
             self.assertIn("tooluniverse", " ".join(result["available_project_cli_tools"]).lower())
 
     async def test_healthflow_cancelled_ehr_run_persists_oneehr_tool_contracts(self):

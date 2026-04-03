@@ -19,7 +19,6 @@ class PromptRenderingTests(unittest.TestCase):
             safeguard_experiences=[],
             workflow_experiences=[],
             dataset_experiences=[],
-            execution_experiences=[],
             execution_environment=["Preferred Python version: 3.12"],
             available_project_cli_tools=[],
             workflow_recommendations=[],
@@ -33,7 +32,6 @@ class PromptRenderingTests(unittest.TestCase):
         self.assertNotIn("EHR safeguards:", rendered)
         self.assertNotIn("Workflow memories:", rendered)
         self.assertNotIn("Dataset memories:", rendered)
-        self.assertNotIn("Execution memories:", rendered)
         self.assertNotIn("Feedback from Previous Failed Attempt:", rendered)
         self.assertNotIn("No EHR safeguard memory was retrieved.", rendered)
         self.assertNotIn("No workflow memory was retrieved.", rendered)
@@ -58,7 +56,6 @@ class PromptRenderingTests(unittest.TestCase):
             safeguard_experiences=[safeguard],
             workflow_experiences=[],
             dataset_experiences=[],
-            execution_experiences=[],
             execution_environment=["Preferred Python version: 3.12"],
             available_project_cli_tools=["`oneehr`: Prefer `uv run oneehr <subcommand>` from the repo root."],
             workflow_recommendations=["Prefer `uv run` for repo-local scripts."],

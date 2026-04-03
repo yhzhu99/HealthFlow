@@ -10,7 +10,6 @@ class MemoryKind(str, Enum):
     SAFEGUARD = "safeguard"
     WORKFLOW = "workflow"
     DATASET = "dataset"
-    EXECUTION = "execution"
 
 
 class SourceOutcome(str, Enum):
@@ -54,15 +53,10 @@ class Experience(BaseModel):
         ge=0,
         description="How many times this memory was selected into the planning context.",
     )
-    times_helped: int = Field(
+    validation_count: int = Field(
         default=0,
         ge=0,
-        description="How many completed trajectories validated this memory as helpful.",
-    )
-    times_hurt: int = Field(
-        default=0,
-        ge=0,
-        description="How many completed trajectories marked this memory as misleading or harmful.",
+        description="How many completed trajectories validated this memory as useful for future runs.",
     )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
@@ -70,7 +64,7 @@ class Experience(BaseModel):
     )
     last_validated_at: datetime | None = Field(
         default=None,
-        description="Timestamp when this memory was most recently validated or penalized.",
+        description="Timestamp when this memory was most recently validated or retired.",
     )
     retired: bool = Field(
         default=False,
@@ -93,12 +87,7 @@ class MemoryScoreBreakdown(BaseModel):
     applicability_bonus: int = 0
     schema_bonus: int = 0
     risk_bonus: int = 0
-    failure_bonus: int = 0
-    kind_bonus: int = 0
-    source_bonus: int = 0
     confidence_bonus: float = 0.0
-    utility_bonus: float = 0.0
-    recency_bonus: int = 0
     total_score: float = 0.0
 
 
@@ -145,14 +134,12 @@ class MemoryRetrievalResult(BaseModel):
     safeguard_experiences: List[Experience] = Field(default_factory=list)
     workflow_experiences: List[Experience] = Field(default_factory=list)
     dataset_experiences: List[Experience] = Field(default_factory=list)
-    execution_experiences: List[Experience] = Field(default_factory=list)
     selected_experiences: List[Experience] = Field(default_factory=list)
     audit: MemoryRetrievalAudit
 
 
 class MemoryUpdateAction(str, Enum):
     VALIDATE = "validate"
-    PENALIZE = "penalize"
     RETIRE = "retire"
 
 
