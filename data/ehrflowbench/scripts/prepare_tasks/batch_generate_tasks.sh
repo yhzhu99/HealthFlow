@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-PYTHON_SCRIPT="$SCRIPT_DIR/generate_tasks_via_api.py"
+PYTHON_SCRIPT="$SCRIPT_DIR/generate_tasks.py"
 OUTPUT_ROOT="$PROJECT_ROOT/data/ehrflowbench/processed/papers/generated_tasks"
 RUNS_ROOT="$PROJECT_ROOT/data/ehrflowbench/processed/papers/generation_runs"
 LATEST_RUN_FILE="$RUNS_ROOT/latest_run.txt"
@@ -181,8 +181,7 @@ run_generator_for_paper() {
   local paper_id="$1"
   uv run python "$PYTHON_SCRIPT" \
     --paper-id "$paper_id" \
-    --output-dir "$OUTPUT_ROOT" \
-    --overwrite
+    --output-dir "$OUTPUT_ROOT"
 }
 
 worker_main() {

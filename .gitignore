@@ -11,18 +11,15 @@ TASK.md
 *.lock
 tmp/
 prompt.md
-!data/**
+*.Zone.Identifier
+.DS_Store
+workspace/
+
 # Benchmark datasets are local-only artifacts; keep scripts/docs in git.
 data/*/raw/**
 data/*/processed/**
 !data/examples/processed/
 !data/examples/processed/executor_smoke.jsonl
-data/ehrflowbench/scripts/upstream/extract_task/assets/**
-*.Zone.Identifier
-workspace/
-benchmark_results/
-datasets/
-healthflow_datasets/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
