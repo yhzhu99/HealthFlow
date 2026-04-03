@@ -6,11 +6,11 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 import httpx
-from data.ehrflowbench.scripts import generate_tasks
-from data.ehrflowbench.scripts.generate_tasks import DatasetPromptConfig
-from data.ehrflowbench.scripts.generate_tasks import LLMGeneratedTask
-from data.ehrflowbench.scripts.generate_tasks import LLMGeneratedTaskBundle
-from data.ehrflowbench.scripts.generate_tasks import PaperPaths
+from data.ehrflowbench.scripts.prepare_tasks import generate_tasks
+from data.ehrflowbench.scripts.prepare_tasks.generate_tasks import DatasetPromptConfig
+from data.ehrflowbench.scripts.prepare_tasks.generate_tasks import LLMGeneratedTask
+from data.ehrflowbench.scripts.prepare_tasks.generate_tasks import LLMGeneratedTaskBundle
+from data.ehrflowbench.scripts.prepare_tasks.generate_tasks import PaperPaths
 from openai import APITimeoutError
 
 

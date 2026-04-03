@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-from data.ehrflowbench.scripts.curate_generated_tasks import run_curation
+from data.ehrflowbench.scripts.prepare_tasks.curate_generated_tasks import run_curation
 
 
 def build_generated_task(*, dataset_key: str, task_idx: int) -> dict:
@@ -12,19 +12,19 @@ def build_generated_task(*, dataset_key: str, task_idx: int) -> dict:
             "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
             "data/ehrflowbench/processed/tjh/split_metadata.json",
         ]
-        dataset_name = "TJH"
+        task_text = f"Use only TJH and write report #{task_idx}."
     else:
         required_inputs = [
             "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_formatted_ehr.parquet",
             "data/ehrflowbench/processed/mimic_iv_demo/split_metadata.json",
             "data/ehrflowbench/processed/mimic_iv_demo/mimic_iv_demo_value_reference.md",
         ]
-        dataset_name = "MIMIC-IV-demo"
+        task_text = f"Use only MIMIC-IV-demo and write report #{task_idx}."
     return {
-        "task_brief": f"{dataset_name} task {task_idx}",
+        "task_brief": f"task {task_idx}",
         "task_type": "report_generation",
         "focus_areas": ["prediction", "temporal modeling"],
-        "task": f"Use only the {dataset_name} dataset and produce a deterministic report.",
+        "task": task_text,
         "required_inputs": required_inputs,
         "deliverables": ["report.md", "metrics.json", "tables/result.csv", "figures/overview.png"],
         "report_requirements": [
@@ -39,21 +39,21 @@ def build_generated_task(*, dataset_key: str, task_idx: int) -> dict:
 
 
 class EHRFlowBenchExportSubsetTests(TestCase):
-    def test_run_curation_writes_medagentboard_style_subset(self) -> None:
+    def test_run_curation_exports_raw_tasks_without_prompt_wrapping(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             generated_root = root / "generated_tasks"
-            generated_root.mkdir(parents=True, exist_ok=True)
-            paper_titles_path = root / "paper_titles.csv"
             output_root = root / "processed"
+            paper_titles_path = root / "paper_titles.csv"
+            generated_root.mkdir(parents=True, exist_ok=True)
 
             paper_titles_path.write_text(
                 "\n".join(
                     [
                         "paper_id,paper_title",
-                        "1,Temporal prediction paper",
-                        "2,Graph paper",
-                        "3,Interpretability paper",
+                        "1,Paper 1",
+                        "2,Paper 2",
+                        "3,Paper 3",
                     ]
                 )
                 + "\n",
@@ -69,10 +69,6 @@ class EHRFlowBenchExportSubsetTests(TestCase):
                 }
                 (generated_root / f"{paper_id}_tasks.json").write_text(
                     json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
-                (generated_root / f"{paper_id}_response.json").write_text(
-                    json.dumps({"paper_id": paper_id}) + "\n",
                     encoding="utf-8",
                 )
 
@@ -108,25 +104,38 @@ class EHRFlowBenchExportSubsetTests(TestCase):
             self.assertEqual([row["qid"] for row in train_rows], [1, 2])
             self.assertEqual([row["qid"] for row in test_rows], [1, 2])
             self.assertEqual([row["qid"] for row in combined_rows], [1, 2, 3, 4])
-            self.assertEqual({row["dataset"] for row in train_rows}, {"TJH", "MIMIC-IV-demo"})
-            self.assertEqual({row["dataset"] for row in test_rows}, {"TJH", "MIMIC-IV-demo"})
+            self.assertEqual({row["dataset"] for row in combined_rows}, {"TJH", "MIMIC-IV-demo"})
+            self.assertEqual(
+                combined_rows[0]["task"],
+                "Use only TJH and write report #1.",
+            )
+            self.assertNotIn("As an expert AI agent", combined_rows[0]["task"])
 
-            manifest_train = json.loads(
+            manifest = json.loads(
                 (output_root / "reference_answers" / "train" / "1" / "answer_manifest.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(manifest_train["task_type"], "report_generation")
-            self.assertEqual(manifest_train["judge_prompt_type"], "report_generation")
             self.assertEqual(
-                [item["file_name"] for item in manifest_train["required_outputs"]],
+                sorted(manifest.keys()),
+                [
+                    "all_outputs",
+                    "contract_version",
+                    "dataset",
+                    "paper_id",
+                    "paper_title",
+                    "qid",
+                    "required_inputs",
+                    "required_outputs",
+                    "source_task_idx",
+                    "task_type",
+                ],
+            )
+            self.assertEqual(
+                [item["file_name"] for item in manifest["required_outputs"]],
                 ["report.md", "metrics.json", "tables/result.csv", "figures/overview.png"],
             )
             self.assertFalse((output_root / "reference_answers" / "train" / "1" / "report.md").exists())
 
             subset_manifest = json.loads((output_root / "subset_manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(subset_manifest["combined"]["count"], 4)
-            self.assertEqual(subset_manifest["train"]["count"], 2)
-            self.assertEqual(subset_manifest["test"]["count"], 2)
-            self.assertEqual(
-                subset_manifest["combined"]["dataset_counts"],
-                {"TJH": 2, "MIMIC-IV-demo": 2},
-            )
+            self.assertEqual(subset_manifest["combined"]["dataset_counts"], {"TJH": 2, "MIMIC-IV-demo": 2})
+            self.assertEqual(subset_manifest["train"]["dataset_counts"], {"TJH": 1, "MIMIC-IV-demo": 1})
+            self.assertEqual(subset_manifest["test"]["dataset_counts"], {"TJH": 1, "MIMIC-IV-demo": 1})
