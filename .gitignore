@@ -12,6 +12,7 @@ TASK.md
 tmp/
 prompt.md
 *.Zone.Identifier
+.DS_Store
 workspace/
 
 # Benchmark datasets are local-only artifacts; keep scripts/docs in git.
