@@ -39,6 +39,7 @@ from data.ehrflowbench.scripts.curate_generated_tasks import relative_path
 from data.ehrflowbench.scripts.curate_generated_tasks import title_from_dir_name
 
 
+DEFAULT_MODEL_KEY = "anthropic/claude-opus-4.6"
 PROMPT_TASK_CANDIDATE_PLACEHOLDER = "{{TASK_CANDIDATE_JSON}}"
 PROMPT_DERIVED_CONTEXT_PLACEHOLDER = "{{DERIVED_CONTEXT_JSON}}"
 PROMPT_PATH = generate_tasks.DATASET_ROOT / "scripts" / "prompt_score_ehrflowbench.md"
@@ -112,7 +113,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Score EHRFlowBench generated tasks via the OpenAI-compatible Responses API.")
     parser.add_argument("--paper-id", type=int, help="Paper id whose <paper_id>_tasks.json should be scored.")
     parser.add_argument("--tasks-path", type=Path, help="Explicit path to a generated tasks JSON file.")
-    parser.add_argument("--model-key", default=generate_tasks.DEFAULT_MODEL_KEY, help="LLM key under config.toml.")
+    parser.add_argument("--model-key", default=DEFAULT_MODEL_KEY, help="LLM key under config.toml.")
     parser.add_argument("--max-output-tokens", type=int, default=generate_tasks.DEFAULT_MAX_OUTPUT_TOKENS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--overwrite", action="store_true")
