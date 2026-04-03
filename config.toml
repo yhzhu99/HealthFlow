@@ -56,6 +56,14 @@ reasoning_effort = "high"
 input_cost_per_million_tokens = 2.50
 output_cost_per_million_tokens = 15.00
 
+[llm."anthropic/claude-opus-4.6"]
+api_key_env = "ZENMUX_API_KEY"
+base_url = "https://zenmux.ai/api/v1"
+model_name = "anthropic/claude-opus-4.6"
+reasoning_effort = "high"
+input_cost_per_million_tokens = 5.00
+output_cost_per_million_tokens = 25.00
+
 [llm."google/gemini-3-flash-preview"]
 api_key_env = "ZENMUX_API_KEY"
 base_url = "https://zenmux.ai/api/v1"
