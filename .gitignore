@@ -11,14 +11,14 @@ TASK.md
 *.lock
 tmp/
 prompt.md
-!data/**
+*.Zone.Identifier
+workspace/
+
 # Benchmark datasets are local-only artifacts; keep scripts/docs in git.
 data/*/raw/**
 data/*/processed/**
 !data/examples/processed/
 !data/examples/processed/executor_smoke.jsonl
-*.Zone.Identifier
-workspace/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
