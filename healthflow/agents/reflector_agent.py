@@ -24,6 +24,11 @@ SAFEGUARD_RISK_TAGS = {
     "patient_linkage",
     "cohort_definition",
     "identifier_policy",
+    "identifier_misuse",
+    "unsafe_missing_value_handling",
+    "clinically_implausible_aggregation",
+    "artifact_contract_violation",
+    "artifact_validity",
 }
 SAFEGUARD_CONTENT_TOKENS = [
     "leakage",
@@ -34,6 +39,12 @@ SAFEGUARD_CONTENT_TOKENS = [
     "privacy",
     "unsafe",
     "label leakage",
+    "missing value",
+    "missingness",
+    "clinically implausible",
+    "aggregation",
+    "analysis contract",
+    "requested artifact",
 ]
 
 
@@ -86,30 +97,24 @@ class ReflectorAgent:
 
             source_outcome = self._source_outcome(full_history, final_verdict)
             memory_updates = synthesis.memory_updates
+            candidate_experiences: list[Experience] = []
             for item in synthesis.experiences:
                 try:
-                    proposed_kind = item.kind
-                    if proposed_kind == MemoryKind.SAFEGUARD and not self._allow_safeguard_memory(
-                        item,
-                        full_history,
-                        final_verdict,
-                    ):
-                        proposed_kind = MemoryKind.WORKFLOW
-                    elif proposed_kind != MemoryKind.SAFEGUARD and self._should_promote_to_safeguard(
-                        item,
-                        full_history,
-                        final_verdict,
-                    ):
-                        proposed_kind = MemoryKind.SAFEGUARD
+                    proposed_kind = self._resolve_writeback_kind(item, source_outcome, full_history)
+                    if proposed_kind is None:
+                        continue
+                    dataset_signature = full_history.get("data_profile", {}).get("dataset_signature", "unknown")
+                    if proposed_kind == MemoryKind.DATASET_ANCHOR and dataset_signature == "unknown":
+                        continue
 
-                    experiences.append(
+                    candidate_experiences.append(
                         Experience(
                             kind=proposed_kind,
                             category=item.category,
                             content=item.content,
                             source_task_id=full_history["task_id"],
                             task_family=full_history.get("data_profile", {}).get("task_family", "general_analysis"),
-                            dataset_signature=full_history.get("data_profile", {}).get("dataset_signature", "unknown"),
+                            dataset_signature=dataset_signature,
                             provenance={
                                 "backend": full_history.get("backend", "unknown"),
                                 "verdict_status": final_verdict.status,
@@ -119,8 +124,7 @@ class ReflectorAgent:
                             backend=full_history.get("backend", "unknown"),
                             source_outcome=source_outcome,
                             confidence=float(item.confidence),
-                            conflict_slot=item.conflict_slot,
-                            applicability_scope=item.applicability_scope,
+                            applicability_scope=self._normalized_applicability_scope(proposed_kind, item.applicability_scope),
                             risk_tags=self._normalize_tags(item.risk_tags),
                             schema_tags=self._normalize_tags(item.schema_tags),
                             tags=self._normalize_tags(item.tags),
@@ -130,6 +134,7 @@ class ReflectorAgent:
                 except ValueError as exc:
                     logger.warning("Skipping invalid experience item from LLM: {}. Error: {}", item, exc)
 
+            experiences = self._apply_writeback_caps(candidate_experiences, source_outcome)
             logger.info("Successfully synthesized {} new experiences.", len(experiences))
             self.last_trace = self._build_trace(
                 messages=messages,
@@ -161,27 +166,78 @@ class ReflectorAgent:
             )
             return ReflectionWriteback()
 
-    def _allow_safeguard_memory(
+    def _resolve_writeback_kind(
         self,
         item: SynthesizedExperience,
+        source_outcome: SourceOutcome,
         full_history: dict[str, Any],
-        final_verdict: EvaluationVerdict,
-    ) -> bool:
-        if final_verdict.status != "success":
-            return True
-        if len(full_history.get("attempts", [])) > 1:
-            return True
-        return self._looks_like_safeguard(item, full_history)
+    ) -> MemoryKind | None:
+        proposed_kind = item.kind
+        looks_like_safeguard = self._looks_like_safeguard(item, full_history)
 
-    def _should_promote_to_safeguard(
+        if source_outcome == SourceOutcome.SUCCESS:
+            if proposed_kind in {MemoryKind.WORKFLOW, MemoryKind.DATASET_ANCHOR, MemoryKind.CODE_SNIPPET}:
+                return proposed_kind
+            return None
+
+        if source_outcome == SourceOutcome.FAILED:
+            if proposed_kind != MemoryKind.SAFEGUARD and looks_like_safeguard:
+                proposed_kind = MemoryKind.SAFEGUARD
+            if proposed_kind == MemoryKind.SAFEGUARD and looks_like_safeguard:
+                return proposed_kind
+            return None
+
+        if proposed_kind == MemoryKind.DATASET_ANCHOR:
+            return None
+        if proposed_kind != MemoryKind.SAFEGUARD and looks_like_safeguard:
+            return MemoryKind.SAFEGUARD
+        if proposed_kind == MemoryKind.SAFEGUARD:
+            return proposed_kind if looks_like_safeguard else None
+        if proposed_kind in {MemoryKind.WORKFLOW, MemoryKind.CODE_SNIPPET}:
+            return proposed_kind
+        return None
+
+    def _apply_writeback_caps(
         self,
-        item: SynthesizedExperience,
-        full_history: dict[str, Any],
-        final_verdict: EvaluationVerdict,
-    ) -> bool:
-        if final_verdict.status == "success" and len(full_history.get("attempts", [])) == 1:
-            return False
-        return self._looks_like_safeguard(item, full_history)
+        candidates: list[Experience],
+        source_outcome: SourceOutcome,
+    ) -> list[Experience]:
+        best_by_kind: dict[MemoryKind, Experience] = {}
+        for exp in sorted(candidates, key=lambda item: item.confidence, reverse=True):
+            best_by_kind.setdefault(exp.kind, exp)
+
+        if source_outcome == SourceOutcome.SUCCESS:
+            return [
+                best_by_kind[kind]
+                for kind in (MemoryKind.WORKFLOW, MemoryKind.DATASET_ANCHOR, MemoryKind.CODE_SNIPPET)
+                if kind in best_by_kind
+            ]
+        if source_outcome == SourceOutcome.FAILED:
+            safeguard = best_by_kind.get(MemoryKind.SAFEGUARD)
+            return [safeguard] if safeguard is not None else []
+
+        selected: list[Experience] = []
+        safeguard = best_by_kind.get(MemoryKind.SAFEGUARD)
+        if safeguard is not None:
+            selected.append(safeguard)
+        corrected_candidates = [
+            best_by_kind[kind]
+            for kind in (MemoryKind.WORKFLOW, MemoryKind.CODE_SNIPPET)
+            if kind in best_by_kind
+        ]
+        if corrected_candidates:
+            selected.append(max(corrected_candidates, key=lambda item: item.confidence))
+        return selected
+
+    def _normalized_applicability_scope(self, kind: MemoryKind, scope: str) -> str:
+        normalized_scope = (scope or "").strip()
+        if kind == MemoryKind.SAFEGUARD:
+            return normalized_scope or "domain_ehr"
+        if kind == MemoryKind.DATASET_ANCHOR:
+            return "dataset_exact"
+        if kind == MemoryKind.CODE_SNIPPET and normalized_scope == "dataset_exact":
+            return "task_family"
+        return normalized_scope or "task_family"
 
     def _looks_like_safeguard(self, item: SynthesizedExperience, full_history: dict[str, Any]) -> bool:
         risk_tags = set(self._normalize_tags(item.risk_tags))

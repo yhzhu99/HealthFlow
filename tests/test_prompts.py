@@ -18,7 +18,8 @@ class PromptRenderingTests(unittest.TestCase):
             user_request="Build a cohort table.",
             safeguard_experiences=[],
             workflow_experiences=[],
-            dataset_experiences=[],
+            dataset_anchor_experiences=[],
+            code_snippet_experiences=[],
             execution_environment=["Preferred Python version: 3.12"],
             available_project_cli_tools=[],
             workflow_recommendations=[],
@@ -30,8 +31,9 @@ class PromptRenderingTests(unittest.TestCase):
         self.assertNotIn("Project CLI tools:", rendered)
         self.assertNotIn("Workflow recommendations:", rendered)
         self.assertNotIn("EHR safeguards:", rendered)
+        self.assertNotIn("Dataset anchors:", rendered)
         self.assertNotIn("Workflow memories:", rendered)
-        self.assertNotIn("Dataset memories:", rendered)
+        self.assertNotIn("Code snippets:", rendered)
         self.assertNotIn("Feedback from Previous Failed Attempt:", rendered)
         self.assertNotIn("No EHR safeguard memory was retrieved.", rendered)
         self.assertNotIn("No workflow memory was retrieved.", rendered)
@@ -55,7 +57,8 @@ class PromptRenderingTests(unittest.TestCase):
             user_request="Build a cohort table.",
             safeguard_experiences=[safeguard],
             workflow_experiences=[],
-            dataset_experiences=[],
+            dataset_anchor_experiences=[],
+            code_snippet_experiences=[],
             execution_environment=["Preferred Python version: 3.12"],
             available_project_cli_tools=["`oneehr`: Prefer `uv run oneehr <subcommand>` from the repo root."],
             workflow_recommendations=["Prefer `uv run` for repo-local scripts."],

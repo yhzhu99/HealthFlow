@@ -14,10 +14,19 @@ from .experience_models import MemoryAuditEntry, MemoryKind, MemoryRetrievalAudi
 from .experience_models import MemoryScoreBreakdown, MemoryUpdate, MemoryUpdateAction, RetrievalContext
 
 
-MAX_RETRIEVAL_CAPACITY = 4
-SAFEGUARD_LIMIT = 1
-DATASET_LIMIT = 1
-WORKFLOW_LIMIT = 2
+DEFAULT_TOTAL_RETRIEVAL_CAPACITY = 6
+DEFAULT_RETRIEVAL_RANGES: dict[MemoryKind, tuple[int, int]] = {
+    MemoryKind.SAFEGUARD: (0, 2),
+    MemoryKind.WORKFLOW: (0, 2),
+    MemoryKind.DATASET_ANCHOR: (0, 2),
+    MemoryKind.CODE_SNIPPET: (0, 2),
+}
+SELECTION_ORDER: tuple[MemoryKind, ...] = (
+    MemoryKind.SAFEGUARD,
+    MemoryKind.DATASET_ANCHOR,
+    MemoryKind.WORKFLOW,
+    MemoryKind.CODE_SNIPPET,
+)
 
 
 class ExperienceManager:
@@ -26,14 +35,32 @@ class ExperienceManager:
     memory for future runs.
     """
 
-    def __init__(self, experience_path: Path):
+    def __init__(
+        self,
+        experience_path: Path,
+        *,
+        read_only: bool = False,
+        retrieval_ranges: dict[MemoryKind, tuple[int, int]] | None = None,
+        max_retrieval_capacity: int = DEFAULT_TOTAL_RETRIEVAL_CAPACITY,
+    ):
         self.experience_path = experience_path
-        self.experience_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.experience_path.exists():
-            self.experience_path.touch()
-        logger.info("ExperienceManager initialized. Knowledge base at: {}", self.experience_path)
+        self.read_only = read_only
+        self.retrieval_ranges = self._normalize_retrieval_ranges(retrieval_ranges)
+        self.max_retrieval_capacity = max(1, int(max_retrieval_capacity))
+        if not self.read_only:
+            self.experience_path.parent.mkdir(parents=True, exist_ok=True)
+            if not self.experience_path.exists():
+                self.experience_path.touch()
+        logger.info(
+            "ExperienceManager initialized. Knowledge base at: {} (read_only={})",
+            self.experience_path,
+            self.read_only,
+        )
 
     async def save_experiences(self, experiences: List[Experience]):
+        if self.read_only:
+            logger.info("Skipping experience save because memory is frozen: {}", self.experience_path)
+            return
         if not experiences:
             return
 
@@ -41,11 +68,7 @@ class ExperienceManager:
         existing_signatures = {self._dedupe_signature(exp) for exp in existing_experiences}
         appended_count = 0
         retired_count = 0
-        superseded_ids = {
-            experience_id
-            for exp in experiences
-            for experience_id in exp.supersedes
-        }
+        superseded_ids = {experience_id for exp in experiences for experience_id in exp.supersedes}
 
         if superseded_ids:
             retired_count += self._retire_experiences_by_id(
@@ -58,22 +81,26 @@ class ExperienceManager:
             signature = self._dedupe_signature(exp)
             if signature in existing_signatures:
                 continue
-            if exp.kind in {MemoryKind.SAFEGUARD, MemoryKind.WORKFLOW} and exp.conflict_slot:
-                retired_count += self._retire_conflict_slot_memories(existing_experiences, exp)
             existing_experiences.append(exp)
             existing_signatures.add(signature)
             appended_count += 1
 
         await self._persist_experiences(existing_experiences)
         if retired_count:
-            logger.info("Retired {} superseded or replaced memories before saving new experiences.", retired_count)
+            logger.info("Retired {} explicitly superseded memories before saving new experiences.", retired_count)
         logger.info("Saved {} new experiences to the knowledge base.", appended_count)
 
     async def reset(self):
+        if self.read_only:
+            logger.info("Skipping reset because memory is frozen: {}", self.experience_path)
+            return
         await self._persist_experiences([])
         logger.info("Reset experience memory at {}", self.experience_path)
 
     async def apply_memory_updates(self, updates: List[MemoryUpdate]) -> list[str]:
+        if self.read_only:
+            logger.info("Skipping memory lifecycle updates because memory is frozen: {}", self.experience_path)
+            return []
         if not updates:
             return []
 
@@ -112,14 +139,21 @@ class ExperienceManager:
             task_family=context.task_family,
             domain_focus=context.domain_focus,
             dataset_signature=context.dataset_signature,
-            capacity=MAX_RETRIEVAL_CAPACITY,
+            capacity=self.max_retrieval_capacity,
         )
         audit.selection_policy.extend(
             [
-                "Retrieval uses lexical overlap, task-family match, exact dataset match, applicability scope, schema overlap, risk overlap, and confidence.",
-                "At most one safeguard is selected, and only when its risk tags match an actionable current task risk.",
-                "At most one dataset memory is selected, and only as an exact dataset anchor.",
-                "At most two workflow memories are selected after safeguard and dataset selection.",
+                "Retrieval ranks memories by task relevance, validation count, and confidence, without any recency term.",
+                (
+                    "Adaptive per-type retrieval ranges are bounded instead of fixed-top-k: "
+                    f"safeguard {self._format_range(MemoryKind.SAFEGUARD)}, "
+                    f"dataset_anchor {self._format_range(MemoryKind.DATASET_ANCHOR)}, "
+                    f"workflow {self._format_range(MemoryKind.WORKFLOW)}, "
+                    f"code_snippet {self._format_range(MemoryKind.CODE_SNIPPET)}."
+                ),
+                "Safeguards require current EHR risk-tag overlap; dataset anchors require exact dataset match.",
+                "Workflows and code snippets are retrieved by task-family, schema, category, and implementation relevance.",
+                "Competing memories are suppressed only within the same kind, category, and scope; cross-kind memories can coexist.",
             ]
         )
         if not self.experience_path.exists() or self.experience_path.stat().st_size == 0:
@@ -142,50 +176,53 @@ class ExperienceManager:
                 item[0].total_score,
                 item[1].validation_count,
                 item[1].confidence,
-                item[1].created_at,
+                item[1].experience_id,
             ),
             reverse=True,
         )
         deduped = self._filter_duplicates(scored_experiences, audit)
-        filtered_by_conflict = self._filter_same_kind_conflicts(deduped, audit)
+        eligible, ineligible = self._partition_candidates(deduped, context)
+        filtered_by_competition = self._filter_competing_candidates(eligible, audit)
 
         selected: list[Experience] = []
         selected_ids: set[int] = set()
-        blocked_conflict_slots: set[str] = set()
+        selected_counts: dict[MemoryKind, int] = defaultdict(int)
 
-        safeguard_candidate = self._select_safeguard(filtered_by_conflict, selected_ids, context)
-        if safeguard_candidate is not None:
-            score, exp, rationale = safeguard_candidate
-            self._record_selection(audit, selected, selected_ids, exp, score, rationale)
-            if exp.conflict_slot:
-                blocked_conflict_slots.add(exp.conflict_slot)
-
-        dataset_candidate = self._select_dataset_anchor(filtered_by_conflict, selected_ids, context)
-        if dataset_candidate is not None and len(selected) < MAX_RETRIEVAL_CAPACITY:
-            score, exp, rationale = dataset_candidate
-            self._record_selection(audit, selected, selected_ids, exp, score, rationale)
-
-        workflow_candidates = self._select_workflows(
-            filtered_by_conflict,
-            selected_ids=selected_ids,
-            blocked_conflict_slots=blocked_conflict_slots,
-            limit=min(WORKFLOW_LIMIT, MAX_RETRIEVAL_CAPACITY - len(selected)),
-            audit=audit,
-        )
-        for score, exp, rationale in workflow_candidates:
-            self._record_selection(audit, selected, selected_ids, exp, score, rationale)
+        for kind in SELECTION_ORDER:
+            remaining_capacity = self.max_retrieval_capacity - len(selected)
+            if remaining_capacity <= 0:
+                break
+            _, upper = self.retrieval_ranges[kind]
+            limit = min(upper, remaining_capacity)
+            if limit <= 0:
+                continue
+            for score, exp in filtered_by_competition:
+                if exp.kind != kind or id(exp) in selected_ids:
+                    continue
+                self._record_selection(
+                    audit,
+                    selected,
+                    selected_ids,
+                    exp,
+                    score,
+                    self._selection_rationale(exp),
+                )
+                selected_counts[kind] += 1
+                if selected_counts[kind] >= limit or len(selected) >= self.max_retrieval_capacity:
+                    break
 
         self._record_remaining_suppressions(
-            filtered_by_conflict,
+            ineligible=ineligible,
+            filtered_by_competition=filtered_by_competition,
             selected_ids=selected_ids,
-            blocked_conflict_slots=blocked_conflict_slots,
-            context=context,
+            selected_counts=selected_counts,
             audit=audit,
         )
         if selected:
             for exp in selected:
                 exp.times_retrieved += 1
-            await self._persist_experiences(all_experiences)
+            if not self.read_only:
+                await self._persist_experiences(all_experiences)
 
         logger.debug(
             "Retrieved {} memories for task_family='{}' dataset_signature='{}'",
@@ -197,7 +234,8 @@ class ExperienceManager:
         return MemoryRetrievalResult(
             safeguard_experiences=grouped[MemoryKind.SAFEGUARD],
             workflow_experiences=grouped[MemoryKind.WORKFLOW],
-            dataset_experiences=grouped[MemoryKind.DATASET],
+            dataset_anchor_experiences=grouped[MemoryKind.DATASET_ANCHOR],
+            code_snippet_experiences=grouped[MemoryKind.CODE_SNIPPET],
             selected_experiences=selected,
             audit=audit,
         )
@@ -216,19 +254,38 @@ class ExperienceManager:
         return all_experiences
 
     async def _persist_experiences(self, experiences: list[Experience]) -> None:
+        if self.read_only:
+            logger.debug("Ignoring persistence request for frozen memory: {}", self.experience_path)
+            return
         async with aiofiles.open(self.experience_path, mode="w", encoding="utf-8") as handle:
             for exp in experiences:
                 await handle.write(exp.model_dump_json() + "\n")
 
+    def _normalize_retrieval_ranges(
+        self,
+        retrieval_ranges: dict[MemoryKind, tuple[int, int]] | None,
+    ) -> dict[MemoryKind, tuple[int, int]]:
+        normalized: dict[MemoryKind, tuple[int, int]] = {}
+        for kind, default_range in DEFAULT_RETRIEVAL_RANGES.items():
+            lower, upper = (retrieval_ranges or {}).get(kind, default_range)
+            lower = max(0, int(lower))
+            upper = max(lower, int(upper))
+            normalized[kind] = (lower, upper)
+        return normalized
+
     def _normalize_legacy_experience_payload(self, payload: dict) -> dict:
         normalized = dict(payload)
-        if normalized.get("kind") == "execution":
+        legacy_kind = str(normalized.get("kind", "") or "").strip().lower()
+        if legacy_kind == "execution":
             normalized["kind"] = MemoryKind.WORKFLOW.value
             normalized["applicability_scope"] = normalized.get("applicability_scope") or "workflow_generic"
             tags = [str(item) for item in normalized.get("tags", []) if str(item).strip()]
             if "legacy_execution" not in tags:
                 tags.append("legacy_execution")
             normalized["tags"] = tags
+        elif legacy_kind == "dataset":
+            normalized["kind"] = MemoryKind.DATASET_ANCHOR.value
+            normalized["applicability_scope"] = normalized.get("applicability_scope") or "dataset_exact"
         if "validation_count" not in normalized:
             helpful = int(normalized.get("times_helped", 0) or 0)
             harmful = int(normalized.get("times_hurt", 0) or 0)
@@ -258,120 +315,77 @@ class ExperienceManager:
             filtered.append((score, exp))
         return filtered
 
-    def _filter_same_kind_conflicts(
+    def _partition_candidates(
+        self,
+        scored_experiences: list[tuple[MemoryScoreBreakdown, Experience]],
+        context: RetrievalContext,
+    ) -> tuple[list[tuple[MemoryScoreBreakdown, Experience]], list[tuple[MemoryScoreBreakdown, Experience, str]]]:
+        eligible: list[tuple[MemoryScoreBreakdown, Experience]] = []
+        ineligible: list[tuple[MemoryScoreBreakdown, Experience, str]] = []
+        for score, exp in scored_experiences:
+            rationale = self._ineligibility_reason(exp, score, context)
+            if rationale:
+                ineligible.append((score, exp, rationale))
+                continue
+            eligible.append((score, exp))
+        return eligible, ineligible
+
+    def _filter_competing_candidates(
         self,
         scored_experiences: list[tuple[MemoryScoreBreakdown, Experience]],
         audit: MemoryRetrievalAudit,
     ) -> list[tuple[MemoryScoreBreakdown, Experience]]:
         filtered: list[tuple[MemoryScoreBreakdown, Experience]] = []
-        seen_conflicts: dict[tuple[str, str, str, str], Experience] = {}
+        seen_competitors: dict[tuple[str, str, str, str], Experience] = {}
         for score, exp in scored_experiences:
-            if not exp.conflict_slot:
-                filtered.append((score, exp))
-                continue
-            key = (
-                exp.kind.value,
-                exp.conflict_slot,
-                exp.applicability_scope,
-                self._scope_target(exp),
-            )
-            if key in seen_conflicts:
-                audit.suppressed_conflicts.append(
+            key = self._competition_key(exp)
+            if key in seen_competitors:
+                audit.suppressed_competitors.append(
                     self._make_audit_entry(
                         exp,
                         score,
-                        disposition="suppressed_conflict",
+                        disposition="suppressed_competitor",
                         rationale=(
-                            f"Suppressed because another {exp.kind.value} memory already occupied "
-                            f"conflict slot '{exp.conflict_slot}' for the same scope."
+                            "Suppressed because a stronger active memory of the same type, category, "
+                            "and scope had already been ranked higher."
                         ),
                     )
                 )
                 continue
-            seen_conflicts[key] = exp
+            seen_competitors[key] = exp
             filtered.append((score, exp))
         return filtered
 
-    def _select_safeguard(
-        self,
-        candidates: list[tuple[MemoryScoreBreakdown, Experience]],
-        selected_ids: set[int],
-        context: RetrievalContext,
-    ) -> tuple[MemoryScoreBreakdown, Experience, str] | None:
-        for score, exp in candidates:
-            if exp.kind != MemoryKind.SAFEGUARD or id(exp) in selected_ids:
-                continue
-            if not self._safeguard_matches_current_risks(exp, context):
-                continue
-            return score, exp, "Selected because its safeguard risk tags matched the current actionable task risks."
-        return None
-
-    def _select_dataset_anchor(
-        self,
-        candidates: list[tuple[MemoryScoreBreakdown, Experience]],
-        selected_ids: set[int],
-        context: RetrievalContext,
-    ) -> tuple[MemoryScoreBreakdown, Experience, str] | None:
-        if context.dataset_signature == "unknown":
-            return None
-        for score, exp in candidates:
-            if id(exp) in selected_ids or exp.kind != MemoryKind.DATASET:
-                continue
-            if exp.dataset_signature == context.dataset_signature:
-                return score, exp, "Selected as the exact dataset anchor for this run."
-        return None
-
-    def _select_workflows(
-        self,
-        candidates: list[tuple[MemoryScoreBreakdown, Experience]],
-        selected_ids: set[int],
-        blocked_conflict_slots: set[str],
-        limit: int,
-        audit: MemoryRetrievalAudit,
-    ) -> list[tuple[MemoryScoreBreakdown, Experience, str]]:
-        selected: list[tuple[MemoryScoreBreakdown, Experience, str]] = []
-        for score, exp in candidates:
-            if exp.kind != MemoryKind.WORKFLOW or id(exp) in selected_ids:
-                continue
-            if exp.conflict_slot in blocked_conflict_slots:
-                audit.safeguard_overrides.append(
-                    self._make_audit_entry(
-                        exp,
-                        score,
-                        disposition="suppressed_safeguard_override",
-                        rationale=(
-                            f"Suppressed because a safeguard memory already occupied conflict slot "
-                            f"'{exp.conflict_slot}'."
-                        ),
-                    )
-                )
-                continue
-            selected.append(
-                (score, exp, "Selected as a reusable workflow for the current task family and dataset context.")
-            )
-            if len(selected) >= limit:
-                break
-        return selected
-
     def _record_remaining_suppressions(
         self,
-        filtered_by_conflict: list[tuple[MemoryScoreBreakdown, Experience]],
+        *,
+        ineligible: list[tuple[MemoryScoreBreakdown, Experience, str]],
+        filtered_by_competition: list[tuple[MemoryScoreBreakdown, Experience]],
         selected_ids: set[int],
-        blocked_conflict_slots: set[str],
-        context: RetrievalContext,
+        selected_counts: dict[MemoryKind, int],
         audit: MemoryRetrievalAudit,
     ) -> None:
-        for score, exp in filtered_by_conflict:
+        for score, exp, rationale in ineligible:
+            audit.suppressed.append(
+                self._make_audit_entry(
+                    exp,
+                    score,
+                    disposition="suppressed",
+                    rationale=rationale,
+                )
+            )
+
+        for score, exp in filtered_by_competition:
             if id(exp) in selected_ids:
                 continue
-            if exp.kind == MemoryKind.WORKFLOW and exp.conflict_slot in blocked_conflict_slots:
-                continue
-            if exp.kind == MemoryKind.SAFEGUARD and not self._safeguard_matches_current_risks(exp, context):
-                rationale = "Not selected because its safeguard risk tags did not match any actionable current task risk."
-            elif exp.kind == MemoryKind.DATASET and exp.dataset_signature != context.dataset_signature:
-                rationale = "Not selected because dataset memories are only retrieved as exact dataset anchors."
+            _, upper = self.retrieval_ranges[exp.kind]
+            if selected_counts[exp.kind] >= upper:
+                rationale = (
+                    f"Not selected because higher-ranked {exp.kind.value.replace('_', ' ')} memories "
+                    "already filled the configured retrieval range."
+                )
             else:
-                rationale = "Not selected after the fixed safeguard, dataset, and workflow retrieval lanes were filled."
+                rationale = "Not selected because higher-priority memories filled the bounded retrieval budget."
             audit.suppressed.append(
                 self._make_audit_entry(
                     exp,
@@ -415,7 +429,7 @@ class ExperienceManager:
                         exp.content,
                         exp.category,
                         exp.task_family,
-                        exp.conflict_slot or "",
+                        exp.applicability_scope,
                         " ".join(exp.tags),
                         " ".join(exp.risk_tags),
                         " ".join(exp.schema_tags),
@@ -430,7 +444,7 @@ class ExperienceManager:
         dataset_bonus = 4 if context.dataset_signature != "unknown" and exp.dataset_signature == context.dataset_signature else 0
         applicability_bonus = self._applicability_bonus(exp, context)
         schema_bonus = min(3, schema_overlap)
-        risk_bonus = min(4, risk_overlap * 2)
+        risk_bonus = min(4, risk_overlap * 2) if exp.kind == MemoryKind.SAFEGUARD else min(2, risk_overlap)
         confidence_bonus = round(exp.confidence, 2)
         total_score = (
             overlap_score
@@ -457,19 +471,54 @@ class ExperienceManager:
 
     def _applicability_bonus(self, exp: Experience, context: RetrievalContext) -> int:
         if exp.applicability_scope == "dataset_exact":
-            return 3 if context.dataset_signature != "unknown" and exp.dataset_signature == context.dataset_signature else -2
+            return 3 if context.dataset_signature != "unknown" and exp.dataset_signature == context.dataset_signature else -3
         if exp.applicability_scope == "task_family":
             return 2 if exp.task_family == context.task_family else 0
         if exp.applicability_scope == "domain_ehr":
-            return 1 if context.domain_focus == "ehr" else 0
+            return 1 if context.domain_focus == "ehr" else -1
         if exp.applicability_scope == "workflow_generic":
             return 1
         return 0
+
+    def _ineligibility_reason(
+        self,
+        exp: Experience,
+        score: MemoryScoreBreakdown,
+        context: RetrievalContext,
+    ) -> str | None:
+        if exp.kind == MemoryKind.SAFEGUARD and not self._safeguard_matches_current_risks(exp, context):
+            return "Not selected because its safeguard risk tags did not match any actionable current task risk."
+        if exp.kind == MemoryKind.DATASET_ANCHOR and exp.dataset_signature != context.dataset_signature:
+            return "Not selected because dataset anchors are only retrieved under exact dataset match."
+        if exp.kind == MemoryKind.WORKFLOW and not self._workflow_matches(score):
+            return "Not selected because no task-family, schema, or category relevance was detected for this workflow."
+        if exp.kind == MemoryKind.CODE_SNIPPET and not self._code_snippet_matches(score):
+            return "Not selected because no implementation relevance or schema compatibility was detected for this code snippet."
+        return None
+
+    def _workflow_matches(self, score: MemoryScoreBreakdown) -> bool:
+        return bool(score.overlap_score or score.task_family_bonus or score.schema_bonus)
+
+    def _code_snippet_matches(self, score: MemoryScoreBreakdown) -> bool:
+        return bool(score.overlap_score or score.task_family_bonus or score.schema_bonus)
 
     def _safeguard_matches_current_risks(self, exp: Experience, context: RetrievalContext) -> bool:
         if not context.risk_tags or not exp.risk_tags:
             return False
         return bool(set(exp.risk_tags).intersection(context.risk_tags))
+
+    def _selection_rationale(self, exp: Experience) -> str:
+        if exp.kind == MemoryKind.SAFEGUARD:
+            return "Selected because its safeguard risk tags matched the current EHR task risks."
+        if exp.kind == MemoryKind.DATASET_ANCHOR:
+            return "Selected as an exact dataset anchor for this dataset signature."
+        if exp.kind == MemoryKind.WORKFLOW:
+            return "Selected as a reusable workflow for the current task family and schema."
+        return "Selected as an implementation-ready code snippet for the current task."
+
+    def _format_range(self, kind: MemoryKind) -> str:
+        lower, upper = self.retrieval_ranges[kind]
+        return f"{lower}-{upper}"
 
     def _dedupe_signature(self, exp: Experience) -> str:
         normalized = "|".join(
@@ -479,12 +528,19 @@ class ExperienceManager:
                 re.sub(r"\s+", " ", exp.content.strip().lower()),
                 exp.task_family.strip().lower(),
                 exp.dataset_signature.strip().lower(),
-                (exp.conflict_slot or "").strip().lower(),
                 exp.applicability_scope.strip().lower(),
                 self._scope_target(exp),
             ]
         )
         return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+
+    def _competition_key(self, exp: Experience) -> tuple[str, str, str, str]:
+        return (
+            exp.kind.value,
+            exp.category.strip().lower(),
+            exp.applicability_scope.strip().lower(),
+            self._scope_target(exp),
+        )
 
     def _scope_target(self, exp: Experience) -> str:
         if exp.applicability_scope == "dataset_exact":
@@ -506,6 +562,7 @@ class ExperienceManager:
         disposition: str,
         rationale: str,
     ) -> MemoryAuditEntry:
+        scope_target = self._scope_target(exp)
         return MemoryAuditEntry(
             experience_id=exp.experience_id,
             source_task_id=exp.source_task_id,
@@ -513,8 +570,8 @@ class ExperienceManager:
             source_outcome=exp.source_outcome,
             category=exp.category,
             content_preview=exp.content[:200],
-            conflict_slot=exp.conflict_slot,
             applicability_scope=exp.applicability_scope,
+            scope_target=scope_target or None,
             risk_tags=exp.risk_tags,
             schema_tags=exp.schema_tags,
             score=score,
@@ -535,30 +592,6 @@ class ExperienceManager:
                 continue
             exp.retired = True
             exp.retired_reason = reason
-            exp.retired_at = now
-            exp.last_validated_at = now
-            retired_count += 1
-        return retired_count
-
-    def _retire_conflict_slot_memories(self, experiences: list[Experience], incoming: Experience) -> int:
-        now = datetime.now(timezone.utc)
-        retired_count = 0
-        incoming_scope_target = self._scope_target(incoming)
-        for exp in experiences:
-            if exp.retired:
-                continue
-            if exp.kind != incoming.kind:
-                continue
-            if exp.conflict_slot != incoming.conflict_slot:
-                continue
-            if exp.applicability_scope != incoming.applicability_scope:
-                continue
-            if self._scope_target(exp) != incoming_scope_target:
-                continue
-            exp.retired = True
-            exp.retired_reason = (
-                f"Retired because a newer {incoming.kind.value} memory replaced the same conflict slot for the same scope."
-            )
             exp.retired_at = now
             exp.last_validated_at = now
             retired_count += 1

@@ -4,7 +4,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from ..core.config import EnvironmentConfig
 from ..core.contracts import ExecutionPlan
@@ -20,11 +20,16 @@ class ExecutionContext:
     report_requested: bool = False
     safeguard_memory: List[str] = field(default_factory=list)
     workflow_memory: List[str] = field(default_factory=list)
-    dataset_memory: List[str] = field(default_factory=list)
+    dataset_anchor_memory: List[str] = field(default_factory=list)
+    code_snippet_memory: List[str] = field(default_factory=list)
     prior_feedback: Optional[str] = None
     executor_artifact_dir: Path | None = None
+    prompt_style: Literal["healthflow", "bare"] = "healthflow"
 
     def render_prompt(self) -> str:
+        if self.prompt_style == "bare":
+            return self._render_bare_prompt()
+
         prompt = [
             "# HealthFlow Execution Task",
             "",
@@ -40,11 +45,13 @@ class ExecutionContext:
         self._append_optional_section(prompt, "## Available Project CLI Tools", self.available_project_cli_tools)
         self._append_optional_section(prompt, "## Workflow Recommendations", self.workflow_recommendations)
         self._append_optional_section(prompt, "## EHR Safeguards", self.safeguard_memory)
+        self._append_optional_section(prompt, "## Dataset Anchors", self.dataset_anchor_memory)
         self._append_optional_section(prompt, "## Workflow Memories", self.workflow_memory)
-        self._append_optional_section(prompt, "## Dataset Anchors", self.dataset_memory)
+        self._append_optional_section(prompt, "## Code Snippets", self.code_snippet_memory)
         has_project_cli_tools = self._has_content(self.available_project_cli_tools)
         has_workflow_recommendations = self._has_content(self.workflow_recommendations)
         has_safeguards = self._has_content(self.safeguard_memory)
+        has_code_snippets = self._has_content(self.code_snippet_memory)
         has_prior_feedback = bool(self.prior_feedback and self.prior_feedback.strip())
         if has_prior_feedback:
             prompt.extend(["", "## Feedback from Previous Attempt", self.prior_feedback.strip()])
@@ -66,8 +73,10 @@ class ExecutionContext:
         if has_workflow_recommendations:
             rules.append("Use planner workflow recommendations when they fit, but adapt if execution reality requires a better path.")
         if has_safeguards:
-            rules.append("Treat safeguard memories as task-bounded constraints that override softer workflow preferences.")
+            rules.append("Treat safeguard memories as task-bounded constraints that override softer workflow or code snippet preferences.")
             rules.append("Safeguards do not authorize extra deliverables or extra data transformations beyond what the user explicitly requested.")
+        if has_code_snippets:
+            rules.append("Reuse surfaced code snippets only when they fit the current schema and requested deliverable.")
         if has_prior_feedback:
             rules.append("Address the previous attempt feedback explicitly when choosing the next path.")
         prompt.extend(["", "## Execution Rules", *[f"- {rule}" for rule in rules]])
@@ -79,6 +88,23 @@ class ExecutionContext:
                     "- Make the final answer explicitly reference the key artifacts you produced and what each artifact contains.",
                 ]
             )
+        return "\n".join(prompt).strip()
+
+    def _render_bare_prompt(self) -> str:
+        prompt = [
+            "# Task",
+            self.user_request.strip(),
+        ]
+        self._append_optional_section(prompt, "## Available Project CLI Tools", self.available_project_cli_tools)
+        rules = [
+            "Work only inside the current workspace.",
+            "Save requested artifacts inside the workspace.",
+            "Only use tools that are already available in the executor environment.",
+            "End with a concise final answer that references any produced artifacts.",
+        ]
+        if self._has_content(self.available_project_cli_tools):
+            rules.append("Validate surfaced project CLI tools with a lightweight help or status command before relying on them.")
+        prompt.extend(["", "## Execution Rules", *[f"- {rule}" for rule in rules]])
         return "\n".join(prompt).strip()
 
     def _append_optional_section(self, prompt: list[str], heading: str, items: list[str]) -> None:

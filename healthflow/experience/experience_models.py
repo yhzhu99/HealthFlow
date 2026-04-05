@@ -9,7 +9,9 @@ from pydantic import BaseModel, Field
 class MemoryKind(str, Enum):
     SAFEGUARD = "safeguard"
     WORKFLOW = "workflow"
-    DATASET = "dataset"
+    DATASET_ANCHOR = "dataset_anchor"
+    DATASET = "dataset_anchor"
+    CODE_SNIPPET = "code_snippet"
 
 
 class SourceOutcome(str, Enum):
@@ -35,7 +37,6 @@ class Experience(BaseModel):
     backend: str = Field(default="unknown", description="Executor backend that produced the memory.")
     source_outcome: SourceOutcome = Field(default=SourceOutcome.SUCCESS, description="Task outcome that produced the memory.")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score assigned during synthesis.")
-    conflict_slot: Optional[str] = Field(default=None, description="Domain-specific conflict slot identifier.")
     applicability_scope: str = Field(
         default="task_family",
         description="Where the memory applies, e.g. dataset_exact, task_family, workflow_generic, domain_ehr.",
@@ -98,8 +99,8 @@ class MemoryAuditEntry(BaseModel):
     source_outcome: SourceOutcome
     category: str
     content_preview: str
-    conflict_slot: Optional[str] = None
     applicability_scope: str = "task_family"
+    scope_target: Optional[str] = None
     risk_tags: List[str] = Field(default_factory=list)
     schema_tags: List[str] = Field(default_factory=list)
     score: MemoryScoreBreakdown
@@ -126,16 +127,21 @@ class MemoryRetrievalAudit(BaseModel):
     selected: List[MemoryAuditEntry] = Field(default_factory=list)
     safeguard_overrides: List[MemoryAuditEntry] = Field(default_factory=list)
     suppressed_duplicates: List[MemoryAuditEntry] = Field(default_factory=list)
-    suppressed_conflicts: List[MemoryAuditEntry] = Field(default_factory=list)
+    suppressed_competitors: List[MemoryAuditEntry] = Field(default_factory=list)
     suppressed: List[MemoryAuditEntry] = Field(default_factory=list)
 
 
 class MemoryRetrievalResult(BaseModel):
     safeguard_experiences: List[Experience] = Field(default_factory=list)
     workflow_experiences: List[Experience] = Field(default_factory=list)
-    dataset_experiences: List[Experience] = Field(default_factory=list)
+    dataset_anchor_experiences: List[Experience] = Field(default_factory=list)
+    code_snippet_experiences: List[Experience] = Field(default_factory=list)
     selected_experiences: List[Experience] = Field(default_factory=list)
     audit: MemoryRetrievalAudit
+
+    @property
+    def dataset_experiences(self) -> List[Experience]:
+        return self.dataset_anchor_experiences
 
 
 class MemoryUpdateAction(str, Enum):
@@ -154,7 +160,6 @@ class SynthesizedExperience(BaseModel):
     category: str = Field(..., description="Short category for routing and audit.")
     content: str = Field(..., description="Reusable memory content.")
     confidence: float = Field(default=0.6, ge=0.0, le=1.0, description="Confidence score assigned during synthesis.")
-    conflict_slot: Optional[str] = Field(default=None, description="Domain-specific conflict slot identifier.")
     applicability_scope: str = Field(
         default="task_family",
         description="Where the memory applies, e.g. dataset_exact, task_family, workflow_generic, domain_ehr.",

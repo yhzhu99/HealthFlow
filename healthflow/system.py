@@ -282,7 +282,7 @@ class HealthFlowSystem:
             "selected": [],
             "safeguard_overrides": [],
             "suppressed_duplicates": [],
-            "suppressed_conflicts": [],
+            "suppressed_competitors": [],
             "suppressed": [],
             "skipped": True,
             "skip_reason": direct_response.reason,
@@ -509,7 +509,8 @@ class HealthFlowSystem:
             )
             safeguard_experiences = retrieval_result.safeguard_experiences
             workflow_experiences = retrieval_result.workflow_experiences
-            dataset_experiences = retrieval_result.dataset_experiences
+            dataset_anchor_experiences = retrieval_result.dataset_anchor_experiences
+            code_snippet_experiences = retrieval_result.code_snippet_experiences
             retrieval_audit = retrieval_result.audit.model_dump(mode="json")
             self._write_json(attempt_paths.retrieval_result_path, retrieval_audit)
             trajectory["memory_context_path"] = paths.relative_path(attempt_paths.retrieval_result_path)
@@ -537,7 +538,8 @@ class HealthFlowSystem:
                 user_request=user_request,
                 safeguard_experiences=safeguard_experiences,
                 workflow_experiences=workflow_experiences,
-                dataset_experiences=dataset_experiences,
+                dataset_anchor_experiences=dataset_anchor_experiences,
+                code_snippet_experiences=code_snippet_experiences,
                 execution_environment=self.config.environment.summary_lines(),
                 available_project_cli_tools=available_project_cli_tools,
                 workflow_recommendations=workflow_recommendations,
@@ -579,7 +581,8 @@ class HealthFlowSystem:
                 report_requested=report_requested,
                 safeguard_memory=self._format_memory_lines(safeguard_experiences),
                 workflow_memory=self._format_memory_lines(workflow_experiences),
-                dataset_memory=self._format_memory_lines(dataset_experiences),
+                dataset_anchor_memory=self._format_memory_lines(dataset_anchor_experiences),
+                code_snippet_memory=self._format_memory_lines(code_snippet_experiences),
                 prior_feedback=previous_feedback,
                 executor_artifact_dir=attempt_paths.executor_dir,
             )
@@ -685,7 +688,8 @@ class HealthFlowSystem:
                     "retrieval": retrieval_audit,
                     "safeguards": [exp.model_dump(mode="json") for exp in safeguard_experiences],
                     "workflows": [exp.model_dump(mode="json") for exp in workflow_experiences],
-                    "datasets": [exp.model_dump(mode="json") for exp in dataset_experiences],
+                    "dataset_anchors": [exp.model_dump(mode="json") for exp in dataset_anchor_experiences],
+                    "code_snippets": [exp.model_dump(mode="json") for exp in code_snippet_experiences],
                 },
                 "plan": plan.model_dump(mode="json"),
                 "plan_markdown": plan_markdown,
@@ -1090,7 +1094,8 @@ class HealthFlowSystem:
                 "retrieval": minimal_memory,
                 "safeguards": [],
                 "workflows": [],
-                "datasets": [],
+                "dataset_anchors": [],
+                "code_snippets": [],
             },
             "plan": {},
             "plan_markdown": "",
@@ -1205,7 +1210,7 @@ class HealthFlowSystem:
             "selected": [],
             "safeguard_overrides": [],
             "suppressed_duplicates": [],
-            "suppressed_conflicts": [],
+            "suppressed_competitors": [],
             "suppressed": [],
             "skipped": True,
             "skip_reason": cancel_reason,
