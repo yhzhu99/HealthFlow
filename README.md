@@ -19,10 +19,10 @@ The current release surface is intentionally **backend and CLI only**. A fronten
 
 HealthFlow runs a lean **Meta -> Executor -> Evaluator -> Reflector** loop.
 
-1. **Meta**: retrieve relevant safeguard, workflow, and dataset memories, then emit a structured execution plan.
+1. **Meta**: retrieve relevant safeguards, dataset anchors, workflows, and code snippets, then emit a structured execution plan.
 2. **Executor**: interpret the plan as a CodeAct brief and act through code, commands, and workspace artifacts using whatever tools are already configured in the outer executor.
 3. **Evaluator**: review the execution trace and produced artifacts, classify the outcome as `success`, `needs_retry`, or `failed`, and provide repair instructions for the next attempt.
-4. **Reflector**: synthesize reusable safeguard, workflow, or dataset memories from the full trajectory after the task session ends.
+4. **Reflector**: synthesize reusable safeguards, workflows, dataset anchors, or code snippets from the full trajectory after the task session ends.
 
 The task-level self-correction budget is controlled by `system.max_attempts`, which counts total full attempts through the loop rather than "retries plus one".
 
@@ -30,7 +30,7 @@ The task-level self-correction budget is controlled by `system.max_attempts`, wh
 
 - **MERF core runtime**: the framework definition is the four-stage Meta, Executor, Evaluator, Reflector loop rather than an outer benchmark-evaluation pipeline.
 - **Lean execution contract**: HealthFlow defines workspace rules, execution-environment defaults, and workflow recommendations without becoming a tool-hosting framework.
-- **Inspectable memory**: safeguard, workflow, and dataset memories are stored in JSONL, retrieved through explicit fixed lanes, and exposed through a saved retrieval audit.
+- **Inspectable memory**: safeguards, workflows, dataset anchors, and code snippets are stored in JSONL, retrieved through bounded adaptive per-type ranges, and exposed through a saved retrieval audit.
 - **Evaluator-centered recovery**: retries are driven by structured failure diagnosis and repair instructions instead of a single scalar score alone.
 - **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
 - **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, executor usage, and stage-level estimated cost summaries.
@@ -77,29 +77,32 @@ The framework package is focused on taking a task, executing it, improving task 
 
 ## Memory Behavior
 
-HealthFlow uses three memory classes:
+HealthFlow uses four first-class memory classes:
 
 - `safeguard`
 - `workflow`
-- `dataset`
+- `dataset_anchor`
+- `code_snippet`
 
 Retrieval is inspectable:
 
 - retrieval is conditioned on task family, dataset signature, schema tags, and EHR risk tags
-- at most one safeguard is selected, and only when its risk tags match an actionable current task risk
-- contradictory memories are tracked by `conflict_slot`
-- safeguard memories suppress conflicting workflow memories before planning
-- dataset memories act as anchors without replacing workflow guidance
-- workflow memories are capped at two items after safeguard and dataset selection
+- retrieval uses bounded per-type ranges instead of a fixed top-k lane layout
+- safeguards are retrieved only when their `risk_tags` match current actionable EHR risks
+- dataset anchors are retrieved only under exact dataset match
+- workflows and code snippets are retrieved by task-family, schema, category, and implementation relevance
+- contradictions are mitigated by suppressing only same-kind memories that share the same category and scope
+- complementary memories across kinds can coexist, with safeguards taking precedence only if execution behavior conflicts
 - the retrieval audit is saved per attempt under `runtime/attempts/attempt_*/memory/retrieval_result.json`
 
 Writeback behavior:
 
-- failed runs and near-miss recoveries can produce `safeguard` memory
-- successful reusable procedures can produce `workflow` memory
-- stable schema observations can produce `dataset` memory
+- successful tasks can write `workflow`, `dataset_anchor`, and `code_snippet` memory
+- recovered tasks can write one `safeguard`, plus one corrected reusable `workflow` or `code_snippet`
+- failed tasks write `safeguard` memory only
+- safeguard writeback is reserved for EHR risk-prevention knowledge such as cohort definition, temporal leakage, patient linkage, identifier misuse, unsafe missingness handling, clinically implausible aggregation, and analysis-contract violations
 - retrieved memories can be explicitly `validate`d or `retire`d based on later trajectories
-- newly synthesized safeguard or workflow memories retire older memories that occupy the same `conflict_slot` for the same scope
+- memories are not retired automatically by retrieval-time competition; retirement requires explicit later evidence
 
 ## Supported Execution Backends
 
