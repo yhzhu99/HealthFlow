@@ -25,7 +25,7 @@ from .showcase import (
     ensure_showcase_task,
 )
 
-_TRACE_ASSISTANT_TEXT = "Advanced execution details for this task will appear here."
+_TRACE_ASSISTANT_TEXT = "Execution logs for this task will appear here."
 _EMPTY_WORKSPACE_TEXT = "No workspace files yet."
 _EMPTY_PREVIEW_TEXT = "Select a file to preview it."
 _UPLOAD_ONLY_USER_MESSAGE = "Please inspect the uploaded files and continue the current task."
@@ -953,6 +953,7 @@ aside > div {
 
 .hf-browser-pane,
 .hf-preview-pane,
+.hf-memory-pane,
 .hf-advanced-toolbar {
     border: 1px solid var(--hf-border);
     border-radius: var(--hf-radius-panel);
@@ -962,12 +963,14 @@ aside > div {
 
 .hf-browser-pane,
 .hf-preview-pane,
+.hf-memory-pane,
 .hf-advanced-toolbar {
     padding: 1rem 1rem 1.05rem;
 }
 
 .hf-browser-pane,
-.hf-preview-pane {
+.hf-preview-pane,
+.hf-memory-pane {
     display: flex;
     flex-direction: column;
     flex-wrap: nowrap !important;
@@ -987,9 +990,124 @@ aside > div {
     overflow: auto;
 }
 
+.hf-memory-pane {
+    overflow: auto;
+}
+
 .hf-browser-pane h3,
-.hf-preview-pane h3 {
+.hf-preview-pane h3,
+.hf-memory-pane h3 {
     margin: 0;
+}
+
+.hf-memory-empty {
+    margin: 0;
+    color: var(--hf-text-muted);
+    font-size: 1rem;
+    line-height: 1.6;
+}
+
+.hf-memory-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.72rem;
+}
+
+.hf-memory-card {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: var(--hf-radius-panel);
+    background: rgba(255, 255, 255, 0.96);
+    padding: 0.9rem 0.95rem;
+}
+
+.hf-memory-card h4 {
+    margin: 0;
+    color: var(--hf-text);
+    font-size: 1.02rem;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+}
+
+.hf-memory-card p {
+    margin: 0.36rem 0 0;
+    color: var(--hf-text);
+    font-size: 0.98rem;
+    line-height: 1.58;
+}
+
+.hf-memory-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.58rem;
+}
+
+.hf-memory-chip {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    padding: 0.24rem 0.5rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: var(--hf-radius-chip);
+    background: rgba(244, 248, 251, 0.96);
+    color: var(--hf-text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.hf-memory-list {
+    margin: 0.62rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.hf-memory-list li {
+    padding: 0.5rem 0;
+    border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.hf-memory-list li:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+
+.hf-memory-entry-title {
+    display: flex;
+    align-items: center;
+    gap: 0.42rem;
+    flex-wrap: wrap;
+}
+
+.hf-memory-entry-kind {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 3.4rem;
+    padding: 0.18rem 0.42rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: var(--hf-radius-chip);
+    background: rgba(239, 246, 255, 0.96);
+    color: #1d4ed8;
+    font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.hf-memory-entry-source {
+    color: var(--hf-text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.hf-memory-entry-copy {
+    margin-top: 0.26rem;
+    color: var(--hf-text);
+    font-size: 0.96rem;
+    line-height: 1.56;
 }
 
 .hf-history-list {
@@ -2879,6 +2997,128 @@ def _latest_attempt_from_task_root(task_root: Path | None) -> dict[str, Any]:
     return dict(latest_attempt) if isinstance(latest_attempt, dict) else {}
 
 
+def _memory_entries_from_retrieval(retrieval: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for key in (
+        "selected",
+        "selected_experiences",
+        "safeguard_experiences",
+        "workflow_experiences",
+        "dataset_anchor_experiences",
+        "code_snippet_experiences",
+    ):
+        values = retrieval.get(key)
+        if isinstance(values, list):
+            entries.extend(item for item in values if isinstance(item, dict))
+
+    audit = retrieval.get("audit")
+    if isinstance(audit, dict):
+        for key in ("selected", "safeguard_overrides"):
+            values = audit.get(key)
+            if isinstance(values, list):
+                entries.extend(item for item in values if isinstance(item, dict))
+
+    deduped: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for item in entries:
+        marker = "|".join(
+            [
+                str(item.get("experience_id") or "").strip(),
+                str(item.get("source_task_id") or "").strip(),
+                str(item.get("content_preview") or item.get("content") or item.get("category") or "").strip(),
+            ]
+        )
+        if marker in seen_keys:
+            continue
+        seen_keys.add(marker)
+        deduped.append(item)
+    return deduped
+
+
+def _memory_entry_markup(item: dict[str, Any]) -> str:
+    kind = html.escape(str(item.get("kind") or item.get("category") or "memory").strip().replace("_", " "))
+    source_task_id = str(item.get("source_task_id") or "").strip()
+    source = html.escape(f"Task {source_task_id}" if source_task_id else str(item.get("applicability_scope") or "").strip() or "Reusable memory")
+    body = html.escape(
+        str(item.get("content_preview") or item.get("content") or item.get("rationale") or item.get("reason") or "").strip()
+        or "Reusable memory details are available for this run."
+    )
+    return (
+        "<li>"
+        '<div class="hf-memory-entry-title">'
+        f'<span class="hf-memory-entry-kind">{kind}</span>'
+        f'<span class="hf-memory-entry-source">{source}</span>'
+        "</div>"
+        f'<div class="hf-memory-entry-copy">{body}</div>'
+        "</li>"
+    )
+
+
+def _memory_panel_html(task_root: Path | None) -> str:
+    if task_root is None:
+        return '<p class="hf-memory-empty">Memory becomes visible here once you select or run a task.</p>'
+
+    trajectory = _load_json_payload(task_root / "runtime" / "run" / "trajectory.json")
+    if not trajectory:
+        return '<p class="hf-memory-empty">No task memory has been recorded for this run yet.</p>'
+
+    latest_attempt = _latest_attempt_from_task_root(task_root)
+    retrieval = dict(dict(latest_attempt.get("memory") or {}).get("retrieval") or {})
+    selected_entries = _memory_entries_from_retrieval(retrieval)
+    task_family = html.escape(str(retrieval.get("task_family") or "general_analysis").strip())
+    domain_focus = html.escape(str(retrieval.get("domain_focus") or "general").strip())
+    dataset_signature = html.escape(str(retrieval.get("dataset_signature") or "pending").strip())
+    retrieval_copy = (
+        "Memory retrieval was skipped for this run."
+        if retrieval.get("skipped")
+        else f"Retrieved {len(selected_entries)} reusable memory item{'s' if len(selected_entries) != 1 else ''} for planning and evaluation."
+    )
+    retrieval_chips = [
+        f'<span class="hf-memory-chip">Task family: {task_family}</span>',
+        f'<span class="hf-memory-chip">Domain: {domain_focus}</span>',
+        f'<span class="hf-memory-chip">Dataset: {dataset_signature}</span>',
+    ]
+    if retrieval.get("capacity") not in (None, ""):
+        retrieval_chips.append(f'<span class="hf-memory-chip">Capacity: {html.escape(str(retrieval.get("capacity")))}</span>')
+
+    memory_updates = [item for item in list(trajectory.get("memory_updates") or []) if isinstance(item, dict)]
+    new_experiences = [item for item in list(trajectory.get("new_experiences") or trajectory.get("experiences") or []) if isinstance(item, dict)]
+    archive_copy = (
+        f"{len(new_experiences)} new reusable memory item{'s' if len(new_experiences) != 1 else ''} archived."
+        if new_experiences
+        else "No new reusable memories were archived in this run."
+    )
+    archive_chips = [f'<span class="hf-memory-chip">Updates applied: {len(memory_updates)}</span>']
+    if trajectory.get("reflection"):
+        archive_chips.append('<span class="hf-memory-chip">Reflect completed</span>')
+
+    selected_list = "".join(_memory_entry_markup(item) for item in selected_entries[:4])
+    if not selected_list:
+        selected_list = '<li><div class="hf-memory-entry-copy">No prior memories were selected into this run.</div></li>'
+
+    archive_items = new_experiences[:3] or memory_updates[:3]
+    archive_list = "".join(_memory_entry_markup(item) for item in archive_items)
+    if not archive_list:
+        archive_list = '<li><div class="hf-memory-entry-copy">Reflection has not written new memories for this run yet.</div></li>'
+
+    return (
+        '<div class="hf-memory-stack">'
+        '<section class="hf-memory-card">'
+        "<h4>Retrieval</h4>"
+        f"<p>{html.escape(retrieval_copy)}</p>"
+        f'<div class="hf-memory-chip-row">{"".join(retrieval_chips)}</div>'
+        f'<ul class="hf-memory-list">{selected_list}</ul>'
+        "</section>"
+        '<section class="hf-memory-card">'
+        "<h4>Archive</h4>"
+        f"<p>{html.escape(archive_copy)}</p>"
+        f'<div class="hf-memory-chip-row">{"".join(archive_chips)}</div>'
+        f'<ul class="hf-memory-list">{archive_list}</ul>'
+        "</section>"
+        "</div>"
+    )
+
+
 def _try_import_gradio() -> Any | None:
     try:
         import gradio as gr
@@ -3237,7 +3477,7 @@ def _restore_trace_history(client: TaskSessionClient, *, restored: bool) -> list
     history = client.load_history()
     if not history:
         message = (
-            "Previous execution details for this task are available here."
+            "Previous execution logs for this task are available here."
             if restored
             else _TRACE_ASSISTANT_TEXT
         )
@@ -3246,7 +3486,7 @@ def _restore_trace_history(client: TaskSessionClient, *, restored: bool) -> list
     trace_history = [
         {
             "role": "assistant",
-            "content": "Previous execution details for this task are listed below. New progress updates will appear here.",
+            "content": "Previous execution logs for this task are listed below. New progress updates will appear here.",
         }
     ]
     for record in history[-5:]:
@@ -3783,6 +4023,9 @@ def launch_web_app(
     def _workspace_browser_updates(catalog: Sequence[dict[str, Any]], selected_file: str | None) -> Any:
         return gr.update(value=_workspace_tree_html(catalog, selected_file))
 
+    def _memory_panel_update(task_root: Path | None) -> Any:
+        return gr.update(value=_memory_panel_html(task_root))
+
     def _compose_outputs(
         client: TaskSessionClient,
         *,
@@ -3809,6 +4052,7 @@ def launch_web_app(
             action_placeholder=history_action_placeholder,
         )
         workspace_updates = _workspace_browser_updates(catalog, selected_file)
+        memory_update = _memory_panel_update(task_root)
         starter_visible = client.turn_count <= 0 and not main_history
         return (
             main_history,
@@ -3822,6 +4066,7 @@ def launch_web_app(
             *history_updates,
             _history_notice_update(history_notice, gr=gr),
             workspace_updates,
+            memory_update,
             selected_file,
             *preview_outputs,
             gr.update(value=""),
@@ -3848,6 +4093,7 @@ def launch_web_app(
             action_placeholder=history_action_placeholder,
         )
         workspace_updates = _workspace_browser_updates([], None)
+        memory_update = _memory_panel_update(None)
         return (
             list(main_history or []),
             list(trace_history or [{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}]),
@@ -3860,6 +4106,7 @@ def launch_web_app(
             *history_updates,
             _history_notice_update(history_notice, gr=gr),
             workspace_updates,
+            memory_update,
             None,
             *preview_outputs,
             gr.update(value=""),
@@ -3990,13 +4237,15 @@ def launch_web_app(
     def _on_workspace_file_selected(selected_file: str | None, task_id: str | None):
         return selected_file, *_preview_outputs_for_task(selected_file, task_id)
 
-    def _detail_panel_updates(mode: str) -> tuple[Any, Any, Any, Any]:
-        resolved_mode = "advanced" if mode == "advanced" else "workspace"
+    def _detail_panel_updates(mode: str) -> tuple[Any, Any, Any, Any, Any, Any]:
+        resolved_mode = mode if mode in {"memory", "logs"} else "workspace"
         return (
             gr.update(variant="primary" if resolved_mode == "workspace" else "secondary"),
-            gr.update(variant="primary" if resolved_mode == "advanced" else "secondary"),
+            gr.update(variant="primary" if resolved_mode == "memory" else "secondary"),
+            gr.update(variant="primary" if resolved_mode == "logs" else "secondary"),
             gr.update(visible=resolved_mode == "workspace"),
-            gr.update(visible=resolved_mode == "advanced"),
+            gr.update(visible=resolved_mode == "memory"),
+            gr.update(visible=resolved_mode == "logs"),
         )
 
     def _submit_turn(
@@ -4371,8 +4620,13 @@ def launch_web_app(
                                 variant="primary",
                                 elem_classes=["hf-detail-switch"],
                             )
+                            memory_panel_button = gr.Button(
+                                "Memory",
+                                variant="secondary",
+                                elem_classes=["hf-detail-switch"],
+                            )
                             advanced_panel_button = gr.Button(
-                                "Advanced",
+                                "Logs",
                                 variant="secondary",
                                 elem_classes=["hf-detail-switch"],
                             )
@@ -4427,9 +4681,17 @@ def launch_web_app(
                                     preview_empty = gr.Markdown(value=_EMPTY_PREVIEW_TEXT, container=False)
                                     download_button = gr.DownloadButton("Download file", visible=False)
 
+                        with gr.Column(visible=False, elem_classes=["hf-detail-panel", "hf-memory-panel"]) as memory_panel:
+                            with gr.Column(elem_classes=["hf-memory-pane"]):
+                                gr.Markdown("### Memory", container=False)
+                                memory_panel_html = gr.HTML(
+                                    value=_memory_panel_html(None),
+                                    container=False,
+                                )
+
                         with gr.Column(visible=False, elem_classes=["hf-detail-panel", "hf-advanced-panel"]) as advanced_panel:
                             with gr.Column(scale=0, elem_classes=["hf-advanced-toolbar"]):
-                                gr.Markdown("### Advanced", container=False)
+                                gr.Markdown("### Logs", container=False)
                                 report_requested = gr.Checkbox(
                                     label="Generate report.md for each turn",
                                     value=False,
@@ -4449,14 +4711,21 @@ def launch_web_app(
                     workspace_panel_button.click(
                         lambda: _detail_panel_updates("workspace"),
                         None,
-                        [workspace_panel_button, advanced_panel_button, workspace_panel, advanced_panel],
+                        [workspace_panel_button, memory_panel_button, advanced_panel_button, workspace_panel, memory_panel, advanced_panel],
+                        queue=False,
+                        show_progress="hidden",
+                    )
+                    memory_panel_button.click(
+                        lambda: _detail_panel_updates("memory"),
+                        None,
+                        [workspace_panel_button, memory_panel_button, advanced_panel_button, workspace_panel, memory_panel, advanced_panel],
                         queue=False,
                         show_progress="hidden",
                     )
                     advanced_panel_button.click(
-                        lambda: _detail_panel_updates("advanced"),
+                        lambda: _detail_panel_updates("logs"),
                         None,
-                        [workspace_panel_button, advanced_panel_button, workspace_panel, advanced_panel],
+                        [workspace_panel_button, memory_panel_button, advanced_panel_button, workspace_panel, memory_panel, advanced_panel],
                         queue=False,
                         show_progress="hidden",
                     )
@@ -4479,6 +4748,7 @@ def launch_web_app(
             cancel_action_button,
             history_notice,
             workspace_browser,
+            memory_panel_html,
             selected_file_state,
             preview_header,
             preview_markdown,
@@ -4508,7 +4778,7 @@ def launch_web_app(
         ).then(
             lambda: _detail_panel_updates("workspace"),
             None,
-            [workspace_panel_button, advanced_panel_button, workspace_panel, advanced_panel],
+            [workspace_panel_button, memory_panel_button, advanced_panel_button, workspace_panel, memory_panel, advanced_panel],
             queue=False,
             show_progress="hidden",
         )
