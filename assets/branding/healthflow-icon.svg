@@ -1,22 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 224" role="img" aria-labelledby="healthflowIconTitle healthflowIconDesc">
   <title id="healthflowIconTitle">HealthFlow icon</title>
-  <desc id="healthflowIconDesc">A two-tone flowing ribbon with a medical pulse bend and a forward arrow for the HealthFlow project.</desc>
+  <desc id="healthflowIconDesc">A compact sky-blue flow mark with a smooth pulse and a clean forward tip for the HealthFlow project.</desc>
   <path
-    d="M44 176V96C44 74 60 58 80 58C101 58 116 74 116 95V101C116 110 123 116 132 116H138Q144 116 148 110L154 101Q160 91 166 101L176 126Q180 135 185 126L192 111Q196 103 202 99"
+    d="M30 142C34 120 50 104 70 104C86 104 98 114 106 122C114 130 123 130 134 116C147 99 163 91 178 95C188 98 196 104 202 108"
     fill="none"
-    stroke="#0F8B8D"
+    stroke="#29A8FF"
     stroke-linecap="round"
     stroke-linejoin="round"
-    stroke-width="28"
+    stroke-width="24"
   />
-  <path
-    d="M120 116H138Q144 116 148 110L154 101Q160 91 166 101L176 126Q180 135 185 126L191 112Q194 105 198 102"
-    fill="none"
-    stroke="#42B7B8"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-width="18"
-  />
-  <path d="M188 79L216 98L188 117Z" fill="#0F8B8D"/>
-  <path d="M190 87L206 98L190 109Z" fill="#42B7B8"/>
+  <path d="M186 90L212 108L186 126Z" fill="#29A8FF"/>
 </svg>
