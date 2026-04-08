@@ -15,10 +15,10 @@ Current demo payload:
 
 - 1 MedAgentBoard-style question
 - 1 EHRFlowBench-style question
-- 4 framework baselines per benchmark
+- 6 framework baselines per benchmark
 - image, CSV, markdown, and PDF preview coverage
 - default reviewer auto-loaded as `demo-reviewer`
-- dataset tabs plus framework tabs for fast switching
+- compact human-evaluation workspace with benchmark tabs plus framework tabs
 
 ## Real Snapshot Workflow
 

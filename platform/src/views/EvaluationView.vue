@@ -2,12 +2,9 @@
 import { computed, onMounted, ref, watch } from 'vue'
 
 import ArtifactViewer from '../components/evaluation/ArtifactViewer.vue'
-import ProgressSummary from '../components/evaluation/ProgressSummary.vue'
-import QuestionNavigator from '../components/evaluation/QuestionNavigator.vue'
 import AppShell from '../components/layout/AppShell.vue'
 import AppButton from '../components/ui/AppButton.vue'
 import AppCard from '../components/ui/AppCard.vue'
-import SectionHeader from '../components/ui/SectionHeader.vue'
 import {
   blindOrderCandidates,
   createReviewerState,
@@ -82,6 +79,10 @@ const currentQuestionIndex = computed(() => {
 })
 
 const currentQuestion = computed(() => benchmarkQuestions.value[currentQuestionIndex.value] ?? null)
+
+const progressPercent = computed(() =>
+  benchmarkQuestions.value.length ? (answeredIds.value.size / benchmarkQuestions.value.length) * 100 : 0,
+)
 
 const candidateSlots = computed(() => {
   if (!currentQuestion.value || !reviewerState.value) return []
@@ -158,7 +159,7 @@ const activeFrameworkCandidate = computed(() =>
 
 const currentSelectionLabel = computed(() => {
   if (draftChoice.value === 'none') return 'None / 都不好'
-  return frameworkCandidates.value.find((item) => item.candidate.runId === draftChoice.value)?.candidate.runLabel ?? 'No framework selected'
+  return frameworkCandidates.value.find((item) => item.candidate.runId === draftChoice.value)?.candidate.runLabel ?? 'Unselected'
 })
 
 const renderedTask = computed(() => renderMarkdown(currentQuestion.value?.task ?? ''))
@@ -381,27 +382,23 @@ onMounted(async () => {
 
 <template>
   <AppShell content-width="wide">
-    <section class="py-10 sm:py-12">
-      <SectionHeader
-        eyebrow="Evaluation"
-        title="Wide human evaluation with benchmark tabs and compare tabs."
-        description="Each question opens into one wide workspace: pick a benchmark, switch among framework baselines and the reference answer, then record one clean decision from the right-side panel."
-      />
-    </section>
+    <div v-if="loading" class="pt-4 sm:pt-5">
+      <AppCard class="!p-4">
+        <div class="py-8 text-center text-slate-500">Loading evaluation snapshot...</div>
+      </AppCard>
+    </div>
 
-    <AppCard v-if="loading">
-      <div class="py-10 text-center text-slate-500">Loading evaluation snapshot...</div>
-    </AppCard>
+    <div v-else-if="loadError" class="pt-4 sm:pt-5">
+      <AppCard class="!p-4">
+        <div class="space-y-3">
+          <div class="text-lg font-semibold text-rose-700">Snapshot load failed</div>
+          <p class="text-sm leading-7 text-rose-700">{{ loadError }}</p>
+        </div>
+      </AppCard>
+    </div>
 
-    <AppCard v-else-if="loadError">
-      <div class="space-y-3">
-        <div class="text-lg font-semibold text-rose-700">Snapshot load failed</div>
-        <p class="text-sm leading-7 text-rose-700">{{ loadError }}</p>
-      </div>
-    </AppCard>
-
-    <div v-else-if="!snapshot" class="space-y-6">
-      <AppCard>
+    <div v-else-if="!snapshot" class="space-y-4 pt-4 sm:pt-5">
+      <AppCard class="!p-4">
         <div class="space-y-4">
           <div class="text-lg font-semibold text-slate-950">No snapshot found yet</div>
           <p class="text-base leading-8 text-slate-600">
@@ -415,381 +412,321 @@ npm run dev</code></pre>
       </AppCard>
     </div>
 
-    <div v-else class="space-y-6">
-      <AppCard class="border-slate-200/80 bg-white/84">
-        <div class="flex flex-col gap-6 2xl:flex-row 2xl:items-start 2xl:justify-between">
-          <div class="space-y-4">
-            <div class="inline-flex rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold tracking-[0.2em] text-sky-700 uppercase">
+    <div v-else class="space-y-4 pt-4 sm:pt-5">
+      <AppCard class="!p-4 border-slate-200/80 bg-white/86">
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold tracking-[0.18em] text-sky-700 uppercase">
               Human Evaluation
             </div>
 
-            <div class="space-y-3">
-              <div class="text-sm font-semibold tracking-[0.18em] text-slate-500 uppercase">Benchmarks</div>
-              <div class="flex flex-wrap gap-3">
-                <button
-                  v-for="benchmark in benchmarks"
-                  :key="benchmark.id"
-                  type="button"
-                  class="rounded-full px-4 py-2.5 text-sm font-semibold transition"
-                  :class="
-                    activeBenchmarkId === benchmark.id
-                      ? 'border border-slate-900 bg-slate-950 text-white shadow-sm'
-                      : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-950'
-                  "
-                  @click="setActiveBenchmark(benchmark.id)"
-                >
-                  {{ benchmark.label }}
-                  <span class="ml-2 text-xs opacity-75">{{ benchmark.taskCount }}</span>
-                </button>
-              </div>
-              <p v-if="activeBenchmark" class="max-w-3xl text-sm leading-7 text-slate-500">
-                {{ activeBenchmark.description }}
-              </p>
-            </div>
+            <button
+              v-for="benchmark in benchmarks"
+              :key="benchmark.id"
+              type="button"
+              class="rounded-full px-4 py-2 text-sm font-semibold transition"
+              :class="
+                activeBenchmarkId === benchmark.id
+                  ? 'border border-slate-900 bg-slate-950 text-white shadow-sm'
+                  : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-950'
+              "
+              @click="setActiveBenchmark(benchmark.id)"
+            >
+              {{ benchmark.label }}
+              <span class="ml-1.5 text-[11px] opacity-70">{{ benchmark.taskCount }}</span>
+            </button>
           </div>
 
-          <div class="grid gap-3 sm:grid-cols-[minmax(0,220px)_auto_auto]">
+          <div class="flex flex-wrap items-center gap-2">
             <input
               v-model="reviewerDraft"
               type="text"
               placeholder="reviewer_id"
-              class="rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-950"
+              class="min-w-[176px] rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-950"
             />
             <AppButton variant="secondary" @click="activateReviewer()">Switch Reviewer</AppButton>
             <AppButton @click="exportResponses">Export JSON</AppButton>
           </div>
         </div>
+
+        <p v-if="activeBenchmark" class="mt-3 text-xs leading-6 text-slate-500">
+          {{ activeBenchmark.description }}
+        </p>
       </AppCard>
 
       <template v-if="reviewerState && currentQuestion">
-        <div class="grid gap-6 xl:grid-cols-[240px_minmax(0,1fr)_330px] 2xl:grid-cols-[260px_minmax(0,1fr)_350px]">
-          <div class="space-y-6 xl:sticky xl:top-24 xl:self-start">
-            <AppCard class="border-slate-200/80 bg-white/84">
-              <ProgressSummary :answered="answeredIds.size" :total="benchmarkQuestions.length" />
-            </AppCard>
-
-            <AppCard class="border-slate-200/80 bg-white/84">
-              <QuestionNavigator
-                :questions="benchmarkQuestions"
-                :current-question-id="currentQuestion.id"
-                :answered-ids="answeredIds"
-                @select="selectQuestion"
-              />
-            </AppCard>
-          </div>
-
-          <div class="space-y-6">
-            <AppCard class="border-slate-200/80 bg-white/84">
-              <div class="space-y-6">
-                <div class="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-                  <span class="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-900">
-                    {{ currentQuestion.datasetLabel }} · Q{{ currentQuestion.qid }}
-                  </span>
-                  <span v-if="currentQuestion.taskType">{{ currentQuestion.taskType }}</span>
-                  <span v-if="currentQuestion.taskBrief">{{ currentQuestion.taskBrief }}</span>
-                  <span v-if="currentQuestion.paperTitle">{{ currentQuestion.paperTitle }}</span>
+        <div class="grid gap-4 xl:grid-cols-[176px_minmax(0,1fr)_300px] 2xl:grid-cols-[188px_minmax(0,1fr)_320px]">
+          <AppCard class="!p-4 border-slate-200/80 bg-white/86 xl:sticky xl:top-20 xl:self-start">
+            <div class="space-y-4">
+              <div class="space-y-2">
+                <div class="flex items-center justify-between text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+                  <span>Progress</span>
+                  <span>{{ answeredIds.size }}/{{ benchmarkQuestions.length }}</span>
                 </div>
-
-                <div class="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
-                  <div class="space-y-5">
-                    <div class="text-sm font-semibold tracking-[0.18em] text-slate-500 uppercase">Task</div>
-                    <div class="prose prose-slate max-w-none" v-html="renderedTask" />
-
-                    <div
-                      v-if="currentQuestion.options"
-                      class="space-y-3 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5"
-                    >
-                      <div class="text-sm font-semibold text-slate-900">Options</div>
-                      <ol class="space-y-2 text-sm leading-7 text-slate-700">
-                        <li v-for="(value, key) in currentQuestion.options" :key="key">
-                          <strong>{{ key }}.</strong> {{ value }}
-                        </li>
-                      </ol>
-                    </div>
-                  </div>
-
-                  <div class="space-y-4">
-                    <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
-                      <div class="text-sm font-semibold text-slate-900">Expected Outputs</div>
-                      <div class="mt-4 flex flex-wrap gap-2">
-                        <template v-if="currentQuestion.expectedOutputs.length">
-                          <div
-                            v-for="item in currentQuestion.expectedOutputs"
-                            :key="`${currentQuestion.id}-${item.fileName}`"
-                            class="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
-                          >
-                            <span class="font-semibold text-slate-900">{{ item.fileName }}</span>
-                            <span class="ml-2">{{ item.mediaType }}</span>
-                          </div>
-                        </template>
-                        <div
-                          v-else
-                          class="rounded-full border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-500"
-                        >
-                          No structured expected outputs were recorded.
-                        </div>
-                      </div>
-                    </div>
-
-                    <div
-                      v-if="currentQuestion.reportRequirements.length"
-                      class="space-y-3 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5"
-                    >
-                      <div class="text-sm font-semibold text-slate-900">Report Requirements</div>
-                      <ul class="space-y-2 text-sm leading-7 text-slate-700">
-                        <li v-for="item in currentQuestion.reportRequirements" :key="item" class="flex gap-3">
-                          <span class="mt-2 h-2 w-2 rounded-full bg-slate-900" />
-                          <span>{{ item }}</span>
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
+                <div class="h-2 rounded-full bg-slate-200">
+                  <div class="h-full rounded-full bg-slate-950 transition-all" :style="{ width: `${progressPercent}%` }" />
                 </div>
               </div>
-            </AppCard>
 
-            <AppCard class="border-slate-200/80 bg-white/84">
-              <div class="space-y-6">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div class="space-y-2">
-                    <div class="text-sm font-semibold tracking-[0.18em] text-slate-500 uppercase">Compare</div>
-                    <p class="max-w-3xl text-base leading-8 text-slate-600">
-                      Reference and framework outputs share one tab strip, so switching baselines stays fast and the central review area keeps its full width.
-                    </p>
-                  </div>
-
-                  <div class="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
-                    {{ frameworkCandidates.length }} framework{{ frameworkCandidates.length === 1 ? '' : 's' }} + reference
-                  </div>
+              <div class="space-y-2">
+                <div class="flex items-center justify-between text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+                  <span>Questions</span>
+                  <span>{{ currentQuestionIndex + 1 }}/{{ benchmarkQuestions.length }}</span>
                 </div>
 
-                <div class="flex flex-wrap gap-3">
+                <div class="grid grid-cols-4 gap-2">
                   <button
-                    v-for="tab in compareTabs"
-                    :key="tab.key"
+                    v-for="(question, index) in benchmarkQuestions"
+                    :key="question.id"
                     type="button"
-                    class="rounded-[1.2rem] border px-4 py-3 text-left transition"
+                    class="rounded-xl px-0 py-2.5 text-sm font-semibold transition"
                     :class="
-                      activeCompareKey === tab.key
-                        ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
-                        : 'border border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white'
+                      question.id === currentQuestion.id
+                        ? 'bg-slate-950 text-white'
+                        : answeredIds.has(question.id)
+                          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                     "
-                    @click="setActiveCompareTab(tab.key)"
+                    @click="selectQuestion(index)"
                   >
-                    <div class="text-sm font-semibold">{{ tab.label }}</div>
-                    <div class="mt-1 text-xs opacity-75">
-                      {{
-                        tab.kind === 'reference'
-                          ? 'Reference answer'
-                          : `${tab.candidate.artifacts.length} artifact${tab.candidate.artifacts.length === 1 ? '' : 's'}`
-                      }}
-                    </div>
+                    {{ index + 1 }}
                   </button>
                 </div>
-
-                <template v-if="activeCompareTab">
-                  <div
-                    v-if="activeCompareTab.kind === 'framework' && activeFrameworkCandidate"
-                    class="rounded-[1.75rem] border border-slate-200 bg-slate-50/85 p-5 sm:p-6"
-                  >
-                    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div class="space-y-3">
-                        <div class="flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                          <span class="rounded-full bg-white px-3 py-1 font-semibold text-slate-900">
-                            {{ activeFrameworkCandidate.runLabel }}
-                          </span>
-                          <span class="rounded-full border border-slate-200 bg-white px-3 py-1">
-                            {{ activeFrameworkCandidate.backend ?? 'snapshot' }}
-                          </span>
-                          <span
-                            v-if="draftChoice === activeFrameworkCandidate.runId"
-                            class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700"
-                          >
-                            Selected
-                          </span>
-                        </div>
-
-                        <h2 class="text-3xl font-semibold tracking-[-0.05em] text-slate-950">
-                          {{ activeFrameworkCandidate.runLabel }}
-                        </h2>
-
-                        <p class="max-w-3xl text-base leading-8 text-slate-600">
-                          {{ activeFrameworkCandidate.summary ?? 'This framework output does not include a short summary yet.' }}
-                        </p>
-                      </div>
-
-                      <div class="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600">
-                        {{ activeFrameworkCandidate.artifacts.length }} artifact{{ activeFrameworkCandidate.artifacts.length === 1 ? '' : 's' }}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div
-                    v-else
-                    class="rounded-[1.75rem] border border-slate-200 bg-slate-50/85 p-5 sm:p-6"
-                  >
-                    <div class="space-y-3">
-                      <div class="flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                        <span class="rounded-full bg-white px-3 py-1 font-semibold text-slate-900">Reference</span>
-                        <span class="rounded-full border border-slate-200 bg-white px-3 py-1">
-                          {{ currentQuestion.reference.mode }}
-                        </span>
-                      </div>
-
-                      <h2 class="text-3xl font-semibold tracking-[-0.05em] text-slate-950">Reference Answer</h2>
-
-                      <p class="max-w-3xl text-base leading-8 text-slate-600">
-                        Use this tab to inspect the expected answer, manifest, or reference artifacts without leaving the same compare workflow.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div v-if="activeCompareTab.kind === 'framework' && activeFrameworkCandidate" class="space-y-6">
-                    <div class="rounded-[1.75rem] border border-slate-200 bg-white p-5 sm:p-6">
-                      <div class="text-sm font-semibold text-slate-900">Answer Summary</div>
-                      <div class="prose prose-slate mt-4 max-w-none" v-html="renderedActiveAnswer" />
-                    </div>
-
-                    <ArtifactViewer
-                      :artifacts="activeFrameworkCandidate.artifacts"
-                      :title="`${activeFrameworkCandidate.runLabel} Artifacts`"
-                    />
-                  </div>
-
-                  <div v-else class="space-y-6">
-                    <div v-if="currentQuestion.reference.note" class="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-5 py-4">
-                      <div class="text-sm font-semibold text-slate-900">Reference Note</div>
-                      <p class="mt-2 text-sm leading-7 text-slate-600">
-                        {{ currentQuestion.reference.note }}
-                      </p>
-                    </div>
-
-                    <div
-                      v-if="currentQuestion.reference.text"
-                      class="prose prose-slate max-w-none rounded-[1.5rem] border border-slate-200 bg-white px-6 py-5"
-                      v-html="renderedReferenceText"
-                    />
-
-                    <div
-                      v-if="currentQuestion.reference.requiredOutputs.length"
-                      class="space-y-3 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5"
-                    >
-                      <div class="text-sm font-semibold text-slate-900">Reference Deliverables</div>
-                      <ul class="space-y-2 text-sm leading-7 text-slate-700">
-                        <li
-                          v-for="item in currentQuestion.reference.requiredOutputs"
-                          :key="`${currentQuestion.id}-reference-${item.fileName}`"
-                          class="flex gap-3"
-                        >
-                          <span class="mt-2 h-2 w-2 rounded-full bg-slate-900" />
-                          <span>{{ item.fileName }} <span class="text-slate-500">({{ item.mediaType }})</span></span>
-                        </li>
-                      </ul>
-                    </div>
-
-                    <ArtifactViewer
-                      v-if="currentQuestion.reference.artifacts.length"
-                      :artifacts="currentQuestion.reference.artifacts"
-                      title="Reference Artifacts"
-                    />
-
-                    <div
-                      v-else-if="!currentQuestion.reference.text && !currentQuestion.reference.requiredOutputs.length"
-                      class="rounded-[1.5rem] border border-dashed border-slate-200 px-5 py-6 text-sm leading-7 text-slate-500"
-                    >
-                      No previewable reference artifact was recorded for this task.
-                    </div>
-                  </div>
-                </template>
               </div>
-            </AppCard>
-          </div>
+            </div>
+          </AppCard>
 
-          <div class="xl:sticky xl:top-24 xl:self-start">
-            <AppCard class="border-slate-200/80 bg-white/84">
-              <div class="space-y-5">
-                <div class="space-y-2">
-                  <div class="text-sm font-semibold tracking-[0.18em] text-slate-500 uppercase">Review Decision</div>
-                  <p class="text-sm leading-7 text-slate-600">
-                    Pick the best framework for this task, or mark that none of them should pass. The reference answer stays in the compare tabs and is not selectable here.
+          <AppCard class="!p-4 border-slate-200/80 bg-white/86">
+            <div class="space-y-4">
+              <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span class="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-900">
+                  {{ currentQuestion.datasetLabel }} · Q{{ currentQuestion.qid }}
+                </span>
+                <span v-if="currentQuestion.taskType">{{ currentQuestion.taskType }}</span>
+                <span v-if="currentQuestion.taskBrief">{{ currentQuestion.taskBrief }}</span>
+                <span v-if="currentQuestion.paperTitle">{{ currentQuestion.paperTitle }}</span>
+              </div>
+
+              <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_272px]">
+                <div class="prose prose-slate max-w-none" v-html="renderedTask" />
+
+                <div class="space-y-3">
+                  <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
+                    <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Expected Outputs</div>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                      <template v-if="currentQuestion.expectedOutputs.length">
+                        <div
+                          v-for="item in currentQuestion.expectedOutputs"
+                          :key="`${currentQuestion.id}-${item.fileName}`"
+                          class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-600"
+                        >
+                          <span class="font-semibold text-slate-900">{{ item.fileName }}</span>
+                          <span class="ml-1.5">{{ item.mediaType }}</span>
+                        </div>
+                      </template>
+                      <div
+                        v-else
+                        class="rounded-full border border-dashed border-slate-200 px-3 py-1.5 text-[11px] text-slate-500"
+                      >
+                        No structured expected outputs
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="currentQuestion.reportRequirements.length"
+                    class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Report Requirements</div>
+                    <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                      <li v-for="item in currentQuestion.reportRequirements" :key="item" class="flex gap-3">
+                        <span class="mt-2 h-1.5 w-1.5 rounded-full bg-slate-900" />
+                        <span>{{ item }}</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Compare</div>
+                <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                  {{ frameworkCandidates.length }} frameworks + reference
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="tab in compareTabs"
+                  :key="tab.key"
+                  type="button"
+                  class="rounded-full border px-3 py-2 text-sm font-semibold transition"
+                  :class="
+                    activeCompareKey === tab.key
+                      ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
+                      : 'border border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white'
+                  "
+                  @click="setActiveCompareTab(tab.key)"
+                >
+                  {{ tab.label }}
+                </button>
+              </div>
+
+              <template v-if="activeCompareTab">
+                <div
+                  v-if="activeCompareTab.kind === 'framework' && activeFrameworkCandidate"
+                  class="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4"
+                >
+                  <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span class="rounded-full bg-white px-3 py-1 font-semibold text-slate-900">
+                      {{ activeFrameworkCandidate.runLabel }}
+                    </span>
+                    <span class="rounded-full border border-slate-200 bg-white px-3 py-1">
+                      {{ activeFrameworkCandidate.backend ?? 'snapshot' }}
+                    </span>
+                    <span
+                      v-if="draftChoice === activeFrameworkCandidate.runId"
+                      class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700"
+                    >
+                      Selected
+                    </span>
+                  </div>
+                  <p class="mt-3 text-sm leading-7 text-slate-600">
+                    {{ activeFrameworkCandidate.summary ?? 'No summary recorded for this framework output.' }}
                   </p>
                 </div>
 
-                <div class="grid gap-3">
-                  <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-7 text-slate-600">
-                    Reviewer:
-                    <span class="font-semibold text-slate-900">{{ reviewerState.reviewerId }}</span>
+                <div
+                  v-else
+                  class="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4"
+                >
+                  <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span class="rounded-full bg-white px-3 py-1 font-semibold text-slate-900">Reference</span>
+                    <span class="rounded-full border border-slate-200 bg-white px-3 py-1">
+                      {{ currentQuestion.reference.mode }}
+                    </span>
                   </div>
-                  <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-7 text-slate-600">
-                    Current choice:
-                    <span class="font-semibold text-slate-900">{{ currentSelectionLabel }}</span>
-                  </div>
-                  <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-7 text-slate-600">
-                    Progress:
-                    <span class="font-semibold text-slate-900">{{ answeredIds.size }}/{{ benchmarkQuestions.length }}</span>
-                  </div>
+                  <p v-if="currentQuestion.reference.note" class="mt-3 text-sm leading-7 text-slate-600">
+                    {{ currentQuestion.reference.note }}
+                  </p>
                 </div>
 
-                <div class="space-y-2">
-                  <button
-                    v-for="item in frameworkCandidates"
-                    :key="item.candidate.runId"
-                    type="button"
-                    class="w-full rounded-[1.35rem] border px-4 py-3 text-left transition"
-                    :class="
-                      draftChoice === item.candidate.runId
-                        ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
-                        : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                    "
-                    @click="draftChoice = item.candidate.runId"
-                  >
-                    <div class="flex items-center justify-between gap-3">
-                      <span class="text-sm font-semibold">{{ item.candidate.runLabel }}</span>
-                      <span class="text-xs opacity-75">
-                        {{ item.candidate.artifacts.length }} artifact{{ item.candidate.artifacts.length === 1 ? '' : 's' }}
-                      </span>
-                    </div>
-                  </button>
+                <div v-if="activeCompareTab.kind === 'framework' && activeFrameworkCandidate" class="space-y-4">
+                  <div class="prose prose-slate max-w-none rounded-[1.4rem] border border-slate-200 bg-white px-5 py-4" v-html="renderedActiveAnswer" />
 
-                  <button
-                    type="button"
-                    class="w-full rounded-[1.35rem] border px-4 py-3 text-left text-sm font-semibold transition"
-                    :class="
-                      draftChoice === 'none'
-                        ? 'border-rose-600 bg-rose-600 text-white shadow-sm'
-                        : 'border border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300'
-                    "
-                    @click="draftChoice = 'none'"
-                  >
-                    None / 都不好
-                  </button>
+                  <ArtifactViewer
+                    :artifacts="activeFrameworkCandidate.artifacts"
+                    :title="`${activeFrameworkCandidate.runLabel} Artifacts`"
+                  />
                 </div>
 
-                <textarea
-                  v-model="draftNote"
-                  rows="8"
-                  placeholder="Optional reviewer note"
-                  class="w-full rounded-[1.35rem] border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-slate-900 outline-none transition focus:border-slate-950"
-                />
+                <div v-else class="space-y-4">
+                  <div
+                    v-if="currentQuestion.reference.text"
+                    class="prose prose-slate max-w-none rounded-[1.4rem] border border-slate-200 bg-white px-5 py-4"
+                    v-html="renderedReferenceText"
+                  />
 
-                <div class="grid gap-2">
-                  <AppButton :disabled="!draftChoice" @click="saveCurrentResponse">Save</AppButton>
-                  <AppButton
-                    variant="secondary"
-                    :disabled="!draftChoice"
-                    @click="saveCurrentResponse(); goToRelativeQuestion(1)"
+                  <div
+                    v-if="currentQuestion.reference.requiredOutputs.length"
+                    class="rounded-[1.4rem] border border-slate-200 bg-slate-50 p-4"
                   >
-                    Save & Next
-                  </AppButton>
-                </div>
+                    <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Reference Deliverables</div>
+                    <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                      <li
+                        v-for="item in currentQuestion.reference.requiredOutputs"
+                        :key="`${currentQuestion.id}-reference-${item.fileName}`"
+                        class="flex gap-3"
+                      >
+                        <span class="mt-2 h-1.5 w-1.5 rounded-full bg-slate-900" />
+                        <span>{{ item.fileName }} <span class="text-slate-500">({{ item.mediaType }})</span></span>
+                      </li>
+                    </ul>
+                  </div>
 
-                <div class="grid gap-2 sm:grid-cols-2">
-                  <AppButton variant="ghost" @click="goToRelativeQuestion(-1)">Previous</AppButton>
-                  <AppButton variant="ghost" @click="goToRelativeQuestion(1)">Next</AppButton>
+                  <ArtifactViewer
+                    v-if="currentQuestion.reference.artifacts.length"
+                    :artifacts="currentQuestion.reference.artifacts"
+                    title="Reference Artifacts"
+                  />
+                </div>
+              </template>
+            </div>
+          </AppCard>
+
+          <AppCard class="!p-4 border-slate-200/80 bg-white/86 xl:sticky xl:top-20 xl:self-start">
+            <div class="space-y-4">
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Decision</div>
+                <div class="text-xs font-semibold text-slate-900">{{ currentSelectionLabel }}</div>
+              </div>
+
+              <div class="grid gap-2">
+                <div class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-600">
+                  Reviewer <span class="font-semibold text-slate-900">{{ reviewerState.reviewerId }}</span>
+                </div>
+                <div class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-600">
+                  Progress <span class="font-semibold text-slate-900">{{ answeredIds.size }}/{{ benchmarkQuestions.length }}</span>
                 </div>
               </div>
-            </AppCard>
-          </div>
+
+              <div class="space-y-2">
+                <button
+                  v-for="item in frameworkCandidates"
+                  :key="item.candidate.runId"
+                  type="button"
+                  class="w-full rounded-[1rem] border px-3 py-2.5 text-left transition"
+                  :class="
+                    draftChoice === item.candidate.runId
+                      ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
+                      : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                  "
+                  @click="draftChoice = item.candidate.runId"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-semibold">{{ item.candidate.runLabel }}</span>
+                    <span class="text-[11px] opacity-75">{{ item.candidate.artifacts.length }} files</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  class="w-full rounded-[1rem] border px-3 py-2.5 text-left text-sm font-semibold transition"
+                  :class="
+                    draftChoice === 'none'
+                      ? 'border-rose-600 bg-rose-600 text-white shadow-sm'
+                      : 'border border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300'
+                  "
+                  @click="draftChoice = 'none'"
+                >
+                  None / 都不好
+                </button>
+              </div>
+
+              <textarea
+                v-model="draftNote"
+                rows="6"
+                placeholder="Optional note"
+                class="w-full rounded-[1rem] border border-slate-200 bg-white px-3 py-3 text-sm leading-7 text-slate-900 outline-none transition focus:border-slate-950"
+              />
+
+              <div class="grid gap-2">
+                <AppButton :disabled="!draftChoice" @click="saveCurrentResponse">Save</AppButton>
+                <AppButton
+                  variant="secondary"
+                  :disabled="!draftChoice"
+                  @click="saveCurrentResponse(); goToRelativeQuestion(1)"
+                >
+                  Save + Next
+                </AppButton>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <AppButton variant="ghost" @click="goToRelativeQuestion(-1)">Previous</AppButton>
+                <AppButton variant="ghost" @click="goToRelativeQuestion(1)">Next</AppButton>
+              </div>
+            </div>
+          </AppCard>
         </div>
       </template>
     </div>
