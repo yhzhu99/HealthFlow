@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { toBasePath } from '../../lib/assets'
 
 const props = withDefaults(
   defineProps<{
@@ -23,6 +24,8 @@ const isActive = (path: string) => route.path === path
 const contentWidthClass = computed(() =>
   props.contentWidth === 'wide' ? 'max-w-[1920px]' : 'max-w-7xl',
 )
+
+const brandIconUrl = toBasePath('branding/healthflow-icon.svg')
 </script>
 
 <template>
@@ -38,7 +41,7 @@ const contentWidthClass = computed(() =>
         :class="contentWidthClass"
       >
         <RouterLink to="/" class="flex items-center gap-3 text-sm font-semibold tracking-[0.18em] text-slate-900">
-          <img src="/branding/healthflow-icon.svg" alt="" class="h-9 w-9 rounded-full bg-slate-950/5 p-1.5" />
+          <img :src="brandIconUrl" alt="" class="h-9 w-9 rounded-full bg-slate-950/5 p-1.5" />
           <span>HealthFlow</span>
         </RouterLink>
 

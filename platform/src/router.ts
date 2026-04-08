@@ -4,7 +4,7 @@ import EvaluationView from './views/EvaluationView.vue'
 import OverviewView from './views/OverviewView.vue'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', name: 'home', component: OverviewView },
     { path: '/evaluation', name: 'evaluation', component: EvaluationView },
