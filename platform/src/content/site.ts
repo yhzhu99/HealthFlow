@@ -1,41 +1,55 @@
 export const projectMeta = {
   name: 'HealthFlow',
-  title: 'HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research',
-  eyebrow: 'Paper + Platform',
-  abstract: [
-    'HealthFlow is a research framework for self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop.',
-    'The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task runtime artifacts, and long-term reflective memory.',
-    'Dataset preparation and benchmark evaluation workflows can still live in the repository under data/, but they are intentionally decoupled from the healthflow/ runtime package.',
-  ],
+  eyebrow: 'HealthFlow',
+  title: 'HealthFlow: Automating electronic health record analysis via a strategically self-evolving multi-agent framework',
+  abstract:
+    'Electronic health records (EHRs) are a rich source of real-world clinical data, but turning them into valid analyses remains slow, brittle, and expert-intensive. Although recent AI agents can answer medical questions and use tools, automating full EHR workflows remains difficult because small planning or execution errors can invalidate otherwise plausible analyses. Here we present HealthFlow, a multi-agent framework that converts prior EHR analyses into structured, governed experience for planning under dataset-specific and methodological constraints. We also introduce EHRFlowBench, a benchmark of realistic EHR analysis tasks derived from 51,280 peer-reviewed papers. Across EHRFlowBench and four established benchmarks (MedAgentBoard, MedAgentsBench, HLE, and CureBench), HealthFlow consistently outperforms strong baselines in generating valid clinical artifacts and completing complex EHR analysis pipelines. These results show that governed reuse of prior analytical experience improves robustness in health data science and provides a scalable path to automating open-ended EHR analysis.',
   authors: [
-    'Yinghao Zhu',
-    'Yifan Qi',
-    'Zixiang Wang',
-    'Lei Gu',
-    'Dehao Sui',
-    'Haoran Hu',
-    'Xichen Zhang',
-    'Ziyi He',
-    'Junjun He',
-    'Liantao Ma',
-    'Lequan Yu',
+    { name: 'Yinghao Zhu', marks: ['1', '2', '*'] },
+    { name: 'Zixiang Wang', marks: ['1', '*'] },
+    { name: 'Yifan Qi', marks: ['1', '*'] },
+    { name: 'Lei Gu', marks: ['1'] },
+    { name: 'Dehao Sui', marks: ['1'] },
+    { name: 'Haoran Hu', marks: ['1'] },
+    { name: 'Xichen Zhang', marks: ['3'] },
+    { name: 'Ziyi He', marks: ['2'] },
+    { name: 'Yasha Wang', marks: ['1'] },
+    { name: 'Junjun He', marks: ['4'] },
+    { name: 'Liantao Ma', marks: ['1', '†'] },
+    { name: 'Lequan Yu', marks: ['2', '†'] },
   ],
-  affiliations: ['Peking University', 'Zhejiang University', 'Tongji Medical College', 'Zhongnan Hospital of Wuhan University'],
-  links: [
+  affiliations: [
     {
-      label: 'Paper',
-      href: 'https://arxiv.org/abs/2508.02621',
-      kind: 'primary' as const,
+      mark: '1',
+      text: 'National Engineering Research Center for Software Engineering, Peking University, Beijing, China, 100871',
     },
+    {
+      mark: '2',
+      text: 'School of Computing and Data Science, The University of Hong Kong, Hong Kong SAR, China, 999077',
+    },
+    {
+      mark: '3',
+      text: 'Department of Computer Science and Engineering, The Hong Kong University of Science and Technology, Hong Kong SAR, China, 999077',
+    },
+    {
+      mark: '4',
+      text: 'Shanghai Artificial Intelligence Laboratory, Shanghai, China, 200232',
+    },
+  ],
+  notes: [
+    { mark: '*', text: 'These authors contributed equally to this work' },
+    { mark: '†', text: 'Correspondence to malt@pku.edu.cn, lqyu@hku.hk' },
+  ],
+  links: [
     {
       label: 'Code',
       href: 'https://github.com/yhzhu99/HealthFlow',
-      kind: 'secondary' as const,
+      kind: 'primary' as const,
     },
     {
       label: 'Evaluation',
       href: '/evaluation',
-      kind: 'ghost' as const,
+      kind: 'secondary' as const,
     },
     {
       label: 'Citation',
@@ -43,108 +57,84 @@ export const projectMeta = {
       kind: 'ghost' as const,
     },
   ],
-  facts: [
-    { label: 'Paper', value: 'arXiv 2508.02621' },
+  details: [
     { label: 'Runtime', value: 'Meta -> Executor -> Evaluator -> Reflector' },
-    { label: 'Benchmarks', value: '5 benchmark suites' },
-    { label: 'Demo Surface', value: 'MedAgentBoard + EHRFlowBench' },
+    { label: 'Benchmarks', value: 'EHRFlowBench, MedAgentBoard, MedAgentsBench, HLE, CureBench' },
+    { label: 'Main Baselines', value: 'Alita, Biomni, STELLA, BioDSA, BioMedAgent' },
   ],
 }
 
 export const frameworkStages = [
   {
-    title: 'Meta',
+    title: 'Meta agent',
     description:
-      'Retrieves safeguards, workflows, and dataset anchors, then emits a structured execution plan aligned with the current healthcare task family.',
+      'Profiles the task, retrieves bounded EHR-aware experience, and writes an attempt-specific plan under dataset, schema, and risk constraints.',
   },
   {
-    title: 'Executor',
+    title: 'Executor agent',
     description:
-      'Carries out the plan inside an inspectable workspace, preserving commands, outputs, intermediate files, and final deliverables for later review.',
+      'Carries out code and tool actions through an external coding-agent backend in a sandboxed workspace with inspectable artifacts.',
   },
   {
-    title: 'Evaluator',
+    title: 'Evaluator agent',
     description:
-      'Scores the latest attempt, classifies success or repair states, and provides concrete retry instructions instead of a single opaque scalar.',
+      'Judges both execution traces and generated artifacts so the system can recover from hidden methodological flaws, not only runtime crashes.',
   },
   {
-    title: 'Reflector',
+    title: 'Reflector agent',
     description:
-      'Synthesizes reusable safeguards, workflows, dataset anchors, and code snippets from the full trajectory after the task session ends.',
+      'Synthesizes safeguards, workflows, dataset anchors, and code snippets from the full trajectory so later tasks can reuse governed experience.',
   },
 ]
 
-export const benchmarkSuites = [
-  {
-    title: 'MedAgentBoard',
-    category: 'Artifact-centric workflow benchmark',
-    body: 'Deterministic healthcare workflows with visible figures, tables, and structured artifacts.',
-  },
-  {
+export const benchmarkOverview = {
+  intro:
+    'HealthFlow is evaluated across five benchmarks spanning open-ended EHR workflow orchestration, executable artifact generation, deterministic medical reasoning, and tool-augmented biomedical decision-making.',
+  benchmarkNames: ['EHRFlowBench', 'MedAgentBoard', 'MedAgentsBench', 'HLE', 'CureBench'],
+  baselineNames: ['Alita', 'Biomni', 'STELLA', 'BioDSA', 'BioMedAgent'],
+  ehrflowbench: {
     title: 'EHRFlowBench',
-    category: 'Report-generation benchmark',
-    body: 'Paper-inspired EHR studies rebuilt into local report-generation tasks for TJH and MIMIC-IV-demo.',
-  },
-  {
-    title: 'MedAgentsBench',
-    category: 'Multi-choice benchmark',
-    body: '110 sampled questions spanning 10 medical QA sub-datasets.',
-  },
-  {
-    title: 'HLE',
-    category: 'Multi-choice benchmark',
-    body: '110 Biology/Medicine multiple-choice questions rebuilt from the HLE test set.',
-  },
-  {
-    title: 'CureBench',
-    category: 'Multi-choice benchmark',
-    body: '110 sampled multiple-choice questions filtered from the CureBench validation pool.',
-  },
-]
-
-export const featuredBenchmarks = [
-  {
-    title: 'MedAgentBoard',
-    eyebrow: 'Artifact-heavy review surface',
-    body: 'MedAgentBoard focuses on outputs that need to be inspected directly: figures, tables, markdown summaries, and structured files. The platform keeps those artifacts visible so reviewers can judge the work itself instead of relying on a short final sentence.',
-    bullets: [
-      'Visualization, extraction, and structured-output tasks stay attached to their artifacts.',
-      'Reviewers can inspect image and CSV evidence without leaving the page.',
-      'Framework tabs make side-by-side baseline comparison a one-click action.',
+    subtitle: 'Open-ended EHR analysis benchmark derived from peer-reviewed literature',
+    body:
+      'EHRFlowBench is the core benchmark for full-cycle EHR analysis. It evaluates whether an agent can move from clinical objective to cohort construction, feature engineering, modeling, visualization, and report writing under realistic dataset constraints.',
+    pipeline: [
+      'Start from 51,280 papers published between 2020 and 2025 across major AI and data mining venues.',
+      'Filter to 162 EHR-relevant candidates, then manually retain 118 seed papers for task extraction.',
+      'Generate 236 dataset-grounded candidate tasks, paired across TJH and the MIMIC-IV Public Demo Release.',
+      'Build the final 100-task benchmark as 50 TJH tasks and 50 MIMIC-IV tasks.',
     ],
   },
-  {
-    title: 'EHRFlowBench',
-    eyebrow: 'Paper-derived local rebuild',
-    body: 'EHRFlowBench turns paper-inspired EHR projects into repository-local report_generation tasks. The platform needs to explain both the benchmark intent and the rebuild process clearly, because the reference surface is a manifest-style local proxy rather than a copied paper leaderboard.',
-    bullets: [
-      'Generate intermediate task bundles from paper-derived prompts.',
-      'Infer dataset requirements, then sample a balanced 55 TJH + 55 MIMIC-IV-demo subset with seed 42.',
-      'Split the subset into 10 train tasks and 100 test tasks.',
-      'Write processed JSONL files plus manifest-only reference answers for expected deliverables.',
+  medagentboard: {
+    title: 'MedAgentBoard',
+    subtitle: 'Workflow-grounded executable benchmark for clinical artifacts',
+    body:
+      'MedAgentBoard complements EHRFlowBench with a more deterministic executable task surface spanning data extraction, predictive modeling, and visualization. It is where artifact quality, chart validity, and structured outputs can be inspected directly.',
+    highlights: [
+      'Balanced over TJH and the MIMIC-IV Public Demo Release.',
+      'Covers data processing, predictive modeling, and visualization tasks.',
+      'Supports artifact-first review through images, tables, CSV files, markdown, and reports.',
     ],
   },
-]
-
-export const citationLinks = [
-  {
-    label: 'Paper',
-    href: 'https://arxiv.org/abs/2508.02621',
-    body: 'Open the latest public manuscript on arXiv.',
-  },
-  {
-    label: 'Code',
-    href: 'https://github.com/yhzhu99/HealthFlow',
-    body: 'Inspect the runtime, benchmark workflows, and this platform in one repository.',
-  },
-]
+  additionalBenchmarks: [
+    {
+      title: 'MedAgentsBench',
+      body: 'Deterministic hard-set multiple-choice benchmark for medical knowledge and reasoning.',
+    },
+    {
+      title: 'HLE',
+      body: 'Selected Biology and Medicine questions from Humanity’s Last Exam.',
+    },
+    {
+      title: 'CureBench',
+      body: 'Selected benchmark questions for biomedical tool-augmented decision-making and reasoning.',
+    },
+  ],
+}
 
 export const citation = `@misc{zhu2025healthflow,
-  title={HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research},
-  author={Yinghao Zhu and Yifan Qi and Zixiang Wang and Lei Gu and Dehao Sui and Haoran Hu and Xichen Zhang and Ziyi He and Junjun He and Liantao Ma and Lequan Yu},
+  title={HealthFlow: Automating electronic health record analysis via a strategically self-evolving multi-agent framework},
+  author={Yinghao Zhu and Zixiang Wang and Yifan Qi and Lei Gu and Dehao Sui and Haoran Hu and Xichen Zhang and Ziyi He and Yasha Wang and Junjun He and Liantao Ma and Lequan Yu},
   year={2025},
-  eprint={2508.02621},
-  archivePrefix={arXiv},
-  primaryClass={cs.AI},
-  url={https://arxiv.org/abs/2508.02621},
+  note={Manuscript},
+  url={https://github.com/yhzhu99/HealthFlow},
 }`

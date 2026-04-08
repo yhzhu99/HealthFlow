@@ -21,7 +21,7 @@ const navItems = computed(() => [
 const isActive = (path: string) => route.path === path
 
 const contentWidthClass = computed(() =>
-  props.contentWidth === 'wide' ? 'max-w-[1740px]' : 'max-w-7xl',
+  props.contentWidth === 'wide' ? 'max-w-[1920px]' : 'max-w-7xl',
 )
 </script>
 
@@ -32,7 +32,7 @@ const contentWidthClass = computed(() =>
       <div class="absolute bottom-[-14rem] right-[-6rem] h-[28rem] w-[28rem] rounded-full bg-[radial-gradient(circle,rgba(43,181,160,0.16),transparent_62%)] blur-3xl" />
     </div>
 
-    <header class="sticky top-0 z-50 px-4 py-4 sm:px-6">
+    <header class="sticky top-0 z-50 px-3 py-3 sm:px-4">
       <div
         class="mx-auto flex w-full items-center justify-between gap-4 rounded-full border border-white/70 bg-white/78 px-4 py-3 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:px-5"
         :class="contentWidthClass"
@@ -57,7 +57,7 @@ const contentWidthClass = computed(() =>
     </header>
 
     <main class="relative">
-      <div class="mx-auto w-full px-4 pb-16 sm:px-6 sm:pb-24" :class="contentWidthClass">
+      <div class="mx-auto w-full px-3 pb-14 sm:px-4 sm:pb-20 xl:px-5" :class="contentWidthClass">
         <slot />
       </div>
     </main>
