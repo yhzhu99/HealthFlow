@@ -13,7 +13,11 @@ HealthFlow is a research framework for **self-evolving task execution with a fou
 
 HealthFlow compares external coding agents through a shared executor abstraction. The maintained built-in backends are `claude_code`, `codex`, `opencode`, and `pi`, with `opencode` as the default.
 
-The current release surface is intentionally **backend and CLI only**. A frontend is not shipped in this repo at this stage.
+HealthFlow currently ships three user-facing interfaces:
+
+- non-interactive CLI: `healthflow run ...`
+- interactive CLI: `healthflow interactive`
+- web UI: `healthflow web`
 
 ## Core Runtime
 
@@ -322,7 +326,23 @@ uv run oneehr plot --help
 uv run oneehr convert --help
 ```
 
-### Single Task
+### Three Modes
+
+You can use either invocation style throughout this README:
+
+- packaged CLI: `uv run healthflow ...`
+- direct script: `python run_healthflow.py ...`
+
+#### Non-Interactive CLI
+
+Use this mode for one-shot runs, scripts, and CI. Each invocation creates a fresh task workspace.
+
+```bash
+uv run healthflow run \
+  "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
+  --active-executor opencode \
+  --report
+```
 
 ```bash
 python run_healthflow.py run \
@@ -337,7 +357,14 @@ When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/runtime
 To override the configured runtime models from the CLI, pass any subset of:
 `--planner-llm`, `--evaluator-llm`, `--reflector-llm`, `--executor-llm`.
 
-### Interactive Mode
+#### Interactive CLI
+
+Use this mode when you want a terminal chat workflow. Follow-up prompts stay on the same task until you use `/new`.
+
+```bash
+uv run healthflow interactive \
+  --active-executor opencode
+```
 
 ```bash
 python run_healthflow.py interactive \
@@ -354,6 +381,30 @@ Interactive mode now supports a command-aware shell:
 - Type `/` in column 1 to open slash-command suggestions
 - `Tab`: complete slash commands
 - `ESC ESC`: cancel the current run without leaving the shell
+
+#### Web UI
+
+Use this mode when you want a browser-based task session with uploads, trace streaming, and artifact download links. Follow-up messages stay on the same task until you click `New Task`, and refreshing the page restores that task session.
+
+If you have not installed the web dependency yet, run:
+
+```bash
+uv sync --extra web
+```
+
+```bash
+uv run healthflow web
+```
+
+```bash
+python run_healthflow.py web
+```
+
+Optional flags:
+
+- `--server-name` to change the bind address
+- `--server-port` to change the port
+- `--share` to request a temporary Gradio share link
 
 ### Training
 
@@ -401,7 +452,7 @@ By default, `[system].workspace_dir` points to `workspace/tasks`, relative `[log
 
 ## Repository Layout
 
-- `run_healthflow.py`: single-task and interactive CLI
+- `run_healthflow.py`: non-interactive CLI, interactive CLI, and web UI entrypoint
 - `run_training.py`: dataset-style batch runner over task JSONL files
 - `run_benchmark.py`: batch task runner over task JSONL files
 - `healthflow/system.py`: orchestration loop
