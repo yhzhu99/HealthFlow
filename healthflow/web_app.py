@@ -1427,14 +1427,14 @@ aside > div {
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
     margin-left: auto;
-    width: auto !important;
-    max-width: min(56%, 34rem) !important;
+    width: min(76%, 52rem) !important;
+    max-width: min(76%, 52rem) !important;
 }
 
 .hf-chatbot :is(.user .panel-full-width, .panel-full-width.user) {
     display: block !important;
-    width: auto !important;
-    max-width: min(56%, 34rem) !important;
+    width: 100% !important;
+    max-width: none !important;
     margin-left: auto !important;
     padding: 0.72rem 0.82rem !important;
     box-sizing: border-box !important;
@@ -1447,8 +1447,8 @@ aside > div {
 
 .hf-chatbot .bubble-wrap:has(:is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user)) {
     flex: 0 0 auto !important;
-    width: auto !important;
-    max-width: min(56%, 34rem) !important;
+    width: min(76%, 52rem) !important;
+    max-width: min(76%, 52rem) !important;
     margin-left: auto !important;
 }
 
@@ -1639,7 +1639,7 @@ aside > div {
 
 .hf-process-card-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.85fr) minmax(0, 1.2fr) minmax(0, 1.2fr);
+    grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.15fr) minmax(0, 1.25fr);
     gap: 0.62rem;
     margin-top: 0.72rem;
 }
@@ -1686,7 +1686,7 @@ aside > div {
 .hf-inline-gallery .gallery-container,
 .hf-inline-gallery > .wrap {
     width: 100%;
-    max-width: 68rem;
+    max-width: 84rem;
     margin: 0 auto;
 }
 
@@ -1700,12 +1700,12 @@ aside > div {
 }
 
 .hf-inline-gallery .grid-container {
-    width: auto !important;
+    width: 100% !important;
     max-width: 100%;
     margin: 0 auto !important;
     justify-content: center;
-    gap: 0.95rem !important;
-    grid-template-columns: repeat(auto-fit, minmax(min(17rem, 100%), 18.5rem)) !important;
+    gap: 0.72rem !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 }
 
 .hf-inline-gallery .gallery-item,
@@ -1720,7 +1720,8 @@ aside > div {
 
 .hf-inline-gallery .thumbnail-item,
 .hf-inline-gallery .thumbnail-item.thumbnail-lg {
-    padding: 0.52rem !important;
+    padding: 0.42rem !important;
+    min-height: 18.5rem;
 }
 
 .hf-inline-gallery .caption-label {
@@ -1736,6 +1737,9 @@ aside > div {
 .hf-inline-gallery img {
     display: block;
     margin: 0 auto;
+    width: 100%;
+    min-height: 16.75rem;
+    object-fit: contain !important;
     border-radius: var(--hf-radius-control) !important;
     border: 1px solid rgba(15, 23, 42, 0.06);
     background: rgba(255, 255, 255, 0.96);
@@ -2817,31 +2821,44 @@ def _resolved_inline_image_paths(
     return resolved_paths
 
 
-def _artifact_snapshot_summary(
-    artifact_paths: Sequence[str],
+def _reflection_snapshot_summary(
+    overview: dict[str, Any],
     *,
     task_root: Path | None,
 ) -> str:
-    resolved_paths = [str(item).strip() for item in artifact_paths if str(item).strip()]
-    image_count = 0
-    report_ready = False
-    if task_root is not None:
-        sandbox_root = task_root / "sandbox"
-        for artifact_path in resolved_paths:
-            path = sandbox_root / artifact_path
-            if path.exists() and path.is_file() and artifact_preview_kind(path) == "image":
-                image_count += 1
-            name = path.name.lower()
-            if name in {"report.md", "final_report.md"}:
-                report_ready = True
-    if task_root is not None and (task_root / "runtime" / "report.md").exists():
-        report_ready = True
-    parts = [
-        f"{image_count} figure{'s' if image_count != 1 else ''} inline" if image_count else "No figures inline yet",
-        f"{len(resolved_paths)} artifact{'s' if len(resolved_paths) != 1 else ''} in workspace",
-        "report ready" if report_ready else "report pending",
-    ]
-    return " · ".join(parts)
+    reflection_state = _run_stage_badge(
+        str((overview.get("stage_status") or {}).get("reflection") or "pending")
+    )
+    if reflection_state == "done":
+        trajectory_path = task_root / "runtime" / "run" / "trajectory.json" if task_root is not None else None
+        if trajectory_path is not None and trajectory_path.exists():
+            try:
+                trajectory = json.loads(trajectory_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                trajectory = {}
+            memory_updates = len(list(trajectory.get("memory_updates") or []))
+            new_experiences = len(list(trajectory.get("new_experiences") or []))
+            if memory_updates or new_experiences:
+                parts = []
+                if new_experiences:
+                    parts.append(
+                        f"{new_experiences} reusable learning{'s' if new_experiences != 1 else ''} archived"
+                    )
+                if memory_updates:
+                    parts.append(
+                        f"{memory_updates} memory update{'s' if memory_updates != 1 else ''} applied"
+                    )
+                return " · ".join(parts)
+        return "Reusable learnings archived for future runs."
+    if reflection_state == "active":
+        return "Reflect is distilling reusable learnings from this run."
+    if reflection_state == "failed":
+        return "Reflect did not finish; the run remains available for review."
+    if reflection_state == "cancelled":
+        return "Reflect was cancelled before archival completed."
+    if reflection_state == "skipped":
+        return "Reflect was skipped after final answer delivery."
+    return "Reflect details will appear after evaluation."
 
 
 def _process_snapshot_headline(
@@ -2863,7 +2880,7 @@ def _process_snapshot_headline(
         return "Previous run restored"
     if event is not None:
         if event.kind == "artifact_delta":
-            return "Artifacts rendered into the workspace"
+            return "Figures rendered into the workspace"
         if event.kind == "stage_started":
             return f"{_RUN_STAGE_LABELS.get(str(event.stage or '').strip().lower(), 'Run')} is active"
         if event.kind == "stage_finished":
@@ -2917,7 +2934,12 @@ def _process_snapshot_markup(
     mode = html.escape(str(overview.get("mode") or "idle"))
     current_stage = str(overview.get("current_stage") or "").strip().lower()
     current_stage_label = html.escape(_RUN_STAGE_LABELS.get(current_stage, "Ready"))
-    artifact_copy = html.escape(_artifact_snapshot_summary(artifact_paths, task_root=task_root))
+    reflection_copy = html.escape(_reflection_snapshot_summary(overview, task_root=task_root))
+    reflection_note = (
+        f'<p class="hf-process-card-copy">{latest_message}</p>'
+        if latest_message and latest_message != reflection_copy
+        else ""
+    )
     return (
         '<section class="hf-process-card">'
         '<div class="hf-process-card-head">'
@@ -2941,9 +2963,9 @@ def _process_snapshot_markup(
         f'<ul class="hf-process-card-list">{steps_html}</ul>'
         "</div>"
         '<div class="hf-process-card-block">'
-        '<div class="hf-process-card-label">Artifacts</div>'
-        f'<p class="hf-process-card-copy">{artifact_copy}</p>'
-        f'<p class="hf-process-card-copy">{latest_message}</p>'
+        '<div class="hf-process-card-label">Reflect</div>'
+        f'<p class="hf-process-card-copy">{reflection_copy}</p>'
+        f'{reflection_note}'
         "</div>"
         "</div>"
         "</section>"
@@ -3015,7 +3037,7 @@ def _inline_image_gallery_message(
         "role": "assistant",
         "content": gr.Gallery(
             value=gallery_values,
-            columns=min(len(gallery_values), 3),
+            columns=3 if len(gallery_values) >= 3 else len(gallery_values),
             container=False,
             elem_classes=["hf-inline-gallery"],
             show_label=False,
@@ -4195,7 +4217,7 @@ def launch_web_app(
 
         with gr.Column(elem_classes=["hf-content-shell"]):
             with gr.Row(elem_classes=["hf-main"]):
-                with gr.Column(scale=8, min_width=640, elem_classes=["hf-chat-shell"]):
+                with gr.Column(scale=9, min_width=700, elem_classes=["hf-chat-shell"]):
                     task_header = gr.Markdown(elem_classes=["hf-task-header"], container=False)
                     run_overview = gr.HTML(
                         value=_run_overview_html(_empty_run_overview()),
@@ -4234,7 +4256,7 @@ def launch_web_app(
                             elem_id="hf-prompt-input",
                             elem_classes=["hf-composer"],
                         )
-                with gr.Column(scale=5, min_width=460, elem_classes=["hf-workspace-shell"]):
+                with gr.Column(scale=4, min_width=420, elem_classes=["hf-workspace-shell"]):
                     with gr.Column(elem_classes=["hf-detail-shell"]):
                         with gr.Row(elem_classes=["hf-detail-nav"]):
                             workspace_panel_button = gr.Button(

@@ -467,7 +467,7 @@ def showcase_message_lines() -> list[str]:
         "**Recommended steps**\n\n"
         + "\n".join(f"{index}. {item}" for index, item in enumerate(SHOWCASE_RECOMMENDED_STEPS, start=1)),
         "**Stage progress**\n\n- Memory retrieval completed.\n- Planner locked the clinical objective.\n- Executor generated figures, tables, and the report.\n- Evaluator cleared the packet for clinical review.",
-        "**Artifacts surfaced**\n\n- `figures/roc_curve.png`\n- `figures/calibration.png`\n- `figures/risk_distribution.png`\n- `tables/predictions.csv`\n- `reports/final_report.md`",
+        "**Workspace outputs**\n\n- `figures/roc_curve.png`\n- `figures/calibration.png`\n- `figures/risk_distribution.png`\n- `tables/predictions.csv`\n- `reports/final_report.md`",
     ]
 
 
