@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import queue
 import threading
@@ -22,26 +23,47 @@ _EMPTY_PREVIEW_TEXT = "Select a file to preview it."
 _BRANDING_DIR = Path(__file__).resolve().parent.parent / "assets" / "branding"
 _WEB_APP_CSS = """
 :root {
-    --hf-border: rgba(15, 23, 42, 0.09);
+    --hf-border: rgba(15, 23, 42, 0.08);
     --hf-border-strong: rgba(11, 132, 219, 0.18);
     --hf-surface: rgba(255, 255, 255, 0.9);
-    --hf-surface-strong: rgba(255, 255, 255, 0.96);
-    --hf-shadow-soft: 0 18px 42px rgba(15, 23, 42, 0.08);
-    --hf-shadow-hero: 0 24px 54px rgba(11, 132, 219, 0.08);
+    --hf-surface-strong: rgba(255, 255, 255, 0.97);
+    --hf-surface-muted: rgba(247, 250, 252, 0.94);
+    --hf-text: #0f172a;
+    --hf-text-muted: #526171;
+    --hf-accent: #0b84db;
+    --hf-accent-strong: #0f6bdc;
+    --hf-shadow-shell: 0 18px 48px rgba(15, 23, 42, 0.08);
+    --hf-shadow-soft: 0 10px 26px rgba(15, 23, 42, 0.06);
 }
 
 html,
 body {
+    margin: 0;
+    min-height: 100%;
+    height: 100%;
+    overflow: hidden;
     background:
         radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 28%),
-        linear-gradient(180deg, #f7fbff 0%, #f3f7fb 45%, #f7fafc 100%);
+        linear-gradient(180deg, #f6fbff 0%, #f2f7fb 45%, #f7fafc 100%);
+}
+
+body {
+    color: var(--hf-text);
+}
+
+.gradio-container,
+.gradio-container > main.app,
+.gradio-container > main.app > .wrap.sidebar-parent {
+    width: 100%;
+    height: 100%;
+    max-width: none !important;
 }
 
 .gradio-container {
-    max-width: 100% !important;
-    padding: 0.45rem 0.75rem 0.9rem !important;
+    padding: 0.7rem !important;
     border: none !important;
     box-shadow: none !important;
+    background: transparent !important;
 }
 
 .gradio-container > main.app {
@@ -51,135 +73,132 @@ body {
 }
 
 .gradio-container > main.app > .wrap.sidebar-parent {
+    gap: 0.85rem;
     border: none !important;
     box-shadow: none !important;
+    background: transparent !important;
+    overflow: hidden;
+}
+
+.gradio-container * {
+    box-sizing: border-box;
+}
+
+main.app::before,
+main.app::after,
+.wrap.sidebar-parent::before,
+.wrap.sidebar-parent::after {
+    display: none !important;
 }
 
 aside {
+    height: 100%;
+    border: 1px solid var(--hf-border);
     border-right: 1px solid var(--hf-border);
+    border-radius: 30px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 248, 252, 0.98) 100%);
-    backdrop-filter: blur(18px);
+    box-shadow: var(--hf-shadow-shell);
+    backdrop-filter: blur(20px);
+    overflow: hidden;
+}
+
+aside > div {
+    min-height: 0;
+}
+
+.hf-sidebar-brand {
+    margin: 0 0 0.8rem;
+    padding: 0.2rem 0 0.7rem;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.hf-sidebar-brand svg {
+    display: block;
+    width: min(100%, 188px);
+    height: auto;
+}
+
+.hf-sidebar-brand__fallback {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: -0.045em;
+    color: #102033;
 }
 
 .hf-main {
     min-height: 0;
-    height: calc(100vh - 14.5rem);
-    gap: 0.9rem;
+    height: 100%;
+    gap: 0.85rem;
     align-items: stretch;
     flex-wrap: nowrap !important;
+    overflow: hidden;
 }
 
-.hf-chat-shell,
-.hf-workspace-shell {
-    gap: 0.85rem;
+.hf-content-shell {
     min-height: 0;
-    height: 100%;
+    height: calc(100vh - 2rem);
 }
 
 .hf-chat-shell {
-    position: relative;
-}
-
-.hf-hero {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1.5rem;
-    margin: 0 0 0.95rem;
-    padding: 1.15rem 1.35rem;
-    border: 1px solid rgba(28, 168, 255, 0.14);
-    border-radius: 28px;
-    background: linear-gradient(135deg, #f4fbff 0%, #ecf8ff 54%, #ffffff 100%);
-    box-shadow: var(--hf-shadow-hero);
-}
-
-.hf-hero__brand {
-    flex: 0 0 auto;
-}
-
-.hf-hero__brand svg {
-    display: block;
-    width: min(100%, 320px);
-    height: auto;
-}
-
-.hf-hero__fallback {
-    margin: 0;
-    font-size: 2rem;
-    font-weight: 700;
-    letter-spacing: -0.04em;
-    color: #102033;
-}
-
-.hf-hero__copy {
-    max-width: 38rem;
-}
-
-.hf-hero__eyebrow {
-    margin: 0 0 0.35rem;
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #0b84db;
-}
-
-.hf-hero__summary {
-    margin: 0;
-    font-size: 1rem;
-    line-height: 1.6;
-    color: #415166;
-}
-
-.hf-task-header,
-.hf-chatbot,
-.hf-browser-pane,
-.hf-preview-pane,
-.hf-trace-panel {
+    flex-direction: column;
+    flex-wrap: nowrap !important;
+    min-height: 0;
+    height: 100%;
     border: 1px solid var(--hf-border);
-    border-radius: 24px;
+    border-radius: 30px;
     background: var(--hf-surface-strong);
-    box-shadow: var(--hf-shadow-soft);
+    box-shadow: var(--hf-shadow-shell);
 }
 
 .hf-task-header {
     margin: 0;
-    padding: 1.1rem 1.2rem;
+    padding: 1.2rem 1.35rem 1rem;
+    border: none !important;
+    border-bottom: 1px solid var(--hf-border) !important;
+    background: transparent !important;
+    box-shadow: none !important;
 }
 
 .hf-task-header h2 {
     margin: 0;
-    font-size: 1.8rem;
+    font-size: 1.7rem;
     font-weight: 700;
     letter-spacing: -0.045em;
-    color: #0f172a;
+    color: var(--hf-text);
 }
 
 .hf-task-header p {
-    margin: 0.45rem 0 0;
-    color: #475569;
+    margin: 0.42rem 0 0;
+    color: var(--hf-text-muted);
     line-height: 1.6;
 }
 
 .hf-chatbot,
 .hf-trace-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100% !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
     overflow: hidden;
 }
 
 .hf-composer-shell {
-    position: sticky;
-    bottom: 0;
-    z-index: 6;
+    flex: 0 0 auto;
     margin-top: auto;
-    padding: 0.9rem 0 0.15rem;
-    background: linear-gradient(180deg, rgba(243, 247, 251, 0) 0%, rgba(243, 247, 251, 0.84) 22%, rgba(247, 250, 252, 0.98) 100%);
+    padding: 0.95rem 1.1rem 1.1rem;
+    border-top: 1px solid var(--hf-border);
+    background: linear-gradient(180deg, rgba(247, 250, 252, 0) 0%, rgba(247, 250, 252, 0.92) 30%, rgba(247, 250, 252, 0.98) 100%);
 }
 
 .hf-composer {
     border: 1px solid rgba(15, 23, 42, 0.1) !important;
     border-radius: 24px !important;
-    background: rgba(255, 255, 255, 0.96) !important;
-    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.1);
+    background: rgba(255, 255, 255, 0.98) !important;
+    box-shadow: var(--hf-shadow-soft) !important;
 }
 
 .hf-composer .input-container {
@@ -210,34 +229,123 @@ aside {
 }
 
 .hf-composer button.submit-button {
-    background: linear-gradient(135deg, #0b84db 0%, #0f6bdc 100%);
+    background: linear-gradient(135deg, var(--hf-accent) 0%, var(--hf-accent-strong) 100%);
     color: #ffffff;
     box-shadow: 0 10px 26px rgba(15, 107, 220, 0.24);
 }
 
-.hf-detail-tabs {
+.hf-workspace-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+}
+
+.hf-detail-shell {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap !important;
     flex: 1 1 auto;
     min-height: 0;
+    height: 100%;
+    border: 1px solid var(--hf-border);
+    border-radius: 30px;
+    background: var(--hf-surface-strong);
+    box-shadow: var(--hf-shadow-shell);
+    overflow: hidden;
+}
+
+.hf-detail-nav {
+    flex: 0 0 auto;
+    gap: 0.55rem;
+    padding: 1rem;
+    border-bottom: 1px solid var(--hf-border);
+    background: rgba(249, 251, 253, 0.92);
+}
+
+.hf-detail-switch {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 2.5rem;
+    border-radius: 999px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    box-shadow: none !important;
+}
+
+.hf-detail-switch.primary {
+    border: 1px solid rgba(15, 107, 220, 0.18);
+    background: linear-gradient(135deg, var(--hf-accent) 0%, var(--hf-accent-strong) 100%);
+    color: #ffffff !important;
+}
+
+.hf-detail-switch.secondary {
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    background: rgba(255, 255, 255, 0.86);
+    color: #334155 !important;
+}
+
+.hf-detail-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 1rem;
+    gap: 0.9rem;
+    overflow: hidden;
 }
 
 .hf-workspace-row {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: nowrap !important;
+    gap: 0.9rem;
     align-items: stretch;
-    gap: 0.85rem;
+    min-height: 0;
+}
+
+.hf-workspace-row > .column {
     height: 100%;
+    min-height: 0;
+}
+
+.hf-browser-pane,
+.hf-preview-pane,
+.hf-advanced-toolbar {
+    border: 1px solid var(--hf-border);
+    border-radius: 24px;
+    background: var(--hf-surface-muted);
+    box-shadow: none !important;
+}
+
+.hf-browser-pane,
+.hf-preview-pane,
+.hf-advanced-toolbar {
+    padding: 1rem 1rem 1.05rem;
 }
 
 .hf-browser-pane,
 .hf-preview-pane {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap !important;
     gap: 0.75rem;
     min-height: 0;
-    height: 100%;
-    padding: 1rem 0.95rem;
+}
+
+.hf-browser-pane {
+    flex: 0 0 39%;
+    min-width: 10.25rem;
+    overflow: auto;
+}
+
+.hf-preview-pane {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: auto;
 }
 
 .hf-browser-pane h3,
 .hf-preview-pane h3 {
-    margin-top: 0;
+    margin: 0;
 }
 
 .hf-history-list {
@@ -245,11 +353,13 @@ aside {
 }
 
 .hf-history-item {
+    position: relative;
     gap: 0.35rem;
     padding: 0.78rem 0.82rem;
     border: 1px solid rgba(16, 32, 51, 0.08);
     border-radius: 18px;
     background: rgba(255, 255, 255, 0.88);
+    overflow: hidden;
 }
 
 .hf-history-item.is-active {
@@ -264,39 +374,55 @@ aside {
     flex-wrap: nowrap !important;
 }
 
-.hf-history-open {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.hf-history-open,
+.hf-history-hitbox,
 .hf-history-action,
 .hf-history-inline button {
     border-radius: 12px;
 }
 
-.hf-history-open {
-    justify-content: flex-start;
-    min-height: 0;
+.hf-history-hitbox {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    min-height: 100%;
     padding: 0;
-    font-weight: 600;
-    text-align: left;
     border: none;
     background: transparent;
-    color: #0f172a !important;
-    box-shadow: none;
+    color: transparent !important;
+    box-shadow: none !important;
 }
 
-.hf-history-open {
+.hf-history-hitbox:hover,
+.hf-history-item.is-active .hf-history-hitbox {
+    background: linear-gradient(180deg, rgba(11, 132, 219, 0.03) 0%, rgba(11, 132, 219, 0.05) 100%);
+}
+
+.hf-history-content {
+    position: relative;
+    z-index: 2;
+}
+
+.hf-history-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    pointer-events: none;
+}
+
+.hf-history-title-text {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 0.9rem;
+    font-weight: 600;
     line-height: 1.35;
+    color: #0f172a;
 }
 
 .hf-history-action {
     flex: 0 0 auto;
+    position: relative;
+    z-index: 3;
     min-width: 0;
     padding: 0 0.55rem;
     height: 2rem;
@@ -347,36 +473,116 @@ aside {
     box-shadow: var(--hf-shadow-soft);
 }
 
+.hf-chatbot > .wrap,
+.hf-trace-panel > .wrap {
+    height: 100%;
+}
+
+.hf-chatbot .message-row,
+.hf-chatbot .message-wrap,
+.hf-chatbot .bubble-wrap,
+.hf-trace-panel .message-row,
+.hf-trace-panel .message-wrap,
+.hf-trace-panel .bubble-wrap {
+    max-width: 100% !important;
+}
+
+.hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width),
+.hf-trace-panel :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) {
+    width: 100%;
+    max-width: none !important;
+}
+
+.hf-chatbot :is(.user.message, .message.user, .user .message) {
+    margin-left: auto;
+    max-width: min(88%, 42rem) !important;
+}
+
+.hf-chatbot :is(.message, .panel-full-width),
+.hf-trace-panel :is(.message, .panel-full-width) {
+    border-radius: 22px !important;
+    box-shadow: none !important;
+}
+
+.hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width),
+.hf-trace-panel :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) {
+    border: 1px solid rgba(15, 23, 42, 0.07);
+    background: var(--hf-surface-muted) !important;
+}
+
+.hf-chatbot :is(.user.message, .message.user, .user .message) {
+    background: linear-gradient(135deg, var(--hf-accent) 0%, var(--hf-accent-strong) 100%) !important;
+    color: #ffffff !important;
+}
+
+.hf-chatbot .prose,
+.hf-trace-panel .prose,
+.hf-preview-pane .prose,
+.hf-browser-pane .prose,
+.hf-task-header .prose {
+    max-width: none;
+}
+
+.hf-history-meta p,
+.hf-history-empty p {
+    margin: 0;
+}
+
+.hf-preview-pane .empty,
+.hf-browser-pane .empty {
+    color: var(--hf-text-muted);
+}
+
 footer {
     display: none !important;
 }
 
 @media (max-width: 1280px) {
+    html,
+    body {
+        overflow: auto;
+    }
+
+    .gradio-container,
+    .gradio-container > main.app,
+    .gradio-container > main.app > .wrap.sidebar-parent {
+        height: auto;
+        min-height: 100%;
+    }
+
     .hf-main {
         height: auto;
         flex-wrap: wrap !important;
+        overflow: visible;
+    }
+
+    .hf-content-shell {
+        height: auto;
     }
 
     .hf-chat-shell,
-    .hf-workspace-shell {
-        min-height: 0;
+    .hf-detail-shell {
+        min-height: 34rem;
     }
 
-    .hf-browser-pane,
-    .hf-preview-pane {
-        min-height: 0;
+    .hf-workspace-row {
+        flex-direction: column;
+    }
+
+    .hf-browser-pane {
+        min-width: 0;
+        min-height: 12rem;
     }
 }
 
 @media (max-width: 900px) {
-    .gradio-container {
-        padding: 0.3rem 0.45rem 0.65rem !important;
+    html,
+    body {
+        overflow: auto;
     }
 
-    .hf-hero {
-        flex-direction: column;
-        align-items: flex-start;
-        padding: 1rem 1.05rem;
+    .gradio-container {
+        padding: 0.45rem !important;
     }
 
     .hf-main {
@@ -384,14 +590,27 @@ footer {
         gap: 0.7rem;
     }
 
-    .hf-workspace-row {
-        flex-direction: column;
+    .hf-chat-shell,
+    .hf-detail-shell,
+    aside {
+        border-radius: 24px;
     }
 
     .hf-composer-shell {
-        position: static;
-        padding-top: 0.6rem;
-        background: transparent;
+        padding: 0.85rem;
+    }
+
+    .hf-task-header {
+        padding: 1rem 1rem 0.85rem;
+    }
+
+    .hf-detail-panel {
+        padding: 0.85rem;
+    }
+
+    .hf-browser-pane {
+        flex-basis: 12rem;
+        min-height: 12rem;
     }
 }
 """
@@ -539,6 +758,13 @@ def _branding_header_html() -> str:
         "</div>"
         "</section>"
     )
+
+
+def _sidebar_brand_html() -> str:
+    logo_svg = _load_branding_svg("healthflow-logo.svg")
+    if logo_svg:
+        return f'<section class="hf-sidebar-brand" aria-label="HealthFlow brand">{logo_svg}</section>'
+    return '<p class="hf-sidebar-brand__fallback">HealthFlow</p>'
 
 
 def _build_task_choices(recent_tasks: Sequence[TaskSessionSummary]) -> list[tuple[str, str]]:
@@ -1197,6 +1423,15 @@ def launch_web_app(
     def _open_report_file(report_path: str | None, task_id: str | None):
         return report_path, *_preview_outputs_for_task(report_path, task_id)
 
+    def _detail_panel_updates(mode: str) -> tuple[Any, Any, Any, Any]:
+        resolved_mode = "advanced" if mode == "advanced" else "workspace"
+        return (
+            gr.update(variant="primary" if resolved_mode == "workspace" else "secondary"),
+            gr.update(variant="primary" if resolved_mode == "advanced" else "secondary"),
+            gr.update(visible=resolved_mode == "workspace"),
+            gr.update(visible=resolved_mode == "advanced"),
+        )
+
     def _start_history_rename(
         target_task_id: str | None,
         active_task_id: str | None,
@@ -1404,9 +1639,8 @@ def launch_web_app(
         )
         history_render_token = gr.Textbox(value="", visible="hidden", container=False)
 
-        gr.HTML(_branding_header_html())
-
         with gr.Sidebar(label="History", open=True, width=336):
+            gr.HTML(_sidebar_brand_html())
             new_task_button = gr.Button("New Task", variant="primary")
             history_notice = gr.Markdown(visible=False)
 
@@ -1528,18 +1762,20 @@ def launch_web_app(
                         status = str(entry.get("status") or "ready")
                         turns_text = str(entry.get("turns_text") or _history_turn_text(int(entry.get("turn_count") or 0)))
                         updated_text = str(entry.get("updated_text") or "recently")
+                        title_html = f'<div class="hf-history-title-text">{html.escape(task_title)}</div>'
                         row_classes = ["hf-history-item"]
                         if task_id == current_task_id:
                             row_classes.append("is-active")
 
                         task_id_state = gr.State(task_id)
                         with gr.Column(elem_classes=row_classes):
-                            with gr.Row(elem_classes=["hf-history-row"]):
-                                open_task_button = gr.Button(
-                                    task_title,
-                                    variant="primary" if task_id == current_task_id else "secondary",
-                                    elem_classes=["hf-history-open"],
-                                )
+                            open_task_button = gr.Button(
+                                f"Open {task_title}",
+                                variant="secondary",
+                                elem_classes=["hf-history-hitbox"],
+                            )
+                            with gr.Row(elem_classes=["hf-history-row", "hf-history-content"]):
+                                gr.HTML(title_html, elem_classes=["hf-history-title"])
                                 rename_task_button = gr.Button(
                                     "Edit",
                                     size="sm",
@@ -1586,154 +1822,198 @@ def launch_web_app(
                                 show_progress="hidden",
                             )
 
-        with gr.Row(elem_classes=["hf-main"]):
-            with gr.Column(scale=6, min_width=560, elem_classes=["hf-chat-shell"]):
-                task_header = gr.Markdown(elem_classes=["hf-task-header"])
-                main_chatbot = gr.Chatbot(
-                    label="Conversation",
-                    type="messages",
-                    value=[{"role": "assistant", "content": _MAIN_ASSISTANT_TEXT}],
-                    height=560,
-                    show_copy_button=True,
-                    elem_classes=["hf-chatbot"],
-                )
-                with gr.Group(elem_classes=["hf-composer-shell"]):
-                    prompt_input = gr.MultimodalTextbox(
-                        interactive=True,
-                        file_count="multiple",
-                        placeholder="Describe the task or provide follow-up feedback. Upload files if needed.",
+        with gr.Column(elem_classes=["hf-content-shell"]):
+            with gr.Row(elem_classes=["hf-main"]):
+                with gr.Column(scale=8, min_width=640, elem_classes=["hf-chat-shell"]):
+                    task_header = gr.Markdown(elem_classes=["hf-task-header"], container=False)
+                    main_chatbot = gr.Chatbot(
                         show_label=False,
-                        elem_classes=["hf-composer"],
+                        container=False,
+                        type="messages",
+                        value=[{"role": "assistant", "content": _MAIN_ASSISTANT_TEXT}],
+                        scale=1,
+                        layout="panel",
+                        show_copy_button=True,
+                        elem_classes=["hf-chatbot"],
                     )
-            with gr.Column(scale=7, min_width=560, elem_classes=["hf-workspace-shell"]):
-                with gr.Tabs(elem_classes=["hf-detail-tabs"]):
-                    with gr.Tab("Workspace"):
-                        with gr.Row(elem_classes=["hf-workspace-row"]):
-                            with gr.Column(scale=4, min_width=250, elem_classes=["hf-browser-pane"]):
-                                gr.Markdown("### Workspace")
-
-                                @gr.render(
-                                    inputs=[active_task_state, workspace_catalog_state, selected_file_state],
-                                    queue=False,
-                                    show_progress="hidden",
-                                )
-                                def _render_workspace_browser(
-                                    current_task_id: str | None,
-                                    workspace_catalog: list[dict[str, Any]] | None,
-                                    current_selected_file: str | None,
-                                ):
-                                    if not current_task_id:
-                                        gr.Markdown(_EMPTY_WORKSPACE_TEXT)
-                                        return
-
-                                    task_root = _task_root_path(current_task_id, session_store)
-                                    if task_root is None:
-                                        gr.Markdown(_EMPTY_WORKSPACE_TEXT)
-                                        return
-
-                                    catalog = list(workspace_catalog or [])
-                                    report_path = next(
-                                        (
-                                            str(item.get("source_path"))
-                                            for item in catalog
-                                            if item.get("origin") == "report"
-                                        ),
-                                        None,
-                                    )
-                                    visible_files = [item for item in catalog if item.get("origin") != "report"]
-                                    report_path_state = gr.State(report_path)
-
-                                    if report_path:
-                                        open_report_button = gr.Button(
-                                            "report.md",
-                                            variant="primary" if current_selected_file == report_path else "secondary",
-                                        )
-                                        open_report_button.click(
-                                            _open_report_file,
-                                            [report_path_state, active_task_state],
-                                            [
-                                                selected_file_state,
-                                                preview_header,
-                                                preview_markdown,
-                                                preview_image,
-                                                preview_table,
-                                                preview_code,
-                                                preview_empty,
-                                                download_button,
-                                            ],
-                                            queue=False,
-                                            show_progress="hidden",
-                                        )
-
-                                    sandbox_root = task_root / "sandbox"
-                                    if visible_files:
-                                        workspace_browser = gr.FileExplorer(
-                                            root_dir=str(sandbox_root),
-                                            file_count="single",
-                                            label="Files",
-                                            height=430,
-                                            interactive=True,
-                                            value=_workspace_tree_value(
-                                                current_selected_file,
-                                                task_root=task_root,
-                                            ),
-                                            key=("workspace-browser", current_task_id),
-                                            preserved_by_key=[],
-                                        )
-                                        workspace_browser.change(
-                                            _on_workspace_file_selected,
-                                            [workspace_browser, active_task_state],
-                                            [
-                                                selected_file_state,
-                                                preview_header,
-                                                preview_markdown,
-                                                preview_image,
-                                                preview_table,
-                                                preview_code,
-                                                preview_empty,
-                                                download_button,
-                                            ],
-                                            queue=False,
-                                            show_progress="hidden",
-                                        )
-                                    elif not report_path:
-                                        gr.Markdown(_EMPTY_WORKSPACE_TEXT)
-
-                            with gr.Column(scale=8, min_width=340, elem_classes=["hf-preview-pane"]):
-                                preview_header = gr.Markdown(value="### Preview")
-                                preview_markdown = gr.Markdown(visible=False)
-                                preview_image = gr.Image(
-                                    label="Image preview",
-                                    visible=False,
-                                    type="filepath",
-                                    show_download_button=False,
-                                )
-                                preview_table = gr.Dataframe(
-                                    label="Data preview",
-                                    visible=False,
-                                    interactive=False,
-                                    show_copy_button=True,
-                                    max_height=430,
-                                )
-                                preview_code = gr.Code(
-                                    label="Code preview",
-                                    visible=False,
-                                    interactive=False,
-                                    lines=22,
-                                    max_lines=34,
-                                )
-                                preview_empty = gr.Markdown(value=_EMPTY_WORKSPACE_TEXT)
-                                download_button = gr.DownloadButton("Download file", visible=False)
-                    with gr.Tab("Advanced"):
-                        report_requested = gr.Checkbox(label="Generate report.md for each turn", value=False)
-                        trace_chatbot = gr.Chatbot(
-                            label="Execution Trace",
-                            type="messages",
-                            value=[{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}],
-                            height=560,
-                            show_copy_button=True,
-                            elem_classes=["hf-trace-panel"],
+                    with gr.Column(scale=0, elem_classes=["hf-composer-shell"]):
+                        prompt_input = gr.MultimodalTextbox(
+                            interactive=True,
+                            file_count="multiple",
+                            placeholder="Describe the task or provide follow-up feedback. Upload files if needed.",
+                            show_label=False,
+                            elem_classes=["hf-composer"],
                         )
+                with gr.Column(scale=4, min_width=400, elem_classes=["hf-workspace-shell"]):
+                    with gr.Column(elem_classes=["hf-detail-shell"]):
+                        with gr.Row(elem_classes=["hf-detail-nav"]):
+                            workspace_panel_button = gr.Button(
+                                "Workspace",
+                                variant="primary",
+                                elem_classes=["hf-detail-switch"],
+                            )
+                            advanced_panel_button = gr.Button(
+                                "Advanced",
+                                variant="secondary",
+                                elem_classes=["hf-detail-switch"],
+                            )
+
+                        with gr.Column(visible=True, elem_classes=["hf-detail-panel", "hf-workspace-panel"]) as workspace_panel:
+                            with gr.Row(elem_classes=["hf-workspace-row"]):
+                                with gr.Column(scale=4, min_width=0, elem_classes=["hf-browser-pane"]):
+                                    gr.Markdown("### Workspace", container=False)
+
+                                    @gr.render(
+                                        inputs=[active_task_state, workspace_catalog_state, selected_file_state],
+                                        queue=False,
+                                        show_progress="hidden",
+                                    )
+                                    def _render_workspace_browser(
+                                        current_task_id: str | None,
+                                        workspace_catalog: list[dict[str, Any]] | None,
+                                        current_selected_file: str | None,
+                                    ):
+                                        if not current_task_id:
+                                            gr.Markdown(_EMPTY_WORKSPACE_TEXT, container=False)
+                                            return
+
+                                        task_root = _task_root_path(current_task_id, session_store)
+                                        if task_root is None:
+                                            gr.Markdown(_EMPTY_WORKSPACE_TEXT, container=False)
+                                            return
+
+                                        catalog = list(workspace_catalog or [])
+                                        report_path = next(
+                                            (
+                                                str(item.get("source_path"))
+                                                for item in catalog
+                                                if item.get("origin") == "report"
+                                            ),
+                                            None,
+                                        )
+                                        visible_files = [item for item in catalog if item.get("origin") != "report"]
+                                        report_path_state = gr.State(report_path)
+
+                                        if report_path:
+                                            open_report_button = gr.Button(
+                                                "report.md",
+                                                variant="primary" if current_selected_file == report_path else "secondary",
+                                            )
+                                            open_report_button.click(
+                                                _open_report_file,
+                                                [report_path_state, active_task_state],
+                                                [
+                                                    selected_file_state,
+                                                    preview_header,
+                                                    preview_markdown,
+                                                    preview_image,
+                                                    preview_table,
+                                                    preview_code,
+                                                    preview_empty,
+                                                    download_button,
+                                                ],
+                                                queue=False,
+                                                show_progress="hidden",
+                                            )
+
+                                        sandbox_root = task_root / "sandbox"
+                                        if visible_files:
+                                            workspace_browser = gr.FileExplorer(
+                                                root_dir=str(sandbox_root),
+                                                file_count="single",
+                                                label="Files",
+                                                height=520,
+                                                interactive=True,
+                                                value=_workspace_tree_value(
+                                                    current_selected_file,
+                                                    task_root=task_root,
+                                                ),
+                                                key=("workspace-browser", current_task_id),
+                                                preserved_by_key=[],
+                                                container=False,
+                                            )
+                                            workspace_browser.change(
+                                                _on_workspace_file_selected,
+                                                [workspace_browser, active_task_state],
+                                                [
+                                                    selected_file_state,
+                                                    preview_header,
+                                                    preview_markdown,
+                                                    preview_image,
+                                                    preview_table,
+                                                    preview_code,
+                                                    preview_empty,
+                                                    download_button,
+                                                ],
+                                                queue=False,
+                                                show_progress="hidden",
+                                            )
+                                        elif not report_path:
+                                            gr.Markdown(_EMPTY_WORKSPACE_TEXT, container=False)
+
+                                with gr.Column(scale=6, min_width=0, elem_classes=["hf-preview-pane"]):
+                                    preview_header = gr.Markdown(value="### Preview", container=False)
+                                    preview_markdown = gr.Markdown(visible=False, container=False)
+                                    preview_image = gr.Image(
+                                        label="Image preview",
+                                        show_label=False,
+                                        container=False,
+                                        visible=False,
+                                        type="filepath",
+                                        show_download_button=False,
+                                    )
+                                    preview_table = gr.Dataframe(
+                                        label="Data preview",
+                                        show_label=False,
+                                        visible=False,
+                                        interactive=False,
+                                        show_copy_button=True,
+                                        max_height=430,
+                                    )
+                                    preview_code = gr.Code(
+                                        label="Code preview",
+                                        container=False,
+                                        visible=False,
+                                        interactive=False,
+                                        lines=18,
+                                        max_lines=30,
+                                    )
+                                    preview_empty = gr.Markdown(value=_EMPTY_PREVIEW_TEXT, container=False)
+                                    download_button = gr.DownloadButton("Download file", visible=False)
+
+                        with gr.Column(visible=False, elem_classes=["hf-detail-panel", "hf-advanced-panel"]) as advanced_panel:
+                            with gr.Column(scale=0, elem_classes=["hf-advanced-toolbar"]):
+                                gr.Markdown("### Advanced", container=False)
+                                report_requested = gr.Checkbox(
+                                    label="Generate report.md for each turn",
+                                    value=False,
+                                    container=False,
+                                )
+                            trace_chatbot = gr.Chatbot(
+                                show_label=False,
+                                container=False,
+                                type="messages",
+                                value=[{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}],
+                                scale=1,
+                                layout="panel",
+                                show_copy_button=True,
+                                elem_classes=["hf-trace-panel"],
+                            )
+
+                    workspace_panel_button.click(
+                        lambda: _detail_panel_updates("workspace"),
+                        None,
+                        [workspace_panel_button, advanced_panel_button, workspace_panel, advanced_panel],
+                        queue=False,
+                        show_progress="hidden",
+                    )
+                    advanced_panel_button.click(
+                        lambda: _detail_panel_updates("advanced"),
+                        None,
+                        [workspace_panel_button, advanced_panel_button, workspace_panel, advanced_panel],
+                        queue=False,
+                        show_progress="hidden",
+                    )
 
         app_outputs = [
             main_chatbot,
