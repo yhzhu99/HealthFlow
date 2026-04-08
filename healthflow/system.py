@@ -214,6 +214,13 @@ class HealthFlowSystem:
             raise FileNotFoundError(f"Task session '{task_id}' does not exist.")
         shutil.rmtree(task_workspace)
 
+    def clear_task_sessions(self) -> None:
+        if not self.workspace_dir.exists():
+            return
+        for task_workspace in self.workspace_dir.iterdir():
+            if task_workspace.is_dir():
+                shutil.rmtree(task_workspace)
+
     async def run_task_turn(
         self,
         task_id: str,

@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from healthflow.session import HealthFlowProgressEvent, TaskSessionSummary, TaskTurnRecord
+from healthflow.showcase import SHOWCASE_TASK_ID
 from healthflow.web_app import (
     WebTaskSessionStore,
     _apply_progress_to_overview,
@@ -103,6 +104,10 @@ class _FakeSystem:
     def delete_task_session(self, task_id: str):
         self.state_by_task_id.pop(task_id, None)
         self.history_by_task_id.pop(task_id, None)
+
+    def clear_task_sessions(self):
+        self.state_by_task_id.clear()
+        self.history_by_task_id.clear()
 
 
 class WebAppTests(unittest.TestCase):
@@ -335,6 +340,66 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("Previous execution details", trace_history[0]["content"])
         self.assertIn("Turn 1", trace_history[1]["content"])
 
+    def test_restore_main_history_rehydrates_plan_and_inline_images(self):
+        task_id = "task-showcase"
+        task_root = self.workspace_dir / task_id
+        state = self.system.create_task_session(task_id)
+        state.turn_count = 1
+        state.latest_turn_status = "success"
+        state.original_goal = "Build the showcase packet"
+        image_path = task_root / "sandbox" / "figures" / "roc_curve.png"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        image_path.write_bytes(b"png")
+        run_dir = task_root / "runtime" / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "trajectory.json").write_text(
+            inspect.cleandoc(
+                """
+                {
+                  "task_id": "task-showcase",
+                  "user_request": "Build the showcase packet",
+                  "attempts": [
+                    {
+                      "attempt": 1,
+                      "memory": {"retrieval": {}},
+                      "plan": {
+                        "objective": "Build the showcase packet",
+                        "recommended_steps": ["Inspect schema.", "Render figures."],
+                        "success_signals": ["Inline figures render directly in the main panel."]
+                      },
+                      "execution": {"success": true, "cancelled": false},
+                      "artifacts": {"sandbox_paths": ["figures/roc_curve.png"]},
+                      "evaluation": {"status": "success", "feedback": "Looks good."},
+                      "gate": {"retry_recommended": false}
+                    }
+                  ],
+                  "reflection": {"model_name": "fixture"}
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "summary.json").write_text(
+            '{"success": true, "final_summary": "Completed successfully.", "evaluation_status": "success"}',
+            encoding="utf-8",
+        )
+        self.system.history_by_task_id[task_id] = [
+            TaskTurnRecord(
+                turn_number=1,
+                user_message="Build the showcase packet",
+                answer="All artifacts are ready.",
+                status="success",
+                runtime_dir=str(task_root / "runtime" / "turns" / "turn_001"),
+            )
+        ]
+
+        client = WebTaskSessionStore(lambda: self.system).get_client(task_id)
+        main_history = _restore_main_history(client)
+
+        self.assertIn("Objective", main_history[1]["content"])
+        self.assertEqual(main_history[-2]["content"], (str(image_path), "roc_curve.png"))
+        self.assertEqual(main_history[-1]["content"], "All artifacts are ready.")
+
     def test_task_header_is_user_facing(self):
         task_id = "task-header"
         state = self.system.create_task_session(task_id)
@@ -374,10 +439,12 @@ class WebAppTests(unittest.TestCase):
     def test_starter_card_html_surfaces_demo_case_details(self):
         html = _starter_card_html()
 
-        self.assertIn("EHR Predictive Modeling Demo", html)
+        self.assertIn("Showcase", html)
+        self.assertIn("ICU Mortality Risk Modeling", html)
         self.assertIn("ehr_predictive_demo.csv", html)
         self.assertIn("roc_curve.png", html)
         self.assertIn("calibration.png", html)
+        self.assertIn("risk_distribution.png", html)
 
     def test_demo_case_uploads_reads_builtin_demo_file(self):
         uploads = _demo_case_uploads()
@@ -439,6 +506,27 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(rows[1]["label"], "reports")
         self.assertEqual(rows[2]["kind"], "file")
         self.assertEqual(rows[2]["label"], "summary.json")
+
+    def test_workspace_tree_rows_prioritize_showcase_figures_before_misc_outputs(self):
+        catalog = [
+            {
+                "origin": "generated",
+                "display_name": "notes.md",
+                "source_path": "/tmp/task/sandbox/notes/notes.md",
+                "task_relative_path": "sandbox/notes/notes.md",
+            },
+            {
+                "origin": "generated",
+                "display_name": "roc_curve.png",
+                "source_path": f"/tmp/task/{SHOWCASE_TASK_ID}/sandbox/figures/roc_curve.png",
+                "task_relative_path": "sandbox/figures/roc_curve.png",
+            },
+        ]
+
+        rows = _workspace_tree_rows(catalog)
+
+        self.assertEqual(rows[0]["kind"], "folder")
+        self.assertEqual(rows[0]["label"], "figures")
 
     def test_history_list_html_renders_inline_actions_and_active_state(self):
         recent_tasks = [
@@ -560,6 +648,25 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(overview["avoidances"], ["Do not leak labels."])
         self.assertEqual(overview["stage_status"]["planner"], "done")
         self.assertIn("Attempt 2", _run_overview_html(overview))
+
+    def test_run_overview_html_is_collapsed_when_completed_and_open_when_running(self):
+        completed_html = _run_overview_html(
+            {
+                **_empty_run_overview(),
+                "mode": "completed",
+                "objective": "Completed run.",
+            }
+        )
+        running_html = _run_overview_html(
+            {
+                **_empty_run_overview(),
+                "mode": "running",
+                "objective": "Running run.",
+            }
+        )
+
+        self.assertNotIn("<details class=\"hf-run-overview is-completed\" open>", completed_html)
+        self.assertIn("<details class=\"hf-run-overview is-running\" open>", running_html)
 
     def test_main_progress_messages_inline_generated_images(self):
         task_root = self.workspace_dir / "task-inline"
