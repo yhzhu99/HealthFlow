@@ -3,14 +3,15 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from healthflow.session import TaskTurnRecord
+from healthflow.session import TaskSessionSummary, TaskTurnRecord
 from healthflow.web_app import (
     WebTaskSessionStore,
-    _artifact_files,
+    _build_task_choices,
+    _build_task_header,
     _restore_main_history,
     _restore_trace_history,
     _result_answer_text,
-    _task_info,
+    _visible_recent_tasks,
 )
 
 
@@ -34,6 +35,8 @@ class _FakeSystem:
                 task_root=str(task_root),
                 turn_count=0,
                 latest_turn_status=None,
+                original_goal="",
+                updated_at_utc="2026-04-08T00:00:00Z",
             )
             self.state_by_task_id[resolved_task_id] = state
         return state
@@ -43,6 +46,20 @@ class _FakeSystem:
 
     def load_task_history(self, task_id: str):
         return list(self.history_by_task_id.get(task_id, []))
+
+    def list_task_sessions(self, limit: int = 20):
+        summaries = []
+        for task_id, state in self.state_by_task_id.items():
+            summaries.append(
+                TaskSessionSummary(
+                    task_id=task_id,
+                    title=state.original_goal or "New task",
+                    updated_at_utc=state.updated_at_utc,
+                    turn_count=state.turn_count,
+                    latest_turn_status=state.latest_turn_status,
+                )
+            )
+        return summaries[:limit]
 
 
 class WebAppTests(unittest.TestCase):
@@ -69,11 +86,43 @@ class WebAppTests(unittest.TestCase):
         self.assertIs(restored_client, first_client)
         self.assertEqual(factory_calls, 1)
 
-    def test_restore_main_history_replays_prior_turns_with_status(self):
+    def test_session_store_lists_recent_tasks(self):
+        first = self.system.create_task_session("task-a")
+        first.original_goal = "Analyze the uploaded vitals cohort"
+        second = self.system.create_task_session("task-b")
+        second.original_goal = "Summarize model drift findings"
+        second.turn_count = 2
+        second.latest_turn_status = "success"
+
+        store = WebTaskSessionStore(lambda: self.system)
+        summaries = store.list_recent_tasks(limit=10)
+        choices = _build_task_choices(summaries)
+
+        self.assertEqual(len(summaries), 2)
+        self.assertIn("Analyze the uploaded vitals cohort", choices[0][0])
+        self.assertIn("Summarize model drift findings", choices[1][0])
+
+    def test_visible_recent_tasks_hides_old_empty_placeholders(self):
+        current = TaskSessionSummary(task_id="task-current", title="New task", updated_at_utc="2026-04-08T03:00:00Z")
+        placeholder = TaskSessionSummary(task_id="task-empty", title="New task", updated_at_utc="2026-04-08T02:00:00Z")
+        meaningful = TaskSessionSummary(
+            task_id="task-real",
+            title="Analyze the uploaded vitals cohort",
+            updated_at_utc="2026-04-08T01:00:00Z",
+            turn_count=2,
+            latest_turn_status="success",
+        )
+
+        visible = _visible_recent_tasks([current, placeholder, meaningful], current_task_id="task-current")
+
+        self.assertEqual([item.task_id for item in visible], ["task-current", "task-real"])
+
+    def test_restore_main_history_replays_prior_turns(self):
         task_id = "task-restore"
         state = self.system.create_task_session(task_id)
         state.turn_count = 1
         state.latest_turn_status = "failed"
+        state.original_goal = "Analyze this table"
         self.system.history_by_task_id[task_id] = [
             TaskTurnRecord(
                 turn_number=1,
@@ -90,35 +139,31 @@ class WebAppTests(unittest.TestCase):
         trace_history = _restore_trace_history(client, restored=True)
 
         self.assertEqual(main_history[0]["role"], "assistant")
-        self.assertIn("Follow-ups stay on this task", main_history[0]["content"])
+        self.assertIn("Use New Task", main_history[0]["content"])
         self.assertEqual(main_history[1]["content"], "Analyze this table")
-        self.assertIn("Status: failed", main_history[2]["content"])
+        self.assertIn("Run status: failed", main_history[2]["content"])
         self.assertIn("line 42", main_history[2]["content"])
-        self.assertIn("Reopened task session", trace_history[0]["content"])
+        self.assertIn("Previous execution details", trace_history[0]["content"])
         self.assertIn("Turn 1", trace_history[1]["content"])
 
-    def test_task_info_and_artifacts_reflect_latest_state(self):
-        task_id = "task-artifacts"
+    def test_task_header_is_user_facing(self):
+        task_id = "task-header"
         state = self.system.create_task_session(task_id)
         state.turn_count = 2
         state.latest_turn_status = "success"
-        task_root = Path(state.task_root)
-        sandbox_file = task_root / "sandbox" / "result.csv"
-        sandbox_file.write_text("a,b\n1,2\n", encoding="utf-8")
-        report_path = task_root / "runtime" / "report.md"
-        report_path.write_text("# Report\n", encoding="utf-8")
-
+        state.original_goal = "Review the current asthma cohort analysis"
+        state.updated_at_utc = "2026-04-08T01:00:00Z"
         client = WebTaskSessionStore(lambda: self.system).get_client(task_id)
-        info = _task_info(client)
-        artifacts = _artifact_files(client)
+        summaries = self.system.list_task_sessions()
 
-        self.assertIn("Mode:** Web UI", info)
-        self.assertIn("Completed turns:", info)
-        self.assertIn("Latest status:", info)
-        self.assertIn(str(sandbox_file), artifacts)
-        self.assertIn(str(report_path), artifacts)
+        header = _build_task_header(client, summaries)
 
-    def test_result_answer_text_includes_explicit_status(self):
+        self.assertIn("Review the current asthma cohort analysis", header)
+        self.assertIn("Last run: **success**", header)
+        self.assertNotIn(task_id, header)
+        self.assertNotIn("workspace/tasks", header)
+
+    def test_result_answer_text_only_adds_status_for_failures(self):
         success_text = _result_answer_text(
             {
                 "success": True,
@@ -134,20 +179,10 @@ class WebAppTests(unittest.TestCase):
                 "execution_time": 2.5,
             }
         )
-        cancelled_text = _result_answer_text(
-            {
-                "success": False,
-                "cancelled": True,
-                "answer": "Partial output",
-                "final_summary": "Task cancelled before completion.",
-                "execution_time": 0.5,
-            }
-        )
 
-        self.assertIn("Status: success", success_text)
-        self.assertIn("Status: failed", failed_text)
+        self.assertEqual(success_text, "All checks passed.")
+        self.assertIn("Run status: failed", failed_text)
         self.assertIn("exited with code 1", failed_text)
-        self.assertIn("Status: cancelled", cancelled_text)
 
 
 if __name__ == "__main__":
