@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type { SnapshotCandidate } from '../src/domain/evaluation'
-import { blindOrderCandidates, evaluationStorageKey } from '../src/domain/evaluation'
+import {
+  blindOrderCandidates,
+  createReviewerState,
+  DEFAULT_REVIEWER_ID,
+  evaluationStorageKey,
+  resolveReviewerId,
+} from '../src/domain/evaluation'
 
 const buildCandidate = (modelId: string): SnapshotCandidate => ({
   id: modelId,
@@ -33,5 +39,21 @@ describe('evaluation utils', () => {
 
   it('uses the reviewer id in local storage keys', () => {
     expect(evaluationStorageKey(' reviewer-7 ')).toBe('healthflow:evaluation:reviewer-7')
+  })
+
+  it('falls back to the demo reviewer when no reviewer id is provided', () => {
+    expect(resolveReviewerId('')).toBe(DEFAULT_REVIEWER_ID)
+    expect(resolveReviewerId(undefined)).toBe(DEFAULT_REVIEWER_ID)
+    expect(resolveReviewerId(' reviewer-9 ')).toBe('reviewer-9')
+  })
+
+  it('starts reviewer state with benchmark and framework memory buckets', () => {
+    expect(createReviewerState(' reviewer-2 ')).toEqual({
+      reviewerId: 'reviewer-2',
+      activeBenchmarkId: null,
+      activeRunIdByDataset: {},
+      currentIndexByDataset: {},
+      responses: {},
+    })
   })
 })

@@ -1,27 +1,28 @@
 # HealthFlow Platform
 
-Unified frontend for the HealthFlow paper narrative and blind human evaluation workflow.
+Two-page frontend for the HealthFlow project:
 
-## Stack
+- `/` home page
+- `/evaluation` evaluation workspace
 
-- Vue 3
-- TypeScript
-- Vite
-- Tailwind CSS v4
+The home page is the single paper-facing surface. It now includes the full project title, author and affiliation block, code and paper links, benchmark explanation, and citation instead of splitting those details across several routes.
 
-## Routes
+## Demo Evaluation
 
-- `/` overview / project homepage
-- `/benchmarks` benchmark definitions and reviewer protocol
-- `/evaluation` blind reviewer workspace
-- `/resources` commands, links, and citation
+The repo now ships a committed mock snapshot at `public/data/evaluation.snapshot.json`, so the Evaluation page works immediately without any local benchmark outputs.
 
-## Snapshot Workflow
+Current demo payload:
 
-The evaluation UI reads a static snapshot at `public/data/evaluation.snapshot.json`.
+- 1 MedAgentBoard-style question
+- 1 EHRFlowBench-style question
+- 4 framework baselines per benchmark
+- image, CSV, markdown, and PDF preview coverage
+- default reviewer auto-loaded as `demo-reviewer`
+- dataset tabs plus framework tabs for fast switching
 
-1. Edit [`content/evaluation.config.json`](/home/yhzhu/projects/HealthFlow/platform/content/evaluation.config.json) so it points at the local processed benchmark files and result directories you want to review.
-2. Run:
+## Real Snapshot Workflow
+
+When real benchmark outputs are available, the same UI can still consume a generated snapshot:
 
 ```bash
 npm install
@@ -29,15 +30,7 @@ npm run snapshot
 npm run dev
 ```
 
-The snapshot builder:
-
-- loads selected qids from local benchmark JSONL files
-- resolves reference manifests / reference artifacts when available
-- copies previewable files from `benchmark_results/**/<qid>/`
-- writes `public/data/evaluation.snapshot.json`
-- writes copied assets under `public/evaluation-assets/`
-
-If no snapshot exists yet, the Evaluation route stays in a non-crashing empty state and shows the build command.
+The snapshot builder reads local processed benchmark files plus `benchmark_results/**/<qid>/` and writes frontend-ready assets under `public/data/` and `public/evaluation-assets/`.
 
 ## Verification
 

@@ -93,6 +93,8 @@ export interface ReviewerResponse {
   qid: string
   choice: string
   selectedSlot: string | null
+  selectedRunId?: string | null
+  selectedRunLabel?: string | null
   selectedModelId: string | null
   slotMapping: Record<string, string>
   note: string
@@ -102,17 +104,22 @@ export interface ReviewerResponse {
 export interface ReviewerState {
   reviewerId: string
   activeBenchmarkId: BenchmarkId | null
+  activeRunIdByDataset: Partial<Record<BenchmarkId, string>>
   currentIndexByDataset: Partial<Record<BenchmarkId, number>>
   responses: Record<string, ReviewerResponse>
 }
 
 export const BLIND_SLOTS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+export const DEFAULT_REVIEWER_ID = 'demo-reviewer'
 
 export const evaluationStorageKey = (reviewerId: string) => `healthflow:evaluation:${reviewerId.trim()}`
 
+export const resolveReviewerId = (reviewerId: string | null | undefined) => reviewerId?.trim() || DEFAULT_REVIEWER_ID
+
 export const createReviewerState = (reviewerId: string): ReviewerState => ({
-  reviewerId: reviewerId.trim(),
+  reviewerId: resolveReviewerId(reviewerId),
   activeBenchmarkId: null,
+  activeRunIdByDataset: {},
   currentIndexByDataset: {},
   responses: {},
 })
