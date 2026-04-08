@@ -18,6 +18,15 @@ _MAIN_ASSISTANT_TEXT = (
 _TRACE_ASSISTANT_TEXT = "Advanced execution details for this task will appear here."
 _EMPTY_WORKSPACE_TEXT = "No workspace files yet."
 _EMPTY_PREVIEW_TEXT = "Select a file to preview it."
+_WEB_APP_CSS = """
+.gradio-container {
+    max-width: 100% !important;
+}
+
+.hf-main {
+    min-height: calc(100vh - 7rem);
+}
+"""
 
 
 class WebTaskSessionStore:
@@ -46,6 +55,36 @@ class WebTaskSessionStore:
         if hasattr(self._listing_system, "list_task_sessions"):
             return list(self._listing_system.list_task_sessions(limit=limit))
         return []
+
+    def has_task(self, task_id: str | None) -> bool:
+        normalized_task_id = str(task_id).strip() if task_id else ""
+        if not normalized_task_id:
+            return False
+        if self._listing_system is None:
+            self._listing_system = self._system_factory()
+        if hasattr(self._listing_system, "load_task_session"):
+            try:
+                self._listing_system.load_task_session(normalized_task_id)
+            except FileNotFoundError:
+                return False
+            return True
+        return any(item.task_id == normalized_task_id for item in self.list_recent_tasks(limit=0))
+
+    def rename_task(self, task_id: str, title: str) -> TaskSessionClient:
+        client = self.get_client(task_id)
+        client.rename(title)
+        return client
+
+    def delete_task(self, task_id: str) -> None:
+        if task_id in self._clients:
+            self._clients[task_id].delete()
+            self._clients.pop(task_id, None)
+            return
+        if not self.has_task(task_id):
+            raise FileNotFoundError(f"Task session '{task_id}' does not exist.")
+        client = self.get_client(task_id)
+        client.delete()
+        self._clients.pop(task_id, None)
 
 
 def _status_label(status: str | None) -> str:
@@ -97,11 +136,15 @@ def _relative_time_text(value: str | None) -> str:
     return f"{days}d ago"
 
 
-def _task_title(client: TaskSessionClient, recent_tasks: Sequence[TaskSessionSummary]) -> str:
+def _task_title_text(client: TaskSessionClient, recent_tasks: Sequence[TaskSessionSummary]) -> str:
     for item in recent_tasks:
         if item.task_id == client.task_id:
-            return _truncate_text(item.title)
-    return _truncate_text(client.original_goal or "")
+            return str(item.title or "").strip() or "Untitled task"
+    return client.display_title.strip() or client.original_goal.strip() or "Untitled task"
+
+
+def _task_title(client: TaskSessionClient, recent_tasks: Sequence[TaskSessionSummary]) -> str:
+    return _truncate_text(_task_title_text(client, recent_tasks))
 
 
 def _build_task_choices(recent_tasks: Sequence[TaskSessionSummary]) -> list[tuple[str, str]]:
@@ -128,7 +171,7 @@ def _visible_recent_tasks(
     if current_task_id and current_task_id not in task_map:
         task_map[current_task_id] = TaskSessionSummary(
             task_id=current_task_id,
-            title=_truncate_text(current_title),
+            title=current_title.strip() or "Untitled task",
             updated_at_utc=current_updated_at or "",
             turn_count=current_turn_count,
             latest_turn_status=current_status,
@@ -153,6 +196,11 @@ def _build_task_header(client: TaskSessionClient, recent_tasks: Sequence[TaskSes
         f"## {title}\n\n"
         f"Last run: **{status}**. This task has **{client.turn_count} {turn_text}** and was updated **{updated_text}**."
     )
+
+
+def _history_notice_update(message: str | None, *, gr: Any) -> Any:
+    text = str(message or "").strip()
+    return gr.update(value=text, visible=bool(text))
 
 
 def _result_answer_text(result: dict[str, Any]) -> str:
@@ -246,7 +294,7 @@ def _default_selected_file(
 
 
 def _task_root_path(task_id: str | None, session_store: WebTaskSessionStore) -> Path | None:
-    if not task_id:
+    if not task_id or not session_store.has_task(task_id):
         return None
     client = session_store.get_client(task_id)
     if not client.task_root:
@@ -467,18 +515,24 @@ def launch_web_app(
 
     session_store = WebTaskSessionStore(system_factory)
 
+    def _client_for_requested_task(task_id: str | None) -> TaskSessionClient:
+        if task_id and session_store.has_task(task_id):
+            return session_store.get_client(task_id)
+        return session_store.new_client()
+
     def _compose_outputs(
         client: TaskSessionClient,
         *,
         main_history: list[dict[str, str]],
         trace_history: list[dict[str, str]],
         preferred_file: str | None,
-    ) -> tuple[Any, list[dict[str, str]], list[dict[str, str]], str, str, list[dict[str, Any]], str | None, Any, Any, Any, Any, Any, Any, Any]:
+        history_notice: str | None = None,
+    ) -> tuple[Any, list[dict[str, str]], list[dict[str, str]], str, str, list[dict[str, Any]], str | None, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]:
         recent_tasks = session_store.list_recent_tasks(limit=50)
         visible_recent_tasks = _visible_recent_tasks(
             recent_tasks,
             current_task_id=client.task_id,
-            current_title=client.original_goal,
+            current_title=client.display_title or client.original_goal,
             current_updated_at=client.updated_at_utc,
             current_turn_count=client.turn_count,
             current_status=client.latest_turn_status,
@@ -496,6 +550,10 @@ def launch_web_app(
             _build_task_header(client, visible_recent_tasks),
             catalog,
             selected_file,
+            gr.update(value=_task_title_text(client, visible_recent_tasks)),
+            gr.update(value=False),
+            gr.update(interactive=False),
+            _history_notice_update(history_notice, gr=gr),
             *preview_outputs,
         )
 
@@ -524,7 +582,7 @@ def launch_web_app(
         return ""
 
     def _load_session(task_id: str | None):
-        client = session_store.get_client(task_id)
+        client = _client_for_requested_task(task_id)
         return _compose_outputs(
             client,
             main_history=_restore_main_history(client),
@@ -533,7 +591,7 @@ def launch_web_app(
         )
 
     def _switch_task(task_id: str | None):
-        client = session_store.get_client(task_id)
+        client = _client_for_requested_task(task_id)
         return _compose_outputs(
             client,
             main_history=_restore_main_history(client),
@@ -559,6 +617,73 @@ def launch_web_app(
 
     def _open_report_file(report_path: str | None, task_id: str | None):
         return report_path, *_preview_outputs_for_task(report_path, task_id)
+
+    def _toggle_delete_button(delete_confirmed: bool):
+        return gr.update(interactive=bool(delete_confirmed))
+
+    def _rename_task(
+        task_title: str | None,
+        main_history: list[dict[str, str]] | None,
+        trace_history: list[dict[str, str]] | None,
+        task_id: str | None,
+        selected_file: str | None,
+    ):
+        client = _client_for_requested_task(task_id)
+        main_history = list(main_history or _restore_main_history(client))
+        trace_history = list(trace_history or _restore_trace_history(client, restored=bool(task_id)))
+        session_store.rename_task(client.task_id, str(task_title or ""))
+        client.refresh_state()
+        notice = "Custom title cleared." if not str(task_title or "").strip() else "Title updated."
+        return _compose_outputs(
+            client,
+            main_history=main_history,
+            trace_history=trace_history,
+            preferred_file=selected_file,
+            history_notice=notice,
+        )
+
+    def _delete_task(
+        delete_confirmed: bool,
+        task_id: str | None,
+    ):
+        if not task_id:
+            client = session_store.new_client()
+            return _compose_outputs(
+                client,
+                main_history=_restore_main_history(client),
+                trace_history=_restore_trace_history(client, restored=False),
+                preferred_file=None,
+            )
+        if not delete_confirmed:
+            client = _client_for_requested_task(task_id)
+            return _compose_outputs(
+                client,
+                main_history=_restore_main_history(client),
+                trace_history=_restore_trace_history(client, restored=bool(task_id)),
+                preferred_file=None,
+                history_notice="Confirm deletion before removing this task.",
+            )
+
+        session_store.delete_task(task_id)
+        remaining_tasks = session_store.list_recent_tasks(limit=50)
+        if remaining_tasks:
+            client = session_store.get_client(remaining_tasks[0].task_id)
+            return _compose_outputs(
+                client,
+                main_history=_restore_main_history(client),
+                trace_history=_restore_trace_history(client, restored=True),
+                preferred_file=None,
+                history_notice="Task deleted.",
+            )
+
+        client = session_store.new_client()
+        return _compose_outputs(
+            client,
+            main_history=_restore_main_history(client),
+            trace_history=_restore_trace_history(client, restored=False),
+            preferred_file=None,
+            history_notice="Task deleted.",
+        )
 
     def _run_turn(
         prompt_input: dict[str, Any] | None,
@@ -650,7 +775,7 @@ def launch_web_app(
             preferred_file=selected_file,
         )
 
-    with gr.Blocks(title="HealthFlow Web") as demo:
+    with gr.Blocks(title="HealthFlow Web", fill_width=True, fill_height=True, css=_WEB_APP_CSS) as demo:
         browser_task_id = gr.BrowserState(None, storage_key="healthflow-active-task")
         workspace_catalog_state = gr.State([])
         selected_file_state = gr.State(None)
@@ -663,182 +788,197 @@ def launch_web_app(
             """
         )
 
-        with gr.Row():
-            with gr.Column(scale=1, min_width=300):
-                recent_tasks = gr.Radio(
-                    label="History",
-                    choices=[],
-                    value=None,
-                    interactive=True,
-                )
-                new_task_button = gr.Button("New Task", variant="primary")
-            with gr.Column(scale=4):
-                task_header = gr.Markdown()
-                with gr.Row():
-                    with gr.Column(scale=3):
-                        main_chatbot = gr.Chatbot(
-                            label="Conversation",
-                            type="messages",
-                            value=[{"role": "assistant", "content": _MAIN_ASSISTANT_TEXT}],
-                            height=720,
-                            show_copy_button=True,
-                        )
-                        prompt_input = gr.MultimodalTextbox(
-                            interactive=True,
-                            file_count="multiple",
-                            placeholder="Describe the task or provide follow-up feedback. Upload files if needed.",
-                            show_label=False,
-                        )
-                    with gr.Column(scale=2):
-                        with gr.Tabs():
-                            with gr.Tab("Workspace"):
-                                with gr.Row():
-                                    with gr.Column(scale=1, min_width=240):
-                                        gr.Markdown("### Workspace")
+        with gr.Sidebar(label="History", open=True, width=360):
+            recent_tasks = gr.Radio(
+                label="Tasks",
+                choices=[],
+                value=None,
+                interactive=True,
+            )
+            new_task_button = gr.Button("New Task", variant="primary")
+            task_title_input = gr.Textbox(
+                label="Task Title",
+                placeholder="Leave blank to use an automatic title.",
+                lines=1,
+            )
+            save_title_button = gr.Button("Save Title")
+            delete_confirm = gr.Checkbox(
+                label="I understand this permanently deletes this task.",
+                value=False,
+            )
+            delete_task_button = gr.Button("Delete Task", variant="stop", interactive=False)
+            history_notice = gr.Markdown(visible=False)
 
-                                        @gr.render(
-                                            inputs=[browser_task_id, workspace_catalog_state, selected_file_state],
+        with gr.Row(elem_classes=["hf-main"]):
+            with gr.Column(scale=7, min_width=760):
+                task_header = gr.Markdown()
+                main_chatbot = gr.Chatbot(
+                    label="Conversation",
+                    type="messages",
+                    value=[{"role": "assistant", "content": _MAIN_ASSISTANT_TEXT}],
+                    height=820,
+                    show_copy_button=True,
+                )
+                prompt_input = gr.MultimodalTextbox(
+                    interactive=True,
+                    file_count="multiple",
+                    placeholder="Describe the task or provide follow-up feedback. Upload files if needed.",
+                    show_label=False,
+                )
+            with gr.Column(scale=5, min_width=760):
+                with gr.Tabs():
+                    with gr.Tab("Workspace"):
+                        with gr.Row():
+                            with gr.Column(scale=4, min_width=320):
+                                gr.Markdown("### Workspace")
+
+                                @gr.render(
+                                    inputs=[browser_task_id, workspace_catalog_state, selected_file_state],
+                                    queue=False,
+                                    show_progress="hidden",
+                                )
+                                def _render_workspace_browser(
+                                    current_task_id: str | None,
+                                    workspace_catalog: list[dict[str, Any]] | None,
+                                    current_selected_file: str | None,
+                                ):
+                                    if not current_task_id:
+                                        gr.Markdown(_EMPTY_WORKSPACE_TEXT)
+                                        return
+
+                                    task_root = _task_root_path(current_task_id, session_store)
+                                    if task_root is None:
+                                        gr.Markdown(_EMPTY_WORKSPACE_TEXT)
+                                        return
+
+                                    catalog = list(workspace_catalog or [])
+                                    report_path = next(
+                                        (
+                                            str(item.get("source_path"))
+                                            for item in catalog
+                                            if item.get("origin") == "report"
+                                        ),
+                                        None,
+                                    )
+                                    visible_files = [item for item in catalog if item.get("origin") != "report"]
+                                    report_path_state = gr.State(report_path)
+
+                                    if report_path:
+                                        open_report_button = gr.Button(
+                                            "report.md",
+                                            variant="primary" if current_selected_file == report_path else "secondary",
+                                        )
+                                        open_report_button.click(
+                                            _open_report_file,
+                                            [report_path_state, browser_task_id],
+                                            [
+                                                selected_file_state,
+                                                preview_header,
+                                                preview_markdown,
+                                                preview_image,
+                                                preview_table,
+                                                preview_code,
+                                                preview_empty,
+                                                download_button,
+                                            ],
                                             queue=False,
                                             show_progress="hidden",
                                         )
-                                        def _render_workspace_browser(
-                                            current_task_id: str | None,
-                                            workspace_catalog: list[dict[str, Any]] | None,
-                                            current_selected_file: str | None,
-                                        ):
-                                            if not current_task_id:
-                                                gr.Markdown(_EMPTY_WORKSPACE_TEXT)
-                                                return
 
-                                            task_root = _task_root_path(current_task_id, session_store)
-                                            if task_root is None:
-                                                gr.Markdown(_EMPTY_WORKSPACE_TEXT)
-                                                return
-
-                                            catalog = list(workspace_catalog or [])
-                                            report_path = next(
-                                                (
-                                                    str(item.get("source_path"))
-                                                    for item in catalog
-                                                    if item.get("origin") == "report"
-                                                ),
-                                                None,
-                                            )
-                                            visible_files = [item for item in catalog if item.get("origin") != "report"]
-                                            report_path_state = gr.State(report_path)
-
-                                            if report_path:
-                                                open_report_button = gr.Button(
-                                                    "report.md",
-                                                    variant="primary"
-                                                    if current_selected_file == report_path
-                                                    else "secondary",
-                                                )
-                                                open_report_button.click(
-                                                    _open_report_file,
-                                                    [report_path_state, browser_task_id],
-                                                    [
-                                                        selected_file_state,
-                                                        preview_header,
-                                                        preview_markdown,
-                                                        preview_image,
-                                                        preview_table,
-                                                        preview_code,
-                                                        preview_empty,
-                                                        download_button,
-                                                    ],
-                                                    queue=False,
-                                                    show_progress="hidden",
-                                                )
-
-                                            sandbox_root = task_root / "sandbox"
-                                            if visible_files:
-                                                workspace_browser = gr.FileExplorer(
-                                                    root_dir=str(sandbox_root),
-                                                    file_count="single",
-                                                    label="Files",
-                                                    height=360,
-                                                    interactive=True,
-                                                    value=_workspace_tree_value(
-                                                        current_selected_file,
-                                                        task_root=task_root,
-                                                    ),
-                                                    key=("workspace-browser", current_task_id),
-                                                    preserved_by_key=[],
-                                                )
-                                                workspace_browser.change(
-                                                    _on_workspace_file_selected,
-                                                    [workspace_browser, browser_task_id],
-                                                    [
-                                                        selected_file_state,
-                                                        preview_header,
-                                                        preview_markdown,
-                                                        preview_image,
-                                                        preview_table,
-                                                        preview_code,
-                                                        preview_empty,
-                                                        download_button,
-                                                    ],
-                                                    queue=False,
-                                                    show_progress="hidden",
-                                                )
-                                            elif not report_path:
-                                                gr.Markdown(_EMPTY_WORKSPACE_TEXT)
-
-                                    with gr.Column(scale=2, min_width=320):
-                                        preview_header = gr.Markdown(value="### Preview")
-                                        preview_markdown = gr.Markdown(visible=False)
-                                        preview_image = gr.Image(
-                                            label="Image preview",
-                                            visible=False,
-                                            type="filepath",
-                                            show_download_button=False,
+                                    sandbox_root = task_root / "sandbox"
+                                    if visible_files:
+                                        workspace_browser = gr.FileExplorer(
+                                            root_dir=str(sandbox_root),
+                                            file_count="single",
+                                            label="Files",
+                                            height=560,
+                                            interactive=True,
+                                            value=_workspace_tree_value(
+                                                current_selected_file,
+                                                task_root=task_root,
+                                            ),
+                                            key=("workspace-browser", current_task_id),
+                                            preserved_by_key=[],
                                         )
-                                        preview_table = gr.Dataframe(
-                                            label="Data preview",
-                                            visible=False,
-                                            interactive=False,
-                                            show_copy_button=True,
-                                            max_height=360,
+                                        workspace_browser.change(
+                                            _on_workspace_file_selected,
+                                            [workspace_browser, browser_task_id],
+                                            [
+                                                selected_file_state,
+                                                preview_header,
+                                                preview_markdown,
+                                                preview_image,
+                                                preview_table,
+                                                preview_code,
+                                                preview_empty,
+                                                download_button,
+                                            ],
+                                            queue=False,
+                                            show_progress="hidden",
                                         )
-                                        preview_code = gr.Code(
-                                            label="Code preview",
-                                            visible=False,
-                                            interactive=False,
-                                            lines=18,
-                                            max_lines=32,
-                                        )
-                                        preview_empty = gr.Markdown(value=_EMPTY_WORKSPACE_TEXT)
-                                        download_button = gr.DownloadButton("Download file", visible=False)
-                            with gr.Tab("Advanced"):
-                                report_requested = gr.Checkbox(label="Generate report.md for each turn", value=False)
-                                trace_chatbot = gr.Chatbot(
-                                    label="Execution Trace",
-                                    type="messages",
-                                    value=[{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}],
-                                    height=620,
-                                    show_copy_button=True,
+                                    elif not report_path:
+                                        gr.Markdown(_EMPTY_WORKSPACE_TEXT)
+
+                            with gr.Column(scale=6, min_width=420):
+                                preview_header = gr.Markdown(value="### Preview")
+                                preview_markdown = gr.Markdown(visible=False)
+                                preview_image = gr.Image(
+                                    label="Image preview",
+                                    visible=False,
+                                    type="filepath",
+                                    show_download_button=False,
                                 )
+                                preview_table = gr.Dataframe(
+                                    label="Data preview",
+                                    visible=False,
+                                    interactive=False,
+                                    show_copy_button=True,
+                                    max_height=560,
+                                )
+                                preview_code = gr.Code(
+                                    label="Code preview",
+                                    visible=False,
+                                    interactive=False,
+                                    lines=24,
+                                    max_lines=42,
+                                )
+                                preview_empty = gr.Markdown(value=_EMPTY_WORKSPACE_TEXT)
+                                download_button = gr.DownloadButton("Download file", visible=False)
+                    with gr.Tab("Advanced"):
+                        report_requested = gr.Checkbox(label="Generate report.md for each turn", value=False)
+                        trace_chatbot = gr.Chatbot(
+                            label="Execution Trace",
+                            type="messages",
+                            value=[{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}],
+                            height=780,
+                            show_copy_button=True,
+                        )
+
+        app_outputs = [
+            recent_tasks,
+            main_chatbot,
+            trace_chatbot,
+            browser_task_id,
+            task_header,
+            workspace_catalog_state,
+            selected_file_state,
+            task_title_input,
+            delete_confirm,
+            delete_task_button,
+            history_notice,
+            preview_header,
+            preview_markdown,
+            preview_image,
+            preview_table,
+            preview_code,
+            preview_empty,
+            download_button,
+        ]
 
         demo.load(
             _load_session,
             [browser_task_id],
-            [
-                recent_tasks,
-                main_chatbot,
-                trace_chatbot,
-                browser_task_id,
-                task_header,
-                workspace_catalog_state,
-                selected_file_state,
-                preview_header,
-                preview_markdown,
-                preview_image,
-                preview_table,
-                preview_code,
-                preview_empty,
-                download_button,
-            ],
+            app_outputs,
             queue=False,
             show_progress="hidden",
         )
@@ -846,22 +986,7 @@ def launch_web_app(
         recent_tasks.change(
             _switch_task,
             [recent_tasks],
-            [
-                recent_tasks,
-                main_chatbot,
-                trace_chatbot,
-                browser_task_id,
-                task_header,
-                workspace_catalog_state,
-                selected_file_state,
-                preview_header,
-                preview_markdown,
-                preview_image,
-                preview_table,
-                preview_code,
-                preview_empty,
-                download_button,
-            ],
+            app_outputs,
             queue=False,
             show_progress="hidden",
         )
@@ -869,22 +994,37 @@ def launch_web_app(
         new_task_button.click(
             _new_task,
             None,
+            app_outputs,
+            queue=False,
+            show_progress="hidden",
+        )
+
+        save_title_button.click(
+            _rename_task,
             [
-                recent_tasks,
+                task_title_input,
                 main_chatbot,
                 trace_chatbot,
                 browser_task_id,
-                task_header,
-                workspace_catalog_state,
                 selected_file_state,
-                preview_header,
-                preview_markdown,
-                preview_image,
-                preview_table,
-                preview_code,
-                preview_empty,
-                download_button,
             ],
+            app_outputs,
+            queue=False,
+            show_progress="hidden",
+        )
+
+        delete_confirm.change(
+            _toggle_delete_button,
+            [delete_confirm],
+            [delete_task_button],
+            queue=False,
+            show_progress="hidden",
+        )
+
+        delete_task_button.click(
+            _delete_task,
+            [delete_confirm, browser_task_id],
+            app_outputs,
             queue=False,
             show_progress="hidden",
         )
@@ -899,22 +1039,7 @@ def launch_web_app(
                 report_requested,
                 selected_file_state,
             ],
-            [
-                recent_tasks,
-                main_chatbot,
-                trace_chatbot,
-                browser_task_id,
-                task_header,
-                workspace_catalog_state,
-                selected_file_state,
-                preview_header,
-                preview_markdown,
-                preview_image,
-                preview_table,
-                preview_code,
-                preview_empty,
-                download_button,
-            ],
+            app_outputs,
         ).then(lambda: gr.MultimodalTextbox(value=None), None, [prompt_input])
 
     demo.queue()
