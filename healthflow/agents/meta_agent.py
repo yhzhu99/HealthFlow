@@ -5,6 +5,7 @@ from ..core.contracts import ExecutionPlan
 from ..core.llm_provider import LLMProvider, LLMMessage, StructuredResponseError, parse_json_content
 from ..prompts.templates import get_prompt, render_prompt
 from ..experience.experience_models import Experience
+from ..session import SessionPromptContext
 
 
 class MetaAgent:
@@ -31,6 +32,7 @@ class MetaAgent:
         available_project_cli_tools: List[str],
         workflow_recommendations: List[str],
         previous_feedback: Optional[str] = None,
+        session_context: SessionPromptContext | None = None,
     ) -> ExecutionPlan:
         """
         Analyze the user request and generate a structured execution plan.
@@ -46,6 +48,7 @@ class MetaAgent:
             available_project_cli_tools=available_project_cli_tools,
             workflow_recommendations=workflow_recommendations,
             previous_feedback=previous_feedback,
+            session_context=session_context,
         )
 
         messages = [
@@ -113,9 +116,11 @@ class MetaAgent:
         available_project_cli_tools: List[str],
         workflow_recommendations: List[str],
         previous_feedback: Optional[str],
+        session_context: SessionPromptContext | None = None,
     ) -> str:
         sections = [
             self._render_section("User request", user_request.strip()),
+            self._render_section("Task session context", session_context.planner_block() if session_context is not None else ""),
             self._render_section(
                 "Execution environment",
                 self._render_bullet_list(execution_environment) or "- Use the default executor environment.",

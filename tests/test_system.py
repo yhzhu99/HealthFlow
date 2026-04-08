@@ -545,6 +545,88 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(history["response_mode"], "direct_response")
             self.assertEqual(history["available_project_cli_tools"], [])
 
+    async def test_run_task_turn_reuses_shared_workspace_and_preserves_turn_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = _build_test_config(workspace_dir)
+            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            system.meta_agent = _FakeMetaAgent()
+            system.evaluator = _FakeEvaluator()
+            system.reflector = _FakeReflector()
+            system.executor = _FakeExecutor()
+
+            first = await system.run_task_turn(
+                "shared-task",
+                "Train a readmission prediction model on the uploaded cohort.",
+                uploaded_files={"patients.csv": b"subject_id,outcome,event_time\n1,0,2020-01-01\n"},
+                report_requested=True,
+            )
+            second = await system.run_task_turn(
+                "shared-task",
+                "Please update the summary and keep working in the same task workspace.",
+                report_requested=True,
+            )
+
+            task_workspace = Path(first["workspace_path"])
+            self.assertEqual(first["workspace_path"], second["workspace_path"])
+            self.assertEqual(first["task_id"], "shared-task")
+            self.assertEqual(first["turn_number"], 1)
+            self.assertEqual(second["turn_number"], 2)
+            self.assertNotEqual(first["runtime_path"], second["runtime_path"])
+            self.assertTrue((task_workspace / "sandbox" / "patients.csv").exists())
+            self.assertTrue((task_workspace / "runtime" / "turns" / "turn_001" / "run" / "summary.json").exists())
+            self.assertTrue((task_workspace / "runtime" / "turns" / "turn_002" / "run" / "summary.json").exists())
+            self.assertTrue((task_workspace / "runtime" / "run" / "summary.json").exists())
+            self.assertTrue((task_workspace / "runtime" / "report.md").exists())
+
+            session_state = json.loads((task_workspace / "runtime" / "session.json").read_text(encoding="utf-8"))
+            self.assertEqual(session_state["turn_count"], 2)
+            self.assertEqual(session_state["latest_turn_number"], 2)
+
+            history_lines = [
+                json.loads(line)
+                for line in (task_workspace / "runtime" / "history.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual([item["turn_number"] for item in history_lines], [1, 2])
+
+            latest_summary = json.loads((task_workspace / "runtime" / "run" / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(latest_summary["answer"], second["answer"])
+
+    async def test_run_task_turn_disables_direct_response_after_first_turn(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = _build_test_config(workspace_dir)
+            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            system.meta_agent = _FakeMetaAgent()
+            system.evaluator = _FakeEvaluator()
+            system.reflector = _FakeReflector()
+            system.executor = _FakeExecutor()
+            system.direct_response_router = _StubDirectResponseRouter(
+                {
+                    "hi, who are you?": DirectResponse(
+                        mode="direct_response",
+                        category="identity",
+                        answer="Hi! I'm HealthFlow, an AI assistant for this workspace.",
+                        reason="Classified as a lightweight identity prompt.",
+                    ),
+                    "what's your name?": DirectResponse(
+                        mode="direct_response",
+                        category="identity",
+                        answer="I'm HealthFlow.",
+                        reason="Classified as a lightweight identity prompt.",
+                    ),
+                }
+            )
+
+            first = await system.run_task_turn("chat-task", "hi, who are you?")
+            second = await system.run_task_turn("chat-task", "what's your name?")
+
+            self.assertEqual(first["response_mode"], "direct_response")
+            self.assertEqual(second["response_mode"], "orchestrated")
+
 
 class SystemAnswerExtractionTests(unittest.TestCase):
     def _build_system(self, workspace_root: Path, workspace_dir: Path) -> HealthFlowSystem:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -32,8 +33,13 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _PATH_LIKE_RE = re.compile(r"(?<!\w)(?:\./|\.\./|/)[^\s`]+")
 
 
-def generate_task_report(task_workspace: Path) -> Path:
-    runtime_dir = task_workspace / "runtime"
+def generate_task_report(
+    task_workspace: Path,
+    *,
+    runtime_dir: Path | None = None,
+    report_path: Path | None = None,
+) -> Path:
+    runtime_dir = runtime_dir or (task_workspace / "runtime")
     sandbox_dir = task_workspace / "sandbox"
     index = _read_json(runtime_dir / "index.json")
     run_summary = _read_json(runtime_dir / "run" / "summary.json")
@@ -41,7 +47,8 @@ def generate_task_report(task_workspace: Path) -> Path:
     evaluation = _read_json(runtime_dir / "run" / "final_evaluation.json")
     cost_analysis = _read_json(runtime_dir / "run" / "costs.json")
 
-    deliverables = _collect_deliverables(sandbox_dir)
+    resolved_report_path = report_path or (runtime_dir / "report.md")
+    deliverables = _collect_deliverables(sandbox_dir, resolved_report_path)
     report_markdown = _render_report(
         task_workspace=task_workspace,
         index=index,
@@ -52,7 +59,7 @@ def generate_task_report(task_workspace: Path) -> Path:
         deliverables=deliverables,
     )
 
-    report_path = runtime_dir / "report.md"
+    report_path = resolved_report_path
     temp_path = report_path.with_suffix(".md.tmp")
     temp_path.write_text(report_markdown, encoding="utf-8")
     temp_path.replace(report_path)
@@ -919,7 +926,7 @@ def _audit_rows(run_summary: dict[str, Any], latest_attempt: dict[str, Any]) -> 
     return audit_rows
 
 
-def _collect_deliverables(sandbox_dir: Path) -> list[dict[str, Any]]:
+def _collect_deliverables(sandbox_dir: Path, report_path: Path) -> list[dict[str, Any]]:
     deliverables: list[dict[str, Any]] = []
     if not sandbox_dir.exists():
         return deliverables
@@ -929,9 +936,10 @@ def _collect_deliverables(sandbox_dir: Path) -> list[dict[str, Any]]:
         relative_path = path.relative_to(sandbox_dir).as_posix()
         if _is_runtime_path(relative_path):
             continue
+        report_relative_path = os.path.relpath(path, report_path.parent).replace("\\", "/")
         deliverables.append(
             {
-                "path": (Path("..") / "sandbox" / relative_path).as_posix(),
+                "path": report_relative_path,
                 "sandbox_relative_path": relative_path,
                 "source_path": path,
                 "category": _categorize_artifact(path),
