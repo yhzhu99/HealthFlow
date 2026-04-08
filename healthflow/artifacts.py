@@ -87,21 +87,19 @@ def collect_report_deliverables(sandbox_dir: Path, report_path: Path) -> list[di
 def collect_task_artifacts(task_root: Path, history: Sequence["TaskTurnRecord"]) -> list[dict[str, Any]]:
     artifacts: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
-    uploaded_sandbox_paths: set[str] = set()
+    uploaded_display_names: dict[str, str] = {}
 
     for record in history:
         for upload in record.uploaded_files:
             sandbox_relative_path = str(upload.get("sandbox_path") or "").strip()
-            if sandbox_relative_path:
-                uploaded_sandbox_paths.add(sandbox_relative_path)
-
             upload_relative_path = str(upload.get("upload_path") or "").strip()
-            preferred_relative_path = upload_relative_path or sandbox_relative_path
+            preferred_relative_path = sandbox_relative_path or upload_relative_path
             if not preferred_relative_path:
                 continue
+
             source_path = task_root / preferred_relative_path
             if not source_path.exists():
-                fallback_relative_path = sandbox_relative_path or upload_relative_path
+                fallback_relative_path = upload_relative_path if preferred_relative_path == sandbox_relative_path else sandbox_relative_path
                 if not fallback_relative_path:
                     continue
                 source_path = task_root / fallback_relative_path
@@ -109,33 +107,7 @@ def collect_task_artifacts(task_root: Path, history: Sequence["TaskTurnRecord"])
                 if not source_path.exists():
                     continue
 
-            artifacts.append(
-                _artifact_record(
-                    task_root=task_root,
-                    source_path=source_path,
-                    origin="uploaded",
-                    display_name=str(upload.get("original_name") or source_path.name),
-                )
-            )
-            seen_paths.add(preferred_relative_path)
-
-    uploads_dir = task_root / "uploads"
-    if uploads_dir.exists():
-        for path in sorted(uploads_dir.rglob("*")):
-            if not path.is_file():
-                continue
-            task_relative_path = path.relative_to(task_root).as_posix()
-            if task_relative_path in seen_paths:
-                continue
-            artifacts.append(
-                _artifact_record(
-                    task_root=task_root,
-                    source_path=path,
-                    origin="uploaded",
-                    display_name=path.name,
-                )
-            )
-            seen_paths.add(task_relative_path)
+            uploaded_display_names[preferred_relative_path] = str(upload.get("original_name") or source_path.name)
 
     report_path = task_root / "runtime" / "report.md"
     if report_path.exists():
@@ -159,14 +131,14 @@ def collect_task_artifacts(task_root: Path, history: Sequence["TaskTurnRecord"])
             task_relative_path = path.relative_to(task_root).as_posix()
             if _is_runtime_path(sandbox_relative_path):
                 continue
-            if sandbox_relative_path in uploaded_sandbox_paths or task_relative_path in seen_paths:
+            if task_relative_path in seen_paths:
                 continue
             artifacts.append(
                 _artifact_record(
                     task_root=task_root,
                     source_path=path,
-                    origin="generated",
-                    display_name=path.name,
+                    origin="uploaded" if task_relative_path in uploaded_display_names else "generated",
+                    display_name=uploaded_display_names.get(task_relative_path, path.name),
                 )
             )
             seen_paths.add(task_relative_path)

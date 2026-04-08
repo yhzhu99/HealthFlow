@@ -56,6 +56,22 @@ class TaskSessionListingTests(unittest.TestCase):
         self.assertEqual(summaries[0].turn_count, 2)
         self.assertEqual(summaries[0].latest_turn_status, "success")
 
+    def test_list_task_sessions_uses_user_facing_title_for_untitled_tasks(self):
+        self._write_task(
+            "task-draft",
+            original_goal="",
+            updated_at_utc="2026-04-08T01:00:00Z",
+            turn_count=0,
+            latest_turn_status=None,
+        )
+
+        system = object.__new__(HealthFlowSystem)
+        system.workspace_dir = self.workspace_dir
+
+        summaries = HealthFlowSystem.list_task_sessions(system, limit=10)
+
+        self.assertEqual(summaries[0].title, "Untitled task")
+
 
 if __name__ == "__main__":
     unittest.main()

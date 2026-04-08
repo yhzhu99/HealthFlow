@@ -17,9 +17,11 @@ class ArtifactTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def test_collect_task_artifacts_includes_uploaded_generated_and_report(self):
+    def test_collect_task_artifacts_returns_visible_workspace_files(self):
         upload_path = self.task_root / "uploads" / "turn_001" / "notes.md"
         upload_path.write_text("# Notes\n\nImportant upload.\n", encoding="utf-8")
+        uploaded_workspace_path = self.task_root / "sandbox" / "notes.md"
+        uploaded_workspace_path.write_text("# Notes\n\nImportant upload.\n", encoding="utf-8")
         generated_path = self.task_root / "sandbox" / "results.csv"
         generated_path.write_text("metric,value\nauroc,0.91\n", encoding="utf-8")
         report_path = self.task_root / "runtime" / "report.md"
@@ -46,7 +48,8 @@ class ArtifactTests(unittest.TestCase):
         origins = {item["task_relative_path"]: item["origin"] for item in catalog}
         preview_kinds = {item["task_relative_path"]: item["preview_kind"] for item in catalog}
 
-        self.assertEqual(origins["uploads/turn_001/notes.md"], "uploaded")
+        self.assertNotIn("uploads/turn_001/notes.md", origins)
+        self.assertEqual(origins["sandbox/notes.md"], "uploaded")
         self.assertEqual(origins["sandbox/results.csv"], "generated")
         self.assertEqual(origins["runtime/report.md"], "report")
         self.assertEqual(preview_kinds["runtime/report.md"], "markdown")

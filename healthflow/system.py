@@ -173,7 +173,7 @@ class HealthFlowSystem:
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 continue
             history = self._read_session_history(task_workspace)
-            title = state.original_goal.strip() or (history[0].user_message.strip() if history else "") or "New task"
+            title = state.original_goal.strip() or (history[0].user_message.strip() if history else "") or "Untitled task"
             summaries.append(
                 TaskSessionSummary(
                     task_id=state.task_id,
