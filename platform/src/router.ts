@@ -1,17 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import BenchmarksView from './views/BenchmarksView.vue'
 import EvaluationView from './views/EvaluationView.vue'
 import OverviewView from './views/OverviewView.vue'
-import ResourcesView from './views/ResourcesView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'overview', component: OverviewView },
-    { path: '/benchmarks', name: 'benchmarks', component: BenchmarksView },
+    { path: '/', name: 'home', component: OverviewView },
     { path: '/evaluation', name: 'evaluation', component: EvaluationView },
-    { path: '/resources', name: 'resources', component: ResourcesView },
   ],
   scrollBehavior(to, from, savedPosition) {
     if (savedPosition) {
