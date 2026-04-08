@@ -19,7 +19,7 @@ import {
 } from '../domain/evaluation'
 import { downloadJson } from '../lib/download'
 import { renderMarkdown } from '../lib/markdown'
-import { loadEvaluationSnapshot } from '../lib/snapshot'
+import { evaluationSnapshotUrl, loadEvaluationSnapshot } from '../lib/snapshot'
 import { readJson, writeJson } from '../lib/storage'
 
 const LAST_REVIEWER_KEY = 'healthflow:evaluation:last-reviewer'
@@ -40,6 +40,9 @@ type CompareTab =
 const snapshot = ref<EvaluationSnapshot | null>(null)
 const loading = ref(true)
 const loadError = ref<string | null>(null)
+const loadAttemptCount = ref(0)
+const snapshotUrl = evaluationSnapshotUrl()
+let loadRequestId = 0
 
 const reviewerDraft = ref(resolveReviewerId(readJson<string>(LAST_REVIEWER_KEY, DEFAULT_REVIEWER_ID)))
 const reviewerState = ref<ReviewerState | null>(null)
@@ -364,17 +367,35 @@ watch(frameworkCandidates, () => {
   ensureActiveCompareTab()
 })
 
-onMounted(async () => {
+const reloadPage = () => {
+  window.location.reload()
+}
+
+const loadSnapshot = async () => {
+  const requestId = ++loadRequestId
+  loading.value = true
+  loadError.value = null
+  loadAttemptCount.value += 1
+
   try {
-    snapshot.value = await loadEvaluationSnapshot()
-    if (snapshot.value) {
+    const loadedSnapshot = await loadEvaluationSnapshot()
+    if (requestId !== loadRequestId) return
+
+    snapshot.value = loadedSnapshot
+    if (loadedSnapshot) {
       activateReviewer(reviewerDraft.value)
     }
   } catch (caughtError) {
+    if (requestId !== loadRequestId) return
     loadError.value = caughtError instanceof Error ? caughtError.message : String(caughtError)
   } finally {
+    if (requestId !== loadRequestId) return
     loading.value = false
   }
+}
+
+onMounted(async () => {
+  await loadSnapshot()
 })
 </script>
 
@@ -382,15 +403,35 @@ onMounted(async () => {
   <AppShell content-width="wide">
     <div v-if="loading" class="pt-4 sm:pt-5">
       <AppCard class="!p-4">
-        <div class="py-8 text-center text-slate-500">Loading evaluation snapshot...</div>
+        <div class="space-y-4 py-4 text-center">
+          <div class="text-lg font-semibold text-slate-950">Loading evaluation snapshot...</div>
+          <p class="text-sm leading-7 text-slate-500">
+            Fetching
+            <code class="rounded bg-slate-100 px-2 py-1 text-[12px]">{{ snapshotUrl }}</code>
+          </p>
+          <p class="text-xs leading-6 text-slate-500">
+            Attempt {{ loadAttemptCount }}. If this does not resolve within a few seconds, retry the load or refresh the page.
+          </p>
+        </div>
       </AppCard>
     </div>
 
     <div v-else-if="loadError" class="pt-4 sm:pt-5">
       <AppCard class="!p-4">
-        <div class="space-y-3">
+        <div class="space-y-4">
           <div class="text-lg font-semibold text-rose-700">Snapshot load failed</div>
           <p class="text-sm leading-7 text-rose-700">{{ loadError }}</p>
+          <p class="text-xs leading-6 text-slate-500">
+            Attempted URL:
+            <code class="rounded bg-slate-100 px-2 py-1 text-[12px] text-slate-700">{{ snapshotUrl }}</code>
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <AppButton @click="loadSnapshot">Retry Snapshot</AppButton>
+            <a :href="snapshotUrl" target="_blank" rel="noreferrer">
+              <AppButton variant="secondary">Open Raw JSON</AppButton>
+            </a>
+            <AppButton variant="ghost" @click="reloadPage">Reload Page</AppButton>
+          </div>
         </div>
       </AppCard>
     </div>
