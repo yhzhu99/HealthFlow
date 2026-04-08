@@ -20,7 +20,10 @@ from healthflow.web_app import launch_web_app
 
 app = typer.Typer(
     name="healthflow",
-    help="A Self-Evolving Meta-System for Orchestrating Agentic Coders in Healthcare.",
+    help=(
+        "HealthFlow has three modes: `run` for non-interactive one-shot tasks, "
+        "`interactive` for the terminal chat shell, and `web` for the browser UI."
+    ),
     add_completion=False,
 )
 console = Console()
@@ -213,8 +216,11 @@ async def main_interactive_loop(system: Any, *, verbose: bool = False):
     session = system if isinstance(system, TaskSessionClient) else TaskSessionClient(system)
     console.print(
         Panel(
-            "[bold green]HealthFlow Interactive Mode[/bold green]",
-            subtitle=f"{session.session_label} · Type 'exit' or 'quit' to end the session. Use /new for a new task.",
+            (
+                "[bold green]HealthFlow Interactive CLI[/bold green]\n\n"
+                "[dim]Follow-up prompts stay on the same task session. Use /new to start a fresh task.[/dim]"
+            ),
+            subtitle=f"{session.session_label} · Type 'exit' or 'quit' to end the session.",
             border_style="green",
         )
     )
@@ -313,7 +319,7 @@ def run(
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
 ):
     """
-    Run a single task through the HealthFlow system.
+    Run one task non-interactively. Best for scripts, CI, and one-shot analyses.
     """
     system = _initialize_system(
         config_path,
@@ -339,7 +345,7 @@ def interactive(
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
 ):
     """
-    Starts HealthFlow in an interactive, chat-like mode for multiple tasks.
+    Start the interactive CLI. Follow-up prompts stay on the same task until /new.
     """
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         system = _initialize_system(
@@ -415,7 +421,7 @@ def web(
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
 ):
     """
-    Launch the Python-driven HealthFlow web frontend.
+    Launch the browser UI. Web follow-ups stay on the same task until New Task.
     """
     system_factory = _build_system_factory(
         config_path,
@@ -440,12 +446,21 @@ def main_entry(ctx: typer.Context):
     Main entry point for the CLI. Shows help by default.
     """
     if ctx.invoked_subcommand is None:
-        console.print(Panel("[bold cyan]Welcome to HealthFlow[/bold cyan]",
-                            subtitle="A Self-Evolving Meta-System for Agentic AI in Healthcare",
-                            border_style="cyan"))
-        console.print("\nRun `[bold]python run_healthflow.py --help[/bold]` for commands.")
-        console.print("  - `[bold]run \"<your task>\"[/bold]` to execute a single task.")
-        console.print("  - `[bold]interactive[/bold]` to start a chat-like session.")
+        console.print(
+            Panel(
+                "[bold cyan]Welcome to HealthFlow[/bold cyan]",
+                subtitle="Choose the interface that matches how you want to work",
+                border_style="cyan",
+            )
+        )
+        console.print("\nHealthFlow exposes three modes:")
+        console.print("  - `[bold]run[/bold]`: non-interactive CLI for a single task, scripts, and CI.")
+        console.print("  - `[bold]interactive[/bold]`: terminal chat shell that keeps the same task until `/new`.")
+        console.print("  - `[bold]web[/bold]`: browser UI that keeps the same task until `New Task`.")
+        console.print(
+            "\nRun `[bold]uv run healthflow --help[/bold]` or "
+            "`[bold]python run_healthflow.py --help[/bold]` for full command details."
+        )
 
 if __name__ == "__main__":
     app()

@@ -65,6 +65,17 @@ class CliOutputTests(unittest.TestCase):
         self.assertNotIn("Usage Summary", result.output)
         self.assertNotIn("Starting HealthFlow Task", result.output)
 
+    def test_root_entry_lists_all_three_modes(self):
+        result = self.runner.invoke(run_healthflow.app, [])
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("HealthFlow exposes three modes", result.output)
+        self.assertIn("run", result.output)
+        self.assertIn("interactive", result.output)
+        self.assertIn("web", result.output)
+        self.assertIn("uv run healthflow --help", result.output)
+        self.assertIn("python run_healthflow.py --help", result.output)
+
     def test_interactive_defaults_to_chat_style_output(self):
         with patch.object(run_healthflow, "_initialize_system", return_value=_FakeSystem()):
             result = self.runner.invoke(
@@ -80,6 +91,18 @@ class CliOutputTests(unittest.TestCase):
         self.assertNotIn("Usage Summary", result.output)
         self.assertNotIn("Starting HealthFlow Task", result.output)
         self.assertNotIn("Status: success", result.output)
+
+    def test_command_help_describes_mode_purposes(self):
+        run_help = self.runner.invoke(run_healthflow.app, ["run", "--help"])
+        interactive_help = self.runner.invoke(run_healthflow.app, ["interactive", "--help"])
+        web_help = self.runner.invoke(run_healthflow.app, ["web", "--help"])
+
+        self.assertEqual(run_help.exit_code, 0)
+        self.assertEqual(interactive_help.exit_code, 0)
+        self.assertEqual(web_help.exit_code, 0)
+        self.assertIn("non-interactively", run_help.output)
+        self.assertIn("same task until /new", interactive_help.output)
+        self.assertIn("browser UI", web_help.output)
 
     def test_interactive_reuses_task_until_new(self):
         system = _FakeSystem()

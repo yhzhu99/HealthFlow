@@ -97,6 +97,8 @@ class InteractiveShellTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["reserve_space_for_menu"], 4)
         self.assertIn("column 1", self.shell._toolbar_text(""))
         self.assertIn("Command mode", self.shell._toolbar_text("/"))
+        self.assertIn("Follow-up prompts stay on the current task", self.output.getvalue())
+        self.assertIn("/new to start a fresh one", self.output.getvalue())
 
     def test_command_completion_prefix_requires_strict_line_start_slash(self):
         self.assertEqual(InteractiveShell.command_completion_prefix("/"), "/")

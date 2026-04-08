@@ -287,7 +287,8 @@ class InteractiveShell:
         interrupt_hint = "ESC ESC interrupt" if self._escape_supported else "ESC ESC interrupt (TTY only)"
         body = "\n".join(
             [
-                "[bold]Ready for the next task.[/bold]",
+                "[bold]Interactive CLI mode.[/bold]",
+                "[dim]Follow-up prompts stay on the current task. Use /new to start a fresh one.[/dim]",
                 "[dim]Ask in plain language. Slash suggestions only appear when '/' is the first character.[/dim]",
                 "",
                 "[bold]Quick keys[/bold]",
@@ -314,6 +315,7 @@ class InteractiveShell:
             "[green]exit[/green] / [green]quit[/green]  Exit interactive mode.",
             "",
             "[bold]Usage notes[/bold]",
+            "Each session keeps the same task until /new starts a fresh one.",
             "Slash suggestions only appear when '/' is typed in column 1.",
             "Tab completes commands. ESC ESC interrupts the current run.",
         ]
