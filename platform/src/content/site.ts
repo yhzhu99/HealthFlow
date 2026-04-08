@@ -79,9 +79,9 @@ export const projectFacts = [
     note: 'EHRFlowBench, MedAgentBoard, MedAgentsBench, HLE, and CureBench.',
   },
   {
-    label: 'Main baselines',
-    value: 'Alita, Biomni, STELLA, BioDSA, BioMedAgent',
-    note: 'Homepage and evaluation focus on the primary framework baselines used in the manuscript.',
+    label: 'Comparison set',
+    value: 'Five peer systems',
+    note: 'The manuscript reports five primary comparison systems while the reviewer-facing workspace stays blinded.',
   },
 ]
 
@@ -140,7 +140,7 @@ export const benchmarkDeck = [
     bullets: [
       'Collect 51,280 papers from major AI and data mining venues between 2020 and 2025.',
       'Filter to 162 EHR-relevant candidates, then manually retain 118 seed papers.',
-      'Generate 236 dataset-grounded tasks paired across TJH and the MIMIC-IV Public Demo Release.',
+      'Generate 236 dataset-grounded tasks paired across TJH and the MIMIC-IV public sample release.',
       'Sample a balanced 100-task benchmark with 50 TJH tasks and 50 MIMIC-IV tasks.',
     ],
   },
@@ -153,7 +153,7 @@ export const benchmarkDeck = [
       'MedAgentBoard complements EHRFlowBench with a more deterministic task surface spanning data processing, predictive modeling, and visualization, making artifact quality directly inspectable.',
     metrics: [
       { label: 'Executable tasks', value: '100' },
-      { label: 'Datasets', value: 'TJH + MIMIC-IV Demo' },
+      { label: 'Datasets', value: 'TJH + MIMIC-IV public sample release' },
       { label: 'Task families', value: '3' },
     ],
     bullets: [
@@ -221,11 +221,11 @@ export const resultDeck = [
     label: 'Open-ended EHR',
     title: 'HealthFlow leads on the hardest open-ended workflows.',
     summary:
-      'On EHRFlowBench, HealthFlow reaches an LLM score of 3.82 and 3.98 with tool support, outperforming strong agent baselines such as AFlow (3.31) and STELLA (2.39).',
+      'On EHRFlowBench, HealthFlow reaches an LLM score of 3.82 and 3.98 with tool support, outperforming the strongest highlighted peer result in the manuscript.',
     stats: [
       { label: 'HealthFlow', value: '3.82' },
       { label: 'HealthFlow + tools', value: '3.98' },
-      { label: 'Best highlighted baseline', value: 'AFlow 3.31' },
+      { label: 'Best highlighted peer result', value: '3.31' },
     ],
   },
   {
@@ -233,11 +233,11 @@ export const resultDeck = [
     label: 'Artifacts',
     title: 'Artifact-heavy tasks improve even more with tool access.',
     summary:
-      'On MedAgentBoard, HealthFlow reaches 66.09% success and 81.89% with tool access, well above the best baseline result highlighted in the manuscript (Biomni at 45.61%).',
+      'On MedAgentBoard, HealthFlow reaches 66.09% success and 81.89% with tool access, well above the strongest highlighted peer result in the manuscript.',
     stats: [
       { label: 'HealthFlow', value: '66.09%' },
       { label: 'HealthFlow + tools', value: '81.89%' },
-      { label: 'Best highlighted baseline', value: '45.61%' },
+      { label: 'Best highlighted peer result', value: '45.61%' },
     ],
   },
   {
