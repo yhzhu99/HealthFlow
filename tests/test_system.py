@@ -389,6 +389,39 @@ class SystemSmokeTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("oneehr", planner_tools)
             self.assertIn("tooluniverse", planner_tools)
 
+    async def test_run_task_emits_structured_planner_progress_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            workspace_dir = workspace_root / "tasks"
+            config = _build_test_config(workspace_dir)
+            system = HealthFlowSystem(config=config, experience_path=workspace_root / "memory" / "experience.jsonl")
+            system.meta_agent = _FakeMetaAgent()
+            system.evaluator = _FakeEvaluator()
+            system.reflector = _FakeReflector()
+            system.executor = _FakeExecutor()
+
+            events = []
+            result = await system.run_task_turn(
+                "progress-task",
+                "Train a readmission prediction model on the uploaded cohort.",
+                progress_callback=events.append,
+            )
+
+            self.assertTrue(result["success"])
+            planner_event = next(
+                event for event in events if event.kind == "stage_finished" and event.stage == "planner"
+            )
+            self.assertEqual(planner_event.metadata["objective"], "Train a readmission prediction model on the uploaded cohort.")
+            self.assertEqual(
+                planner_event.metadata["recommended_steps"],
+                ["Inspect the data.", "Write artifacts.", "Summarize the result."],
+            )
+            self.assertEqual(
+                planner_event.metadata["assumptions_to_check"],
+                ["Confirm the uploaded file schema."],
+            )
+            self.assertTrue(planner_event.metadata["plan_path"].endswith("plan.md"))
+
     async def test_run_task_normalizes_contradictory_success_verdicts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_root = Path(tmpdir) / "workspace"

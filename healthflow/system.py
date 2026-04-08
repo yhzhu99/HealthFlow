@@ -894,7 +894,15 @@ class HealthFlowSystem:
                     status="completed",
                     attempt=attempt_num,
                     message=plan.objective,
-                    metadata={"plan_path": str(attempt_paths.planner_plan_markdown_path)},
+                    metadata={
+                        "plan_path": str(attempt_paths.planner_plan_markdown_path),
+                        "objective": plan.objective,
+                        "assumptions_to_check": list(plan.assumptions_to_check),
+                        "recommended_steps": list(plan.recommended_steps),
+                        "recommended_workflows": list(plan.recommended_workflows),
+                        "avoidances": list(plan.avoidances),
+                        "success_signals": list(plan.success_signals),
+                    },
                 ),
             )
 
