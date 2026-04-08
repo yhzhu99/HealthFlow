@@ -14,6 +14,7 @@ from healthflow.web_app import (
     _build_history_entries,
     _build_task_choices,
     _build_task_header,
+    _composer_attachment_preview_update,
     _default_selected_file,
     _resolved_recent_task_id,
     _restore_main_history,
@@ -22,6 +23,7 @@ from healthflow.web_app import (
     _stream_task_turn,
     _task_id_after_deletion,
     _task_title_text,
+    _user_message_content,
     _visible_recent_tasks,
 )
 
@@ -313,11 +315,10 @@ class WebAppTests(unittest.TestCase):
         main_history = _restore_main_history(client)
         trace_history = _restore_trace_history(client, restored=True)
 
-        self.assertEqual(main_history[0]["role"], "assistant")
-        self.assertIn("fresh workspace", main_history[0]["content"])
-        self.assertEqual(main_history[1]["content"], "Analyze this table")
-        self.assertIn("Run status: failed", main_history[2]["content"])
-        self.assertIn("line 42", main_history[2]["content"])
+        self.assertEqual(main_history[0]["role"], "user")
+        self.assertEqual(main_history[0]["content"], "Analyze this table")
+        self.assertIn("Run status: failed", main_history[1]["content"])
+        self.assertIn("line 42", main_history[1]["content"])
         self.assertIn("Previous execution details", trace_history[0]["content"])
         self.assertIn("Turn 1", trace_history[1]["content"])
 
@@ -333,18 +334,45 @@ class WebAppTests(unittest.TestCase):
 
         header = _build_task_header(client, summaries)
 
-        self.assertIn("Review the current asthma cohort analysis", header)
-        self.assertIn("Last run: **success**", header)
+        self.assertEqual(header, "## Review the current asthma cohort analysis")
         self.assertNotIn(task_id, header)
         self.assertNotIn("workspace/tasks", header)
+
+    def test_user_message_content_lists_uploaded_file_names(self):
+        content = _user_message_content(
+            "Please inspect the uploaded files and continue the current task.",
+            ["cohort.csv", "report draft.md"],
+        )
+
+        self.assertIn("hf-chat-attachment", content)
+        self.assertIn("cohort.csv", content)
+        self.assertIn("report draft.md", content)
+        self.assertNotIn("Please inspect the uploaded files", content)
 
     def test_branding_header_html_is_user_facing(self):
         header_html = _branding_header_html()
 
-        self.assertIn("Continue a task, switch across task history", header_html)
-        self.assertIn("Workspace-first AI", header_html)
+        self.assertIn("HealthFlow", header_html)
+        self.assertNotIn("Continue a task", header_html)
+        self.assertNotIn("Workspace-first AI", header_html)
         self.assertNotIn("Mode:", header_html)
         self.assertNotIn("task_id", header_html)
+
+    def test_composer_attachment_preview_update_lists_selected_file_names(self):
+        prompt_input = {
+            "text": "",
+            "files": [
+                {"path": "/tmp/uploads/abc123.txt", "orig_name": "notes.txt"},
+                {"path": "/tmp/uploads/x.csv", "name": "labs.csv"},
+            ],
+        }
+
+        update = _composer_attachment_preview_update(prompt_input, gr=_FakeGradio)
+
+        self.assertTrue(update["visible"])
+        self.assertIn("notes.txt", update["value"])
+        self.assertIn("labs.csv", update["value"])
+        self.assertIn("hf-composer-attachment", update["value"])
 
     def test_session_store_lists_custom_display_title(self):
         task = self.system.create_task_session("task-custom")

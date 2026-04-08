@@ -13,14 +13,113 @@ from .artifacts import artifact_preview_kind, artifact_preview_language, collect
 from .session import HealthFlowProgressEvent, TaskSessionSummary
 from .session_client import TaskSessionClient
 
-_MAIN_ASSISTANT_TEXT = (
-    "Describe a task, upload files if needed, and keep iterating in the same workspace. Start a new task "
-    "when you want a fresh workspace."
-)
 _TRACE_ASSISTANT_TEXT = "Advanced execution details for this task will appear here."
 _EMPTY_WORKSPACE_TEXT = "No workspace files yet."
 _EMPTY_PREVIEW_TEXT = "Select a file to preview it."
+_UPLOAD_ONLY_USER_MESSAGE = "Please inspect the uploaded files and continue the current task."
 _BRANDING_DIR = Path(__file__).resolve().parent.parent / "assets" / "branding"
+_WEB_APP_HEAD = """
+<script>
+(() => {
+  const composerSelector = "#hf-prompt-input";
+  const previewSelector = "#hf-composer-attachments";
+
+  const escapeHtml = (value) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const attachmentMarkup = (names) =>
+    names
+      .map(
+        (name) =>
+          `<span class="hf-composer-attachment"><code>${escapeHtml(name)}</code></span>`
+      )
+      .join("");
+
+  const syncComposerAttachments = () => {
+    const composer = document.querySelector(composerSelector);
+    const preview = document.querySelector(previewSelector);
+    const fileInput = composer?.querySelector("input[data-testid='file-upload']");
+    if (!preview) {
+      return;
+    }
+    const names = Array.from(fileInput?.files || [])
+      .map((file) => String(file?.name || "").split(/[\\\\/]/).pop())
+      .filter(Boolean);
+    preview.innerHTML = attachmentMarkup(names);
+    preview.classList.toggle("is-empty", names.length === 0);
+  };
+
+  const clearUploadedFilesAfterSubmit = () => {
+    const composer = document.querySelector(composerSelector);
+    const fileInput = composer?.querySelector("input[data-testid='file-upload']");
+    if (!fileInput || !fileInput.files?.length) {
+      return;
+    }
+    window.setTimeout(() => {
+      const refreshedComposer = document.querySelector(composerSelector);
+      const refreshedInput = refreshedComposer?.querySelector("input[data-testid='file-upload']");
+      if (!refreshedInput || !refreshedInput.files?.length) {
+        return;
+      }
+      refreshedInput.value = "";
+      refreshedInput.dispatchEvent(new Event("change", { bubbles: true }));
+      syncComposerAttachments();
+    }, 240);
+  };
+
+  const bindComposerAttachments = () => {
+    const composer = document.querySelector(composerSelector);
+    const preview = document.querySelector(previewSelector);
+    const fileInput = composer?.querySelector("input[data-testid='file-upload']");
+    if (!composer || !preview || !fileInput) {
+      return;
+    }
+    if (composer.dataset.hfAttachmentBound === "1") {
+      syncComposerAttachments();
+      return;
+    }
+    const scheduleSync = () => window.requestAnimationFrame(syncComposerAttachments);
+    composer.dataset.hfAttachmentBound = "1";
+    fileInput.addEventListener("change", scheduleSync);
+    composer.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest(".submit-button")) {
+        clearUploadedFilesAfterSubmit();
+      }
+      window.setTimeout(scheduleSync, 0);
+    });
+    composer.addEventListener("drop", () => window.setTimeout(scheduleSync, 0));
+    composer.addEventListener("keydown", (event) => {
+      if (
+        event.target instanceof HTMLTextAreaElement
+        && event.key === "Enter"
+        && !event.shiftKey
+      ) {
+        clearUploadedFilesAfterSubmit();
+      }
+    });
+    new MutationObserver(scheduleSync).observe(composer, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+    });
+    scheduleSync();
+  };
+
+  const boot = () => bindComposerAttachments();
+  document.addEventListener("DOMContentLoaded", boot);
+  window.addEventListener("load", boot);
+  new MutationObserver(() => window.requestAnimationFrame(boot)).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+})();
+</script>
+"""
 _WEB_APP_CSS = """
 :root {
     --hf-border: rgba(15, 23, 42, 0.08);
@@ -39,8 +138,8 @@ _WEB_APP_CSS = """
 html,
 body {
     margin: 0;
-    min-height: 100%;
-    height: 100%;
+    min-height: 100dvh;
+    height: 100dvh;
     overflow: hidden;
     background:
         radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 28%),
@@ -55,12 +154,13 @@ body {
 .gradio-container > main.app,
 .gradio-container > main.app > .wrap.sidebar-parent {
     width: 100%;
-    height: 100%;
+    min-height: 100dvh;
+    height: 100dvh;
     max-width: none !important;
 }
 
 .gradio-container {
-    padding: 0.7rem !important;
+    padding: 0.42rem !important;
     border: none !important;
     box-shadow: none !important;
     background: transparent !important;
@@ -95,7 +195,7 @@ aside {
     height: 100%;
     border: 1px solid var(--hf-border);
     border-right: 1px solid var(--hf-border);
-    border-radius: 30px;
+    border-radius: 28px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 248, 252, 0.98) 100%);
     box-shadow: var(--hf-shadow-shell);
     backdrop-filter: blur(20px);
@@ -107,14 +207,17 @@ aside > div {
 }
 
 .hf-sidebar-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     margin: 0 0 0.8rem;
-    padding: 0.2rem 0 0.7rem;
+    padding: 0.35rem 0 0.95rem;
     border-bottom: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .hf-sidebar-brand svg {
     display: block;
-    width: min(100%, 188px);
+    width: min(100%, 268px);
     height: auto;
 }
 
@@ -137,7 +240,7 @@ aside > div {
 
 .hf-content-shell {
     min-height: 0;
-    height: calc(100vh - 2rem);
+    height: calc(100dvh - 0.84rem);
 }
 
 .hf-chat-shell {
@@ -147,18 +250,26 @@ aside > div {
     min-height: 0;
     height: 100%;
     border: 1px solid var(--hf-border);
-    border-radius: 30px;
+    border-radius: 28px;
     background: var(--hf-surface-strong);
     box-shadow: var(--hf-shadow-shell);
+    overflow: hidden;
 }
 
 .hf-task-header {
+    flex: 0 0 auto;
     margin: 0;
     padding: 1.2rem 1.35rem 1rem;
     border: none !important;
     border-bottom: 1px solid var(--hf-border) !important;
     background: transparent !important;
     box-shadow: none !important;
+    overflow: hidden !important;
+}
+
+.hf-task-header > :last-child {
+    min-width: 0;
+    overflow: hidden;
 }
 
 .hf-task-header h2 {
@@ -167,12 +278,13 @@ aside > div {
     font-weight: 700;
     letter-spacing: -0.045em;
     color: var(--hf-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .hf-task-header p {
-    margin: 0.42rem 0 0;
-    color: var(--hf-text-muted);
-    line-height: 1.6;
+    display: none;
 }
 
 .hf-chatbot,
@@ -189,22 +301,71 @@ aside > div {
 .hf-composer-shell {
     flex: 0 0 auto;
     margin-top: auto;
-    padding: 0.95rem 1.1rem 1.1rem;
+    padding: 0.75rem 0.9rem 0.9rem;
     border-top: 1px solid var(--hf-border);
     background: linear-gradient(180deg, rgba(247, 250, 252, 0) 0%, rgba(247, 250, 252, 0.92) 30%, rgba(247, 250, 252, 0.98) 100%);
 }
 
 .hf-composer {
     border: 1px solid rgba(15, 23, 42, 0.1) !important;
-    border-radius: 24px !important;
+    border-radius: 26px !important;
     background: rgba(255, 255, 255, 0.98) !important;
     box-shadow: var(--hf-shadow-soft) !important;
+    overflow: hidden !important;
+}
+
+.hf-composer-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 0 0 0.55rem;
+}
+
+.hf-composer-attachments.is-empty {
+    display: none;
+}
+
+.hf-composer-attachment,
+.hf-chat-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+    padding: 0.36rem 0.7rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 999px;
+    background: rgba(248, 250, 252, 0.96);
+    color: #334155;
+    font-size: 0.78rem;
+    line-height: 1.2;
+    box-shadow: none !important;
+}
+
+.hf-composer-attachment code,
+.hf-chat-attachment code {
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: inherit;
 }
 
 .hf-composer .input-container {
     gap: 0.5rem;
     padding: 0.42rem 0.48rem 0.42rem 0.3rem;
     align-items: flex-end;
+}
+
+.hf-composer .scroll-hide,
+.hf-composer .thumbnails,
+.hf-composer .thumbnail-list {
+    scrollbar-width: none;
+}
+
+.hf-composer .scroll-hide::-webkit-scrollbar,
+.hf-composer .thumbnails::-webkit-scrollbar,
+.hf-composer .thumbnail-list::-webkit-scrollbar {
+    display: none;
 }
 
 .hf-composer textarea {
@@ -249,7 +410,7 @@ aside > div {
     min-height: 0;
     height: 100%;
     border: 1px solid var(--hf-border);
-    border-radius: 30px;
+    border-radius: 28px;
     background: var(--hf-surface-strong);
     box-shadow: var(--hf-shadow-shell);
     overflow: hidden;
@@ -311,7 +472,7 @@ aside > div {
 .hf-preview-pane,
 .hf-advanced-toolbar {
     border: 1px solid var(--hf-border);
-    border-radius: 24px;
+    border-radius: 22px;
     background: var(--hf-surface-muted);
     box-shadow: none !important;
 }
@@ -354,11 +515,13 @@ aside > div {
 
 .hf-history-item {
     position: relative;
-    gap: 0.35rem;
+    gap: 0.2rem;
+    min-height: 4.1rem;
     padding: 0.78rem 0.82rem;
     border: 1px solid rgba(16, 32, 51, 0.08);
     border-radius: 18px;
     background: rgba(255, 255, 255, 0.88);
+    cursor: pointer;
     overflow: hidden;
 }
 
@@ -383,13 +546,17 @@ aside > div {
 .hf-history-hitbox {
     position: absolute;
     inset: 0;
-    z-index: 1;
+    z-index: 2;
     min-height: 100%;
     padding: 0;
     border: none;
     background: transparent;
     color: transparent !important;
     box-shadow: none !important;
+}
+
+.hf-history-hitbox .wrap {
+    opacity: 0;
 }
 
 .hf-history-hitbox:hover,
@@ -399,7 +566,8 @@ aside > div {
 
 .hf-history-content {
     position: relative;
-    z-index: 2;
+    z-index: 1;
+    pointer-events: none;
 }
 
 .hf-history-title {
@@ -410,10 +578,11 @@ aside > div {
 }
 
 .hf-history-title-text {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.9rem;
+    font-size: 0.92rem;
     font-weight: 600;
     line-height: 1.35;
     color: #0f172a;
@@ -424,6 +593,7 @@ aside > div {
     position: relative;
     z-index: 3;
     min-width: 0;
+    pointer-events: auto !important;
     padding: 0 0.55rem;
     height: 2rem;
     border: 1px solid rgba(15, 23, 42, 0.06);
@@ -440,10 +610,7 @@ aside > div {
 }
 
 .hf-history-meta {
-    margin: 0;
-    font-size: 0.78rem;
-    line-height: 1.4;
-    color: #526171;
+    display: none;
 }
 
 .hf-history-inline {
@@ -465,7 +632,7 @@ aside > div {
 
 .hf-history-panel {
     gap: 0.75rem;
-    margin-top: 0.85rem;
+    margin-top: 0.25rem;
     padding: 0.9rem;
     border: 1px solid rgba(16, 32, 51, 0.08);
     border-radius: 18px;
@@ -476,6 +643,7 @@ aside > div {
 .hf-chatbot > .wrap,
 .hf-trace-panel > .wrap {
     height: 100%;
+    padding: 0.25rem 0.2rem 0.1rem !important;
 }
 
 .hf-chatbot .message-row,
@@ -504,6 +672,12 @@ aside > div {
     box-shadow: none !important;
 }
 
+.hf-chatbot .message-row,
+.hf-trace-panel .message-row {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+}
+
 .hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width),
 .hf-trace-panel :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) {
     border: 1px solid rgba(15, 23, 42, 0.07);
@@ -511,8 +685,24 @@ aside > div {
 }
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
-    background: linear-gradient(135deg, var(--hf-accent) 0%, var(--hf-accent-strong) 100%) !important;
-    color: #ffffff !important;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(244, 247, 250, 0.98) 100%) !important;
+    color: var(--hf-text) !important;
+}
+
+.hf-chatbot :is(.user.message, .message.user, .user .message) :is(.prose, p, span, div, code, li, strong, em) {
+    color: var(--hf-text) !important;
+}
+
+.hf-chat-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.42rem;
+    margin-top: 0.68rem;
+}
+
+.hf-chat-attachment {
+    background: rgba(248, 250, 252, 0.98);
 }
 
 .hf-chatbot .prose,
@@ -744,20 +934,9 @@ def _load_branding_svg(filename: str) -> str:
 def _branding_header_html() -> str:
     logo_svg = _load_branding_svg("healthflow-logo.svg")
     if logo_svg:
-        brand_markup = f'<div class="hf-hero__brand" aria-hidden="true">{logo_svg}</div>'
+        return f'<section class="hf-hero" aria-label="HealthFlow brand">{logo_svg}</section>'
     else:
-        brand_markup = '<p class="hf-hero__fallback">HealthFlow</p>'
-
-    return (
-        '<section class="hf-hero">'
-        f"{brand_markup}"
-        '<div class="hf-hero__copy">'
-        '<p class="hf-hero__eyebrow">Workspace-first AI</p>'
-        "<p class=\"hf-hero__summary\">Continue a task, switch across task history, and preview workspace files "
-        "without leaving the page.</p>"
-        "</div>"
-        "</section>"
-    )
+        return '<p class="hf-hero__fallback">HealthFlow</p>'
 
 
 def _sidebar_brand_html() -> str:
@@ -898,28 +1077,78 @@ def _visible_recent_tasks(
 
 def _build_task_header(client: TaskSessionClient, recent_tasks: Sequence[TaskSessionSummary]) -> str:
     title = _task_title(client, recent_tasks)
-    if client.turn_count <= 0:
-        return (
-            f"## {title}\n\n"
-            "Describe the task or upload files to begin. Your workspace files will appear on the right."
-        )
-
-    status = _status_label(client.latest_turn_status)
-    updated_text = _relative_time_text(client.updated_at_utc)
-    turn_text = "turn" if client.turn_count == 1 else "turns"
-    return (
-        f"## {title}\n\n"
-        f"Last run: **{status}**. This task has **{client.turn_count} {turn_text}** and was updated **{updated_text}**."
-    )
+    return f"## {title}"
 
 
 def _empty_task_header() -> str:
-    return "## New Task\n\nDescribe the task or upload files to begin. Your workspace files will appear on the right."
+    return "## New Task"
+
+
+def _resolved_upload_name(raw_file: Any) -> str:
+    for attr in ("orig_name", "name"):
+        value = getattr(raw_file, attr, None)
+        if value:
+            return Path(str(value)).name
+    if isinstance(raw_file, dict):
+        for key in ("orig_name", "name", "path"):
+            value = raw_file.get(key)
+            if value:
+                return Path(str(value)).name
+    return Path(str(getattr(raw_file, "path", raw_file))).name
+
+
+def _uploaded_file_names(uploaded_files: Sequence[dict[str, Any]] | None) -> list[str]:
+    names: list[str] = []
+    for item in uploaded_files or []:
+        if not isinstance(item, dict):
+            continue
+        resolved_name = str(item.get("original_name") or item.get("sandbox_name") or "").strip()
+        if resolved_name:
+            names.append(Path(resolved_name).name)
+    return names
+
+
+def _attachment_badges_html(file_names: Sequence[str], *, variant: str) -> str:
+    chips = []
+    for name in file_names:
+        resolved_name = Path(str(name or "")).name.strip()
+        if not resolved_name:
+            continue
+        chips.append(
+            f'<span class="hf-{variant}-attachment"><code>{html.escape(resolved_name)}</code></span>'
+        )
+    if not chips:
+        return ""
+    return f'<div class="hf-{variant}-attachments">{"".join(chips)}</div>'
+
+
+def _user_message_content(text: str | None, file_names: Sequence[str] | None = None) -> str:
+    normalized_file_names = [Path(str(name)).name for name in file_names or [] if str(name).strip()]
+    cleaned = str(text or "").strip()
+    if normalized_file_names and cleaned == _UPLOAD_ONLY_USER_MESSAGE:
+        cleaned = ""
+    attachment_html = _attachment_badges_html(normalized_file_names, variant="chat")
+    if cleaned and attachment_html:
+        return f"{cleaned}\n\n{attachment_html}"
+    if cleaned:
+        return cleaned
+    return attachment_html
 
 
 def _history_notice_update(message: str | None, *, gr: Any) -> Any:
     text = str(message or "").strip()
     return gr.update(value=text, visible=bool(text))
+
+
+def _composer_attachment_preview_update(prompt_input: dict[str, Any] | None, *, gr: Any) -> Any:
+    prompt_input = prompt_input or {}
+    file_names = [_resolved_upload_name(item) for item in list(prompt_input.get("files") or [])]
+    attachment_html = _attachment_badges_html(file_names, variant="composer")
+    return gr.update(value=attachment_html, visible=bool(attachment_html))
+
+
+def _empty_composer_value() -> dict[str, Any]:
+    return {"text": "", "files": []}
 
 
 def _result_answer_text(result: dict[str, Any]) -> str:
@@ -949,9 +1178,17 @@ def _history_answer_text(record: Any) -> str:
 
 def _restore_main_history(client: TaskSessionClient) -> list[dict[str, str]]:
     history = client.load_history()
-    main_history: list[dict[str, str]] = [{"role": "assistant", "content": _MAIN_ASSISTANT_TEXT}]
+    main_history: list[dict[str, str]] = []
     for record in history:
-        main_history.append({"role": "user", "content": record.user_message})
+        main_history.append(
+            {
+                "role": "user",
+                "content": _user_message_content(
+                    getattr(record, "user_message", ""),
+                    _uploaded_file_names(getattr(record, "uploaded_files", None)),
+                ),
+            }
+        )
         main_history.append({"role": "assistant", "content": _history_answer_text(record)})
     return main_history
 
@@ -1284,7 +1521,8 @@ def launch_web_app(
             _history_render_token(history_entries, client.task_id, resolved_history_action),
             _history_notice_update(history_notice, gr=gr),
             *preview_outputs,
-            gr.MultimodalTextbox(value=None),
+            gr.update(value=""),
+            gr.MultimodalTextbox(value=_empty_composer_value()),
         )
 
     def _compose_draft_outputs(
@@ -1297,7 +1535,7 @@ def launch_web_app(
         resolved_history_action = dict(history_action or _history_action_state())
         preview_outputs = _artifact_preview_outputs(None, task_root=None, gr=gr)
         return (
-            [{"role": "assistant", "content": _MAIN_ASSISTANT_TEXT}],
+            [],
             [{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}],
             None,
             None,
@@ -1309,7 +1547,8 @@ def launch_web_app(
             _history_render_token(history_entries, None, resolved_history_action),
             _history_notice_update(history_notice, gr=gr),
             *preview_outputs,
-            gr.MultimodalTextbox(value=None),
+            gr.update(value=""),
+            gr.MultimodalTextbox(value=_empty_composer_value()),
         )
 
     def _compose_for_task_id(
@@ -1354,16 +1593,6 @@ def launch_web_app(
                 return f"### Files Updated\n\n{artifact_lines}"
         message = (event.message or f"{event.stage}: {event.status}").strip()
         return f"**{event.stage.title()}** · {message}"
-
-    def _submit_display_text(text: str, upload_count: int) -> str:
-        cleaned = text.strip()
-        if cleaned:
-            return cleaned
-        if upload_count == 1:
-            return "Uploaded 1 file."
-        if upload_count > 1:
-            return f"Uploaded {upload_count} files."
-        return ""
 
     def _compose_for_existing_task_or_draft(
         task_id: str | None,
@@ -1556,7 +1785,7 @@ def launch_web_app(
             file_path = Path(getattr(raw_file, "path", raw_file))
             if not file_path.exists():
                 continue
-            upload_payloads[file_path.name] = file_path.read_bytes()
+            upload_payloads[_resolved_upload_name(raw_file)] = file_path.read_bytes()
 
         if not text.strip() and not upload_payloads:
             yield _compose_outputs(
@@ -1567,8 +1796,9 @@ def launch_web_app(
             )
             return
 
-        user_display = _submit_display_text(text, len(upload_payloads))
-        user_message = text.strip() or "Please inspect the uploaded files and continue the current task."
+        attachment_names = list(upload_payloads.keys())
+        user_display = _user_message_content(text, attachment_names)
+        user_message = text.strip() or _UPLOAD_ONLY_USER_MESSAGE
         main_history.append({"role": "user", "content": user_display})
         trace_history.append({"role": "assistant", "content": "Working on your latest request."})
         yield _compose_outputs(
@@ -1626,7 +1856,7 @@ def launch_web_app(
             preferred_file=selected_file,
         )
 
-    with gr.Blocks(title="HealthFlow Web", fill_width=True, fill_height=True, css=_WEB_APP_CSS) as demo:
+    with gr.Blocks(title="HealthFlow Web", fill_width=True, fill_height=True, css=_WEB_APP_CSS, head=_WEB_APP_HEAD) as demo:
         browser_task_id = gr.BrowserState(None, storage_key="healthflow-active-task")
         active_task_state = gr.State(None)
         workspace_catalog_state = gr.State([])
@@ -1759,9 +1989,6 @@ def launch_web_app(
                     for entry in entries:
                         task_id = str(entry.get("task_id") or "")
                         task_title = str(entry.get("title") or "Untitled task")
-                        status = str(entry.get("status") or "ready")
-                        turns_text = str(entry.get("turns_text") or _history_turn_text(int(entry.get("turn_count") or 0)))
-                        updated_text = str(entry.get("updated_text") or "recently")
                         title_html = f'<div class="hf-history-title-text">{html.escape(task_title)}</div>'
                         row_classes = ["hf-history-item"]
                         if task_id == current_task_id:
@@ -1787,10 +2014,6 @@ def launch_web_app(
                                     size="sm",
                                     elem_classes=["hf-history-action", "hf-history-action-danger"],
                                 )
-                            gr.Markdown(
-                                f"{status} · {turns_text} · {updated_text}",
-                                elem_classes=["hf-history-meta"],
-                            )
 
                             open_task_button.click(
                                 _switch_task,
@@ -1830,18 +2053,26 @@ def launch_web_app(
                         show_label=False,
                         container=False,
                         type="messages",
-                        value=[{"role": "assistant", "content": _MAIN_ASSISTANT_TEXT}],
+                        value=[],
                         scale=1,
                         layout="panel",
                         show_copy_button=True,
                         elem_classes=["hf-chatbot"],
                     )
                     with gr.Column(scale=0, elem_classes=["hf-composer-shell"]):
+                        composer_attachments = gr.HTML(
+                            value="",
+                            visible=True,
+                            container=False,
+                            elem_id="hf-composer-attachments",
+                            elem_classes=["hf-composer-attachments", "is-empty"],
+                        )
                         prompt_input = gr.MultimodalTextbox(
                             interactive=True,
                             file_count="multiple",
-                            placeholder="Describe the task or provide follow-up feedback. Upload files if needed.",
+                            placeholder="Message HealthFlow",
                             show_label=False,
+                            elem_id="hf-prompt-input",
                             elem_classes=["hf-composer"],
                         )
                 with gr.Column(scale=4, min_width=400, elem_classes=["hf-workspace-shell"]):
@@ -2034,6 +2265,7 @@ def launch_web_app(
             preview_code,
             preview_empty,
             download_button,
+            composer_attachments,
             prompt_input,
         ]
 
@@ -2065,6 +2297,5 @@ def launch_web_app(
             ],
             app_outputs,
         )
-
     demo.queue()
     demo.launch(server_name=server_name, server_port=server_port, share=share)
