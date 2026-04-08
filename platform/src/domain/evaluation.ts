@@ -162,7 +162,7 @@ export interface ReviewerState {
 }
 
 export const BLIND_SLOTS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
-export const DEFAULT_REVIEWER_ID = 'demo-reviewer'
+export const DEFAULT_REVIEWER_ID = 'reviewer-001'
 
 export const evaluationStorageKey = (reviewerId: string) => `healthflow:evaluation:${reviewerId.trim()}`
 

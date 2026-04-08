@@ -4,7 +4,7 @@ import type {
   EvaluationSnapshot,
   SnapshotQuestion,
 } from '../domain/evaluation'
-import { demoEvaluationSnapshot } from '../content/demo-evaluation'
+import { sampleEvaluationSnapshot } from '../content/sample-evaluation'
 import { toBasePath } from './assets'
 
 const DEFAULT_TIMEOUT_MS = 8000
@@ -14,7 +14,7 @@ const DEFAULT_EMBEDDED_FALLBACK_DELAY_MS = 1500
 const DEFAULT_LOCAL_TIMEOUT_MS = 12000
 const LOCAL_CASE_ROUTE_PREFIX = '/__eval/cases'
 
-export const embeddedEvaluationSnapshot = demoEvaluationSnapshot as EvaluationSnapshot
+export const embeddedEvaluationSnapshot = sampleEvaluationSnapshot as EvaluationSnapshot
 
 export interface LoadEvaluationSnapshotOptions {
   timeoutMs?: number

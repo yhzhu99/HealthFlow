@@ -42,14 +42,14 @@ describe('evaluation utils', () => {
     expect(evaluationStorageKey(' reviewer-7 ')).toBe('healthflow:evaluation:reviewer-7')
   })
 
-  it('falls back to the demo reviewer when no reviewer id is provided', () => {
+  it('falls back to the default reviewer when no reviewer id is provided', () => {
     expect(resolveReviewerId('')).toBe(DEFAULT_REVIEWER_ID)
     expect(resolveReviewerId(undefined)).toBe(DEFAULT_REVIEWER_ID)
     expect(resolveReviewerId({ reviewerId: 'broken' })).toBe(DEFAULT_REVIEWER_ID)
     expect(resolveReviewerId(' reviewer-9 ')).toBe('reviewer-9')
   })
 
-  it('starts reviewer state with benchmark and framework memory buckets', () => {
+  it('starts reviewer state with benchmark-scoped memory buckets', () => {
     expect(createReviewerState(' reviewer-2 ')).toEqual({
       reviewerId: 'reviewer-2',
       activeBenchmarkId: null,

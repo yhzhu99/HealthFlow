@@ -33,7 +33,7 @@ import {
 import { readJson, writeJson } from '../lib/storage'
 
 const LAST_REVIEWER_KEY = 'healthflow:evaluation:last-reviewer'
-type EvaluationSourceMode = 'booting' | 'live' | 'demo' | 'diagnostic' | 'error'
+type EvaluationSourceMode = 'booting' | 'live' | 'sample' | 'diagnostic' | 'error'
 type CaseLoadState = 'idle' | 'loading' | 'ready' | 'error'
 const isDevMode = import.meta.env.DEV
 
@@ -46,7 +46,8 @@ type CompareTab =
   | {
       key: string
       label: string
-      kind: 'framework'
+      kind: 'candidate'
+      slot: string
       candidate: SnapshotCandidate
     }
 
@@ -97,15 +98,15 @@ const allQuestionSummaries = computed<EvaluationQuestionSummary[]>(() => {
 
 const benchmarks = computed(() => allBenchmarks.value)
 const isWorkspaceReady = computed(() => {
-  if (sourceMode.value === 'demo') return Boolean(snapshot.value)
+  if (sourceMode.value === 'sample') return Boolean(snapshot.value)
   if (sourceMode.value === 'live' && isDevMode) return Boolean(localManifest.value)
   if (sourceMode.value === 'live') return Boolean(snapshot.value)
   return false
 })
-const sourceBadgeLabel = computed(() => (sourceMode.value === 'demo' ? 'Demo Evaluation' : 'Local Evaluation'))
+const sourceBadgeLabel = computed(() => (sourceMode.value === 'sample' ? 'Bundled Samples' : 'Local Cases'))
 const sourceDescription = computed(() =>
-  sourceMode.value === 'demo'
-    ? 'Showing the embedded demo workspace while local case data are unavailable.'
+  sourceMode.value === 'sample'
+    ? 'Showing bundled sample cases because local evaluation files are unavailable.'
     : 'Reading a lightweight evaluation manifest first, then loading each case on demand from platform/evaluation-data.',
 )
 
@@ -163,23 +164,7 @@ const candidateSlots = computed(() => {
   )
 })
 
-const frameworkCandidates = computed(() => {
-  if (!currentQuestion.value) return []
-
-  const runOrder = new Map(benchmarkRuns.value.map((run, index) => [run.id, index]))
-  const slotByRunId = new Map(candidateSlots.value.map((item) => [item.candidate.runId, item.slot]))
-
-  return [...currentQuestion.value.candidates]
-    .sort((left, right) => {
-      const leftOrder = runOrder.get(left.runId) ?? Number.MAX_SAFE_INTEGER
-      const rightOrder = runOrder.get(right.runId) ?? Number.MAX_SAFE_INTEGER
-      return leftOrder - rightOrder
-    })
-    .map((candidate) => ({
-      candidate,
-      slot: slotByRunId.get(candidate.runId) ?? null,
-    }))
-})
+const submissionCandidates = computed(() => candidateSlots.value)
 
 const activeRunId = computed(() => {
   if (!reviewerState.value || !activeBenchmarkId.value) return null
@@ -195,10 +180,11 @@ const compareTabs = computed<CompareTab[]>(() => {
       label: 'Reference',
       kind: 'reference',
     },
-    ...frameworkCandidates.value.map((item) => ({
+    ...submissionCandidates.value.map((item) => ({
       key: item.candidate.runId,
-      label: item.candidate.runLabel,
-      kind: 'framework' as const,
+      label: `Submission ${item.slot}`,
+      kind: 'candidate' as const,
+      slot: item.slot,
       candidate: item.candidate,
     })),
   ]
@@ -222,23 +208,20 @@ const activeCompareTab = computed(
   () => compareTabs.value.find((tab) => tab.key === activeCompareKey.value) ?? compareTabs.value[0] ?? null,
 )
 
-const activeFrameworkCandidate = computed(() =>
-  activeCompareTab.value?.kind === 'framework' ? activeCompareTab.value.candidate : null,
+const activeCandidate = computed(() =>
+  activeCompareTab.value?.kind === 'candidate' ? activeCompareTab.value.candidate : null,
 )
 
 const currentSelectionLabel = computed(() => {
-  if (draftChoice.value === 'none') return 'None / 都不好'
-  return (
-    benchmarkRuns.value.find((run) => run.id === draftChoice.value)?.label ??
-    frameworkCandidates.value.find((item) => item.candidate.runId === draftChoice.value)?.candidate.runLabel ??
-    'Unselected'
-  )
+  if (draftChoice.value === 'none') return 'No Acceptable Submission'
+  const selectedSlot = submissionCandidates.value.find((item) => item.candidate.runId === draftChoice.value)?.slot
+  return selectedSlot ? `Submission ${selectedSlot}` : 'Unselected'
 })
 
 const renderedTask = computed(() => renderMarkdown(currentQuestion.value?.task ?? ''))
 const renderedReferenceText = computed(() => renderMarkdown(currentQuestion.value?.reference.text ?? ''))
 const renderedActiveAnswer = computed(() =>
-  renderMarkdown(activeFrameworkCandidate.value?.answerText || 'No final answer was recorded.'),
+  renderMarkdown(activeCandidate.value?.answerText || 'No final answer was recorded.'),
 )
 
 const ensureCurrentIndex = () => {
@@ -419,7 +402,15 @@ const exportResponses = () => {
     reviewer_id: reviewerState.value.reviewerId,
     snapshot_version: activeSnapshotVersion,
     exported_at: new Date().toISOString(),
-    responses: orderedResponses,
+    responses: orderedResponses.map((response) => ({
+      questionId: response.questionId,
+      datasetId: response.datasetId,
+      qid: response.qid,
+      choice: response.choice === 'none' ? 'none' : response.selectedSlot ?? response.choice,
+      selectedSlot: response.choice === 'none' ? null : response.selectedSlot,
+      note: response.note,
+      updatedAt: response.updatedAt,
+    })),
   })
 }
 
@@ -470,7 +461,7 @@ watch(currentQuestion, () => {
   ensureActiveCompareTab()
 })
 
-watch(frameworkCandidates, () => {
+watch(submissionCandidates, () => {
   ensureActiveRun()
   ensureActiveCompareTab()
 })
@@ -486,11 +477,11 @@ watch(
   },
 )
 
-const applySnapshot = (loadedSnapshot: EvaluationSnapshot | null, nextMode: Extract<EvaluationSourceMode, 'live' | 'demo'>) => {
+const applySnapshot = (loadedSnapshot: EvaluationSnapshot | null, nextMode: Extract<EvaluationSourceMode, 'live' | 'sample'>) => {
   snapshot.value = loadedSnapshot
   localManifest.value = null
   currentQuestionDetail.value = null
-  caseLoadState.value = nextMode === 'demo' ? 'ready' : 'idle'
+  caseLoadState.value = nextMode === 'sample' ? 'ready' : 'idle'
   caseLoadError.value = null
   sourceMode.value = nextMode
   if (loadedSnapshot) {
@@ -508,11 +499,11 @@ const applyLocalManifest = (manifest: DevEvaluationManifest) => {
   activateReviewer(reviewerDraft.value)
 }
 
-const useEmbeddedDemo = () => {
+const useEmbeddedSample = () => {
   diagnostics.value = null
   sourceWarnings.value = []
   loadError.value = null
-  applySnapshot(embeddedEvaluationSnapshot, 'demo')
+  applySnapshot(embeddedEvaluationSnapshot, 'sample')
 }
 
 const loadSnapshot = async () => {
@@ -555,7 +546,7 @@ const loadSnapshot = async () => {
       return
     }
 
-    useEmbeddedDemo()
+    useEmbeddedSample()
   } catch (caughtError) {
     if (requestId !== loadRequestId) return
     snapshot.value = null
@@ -592,7 +583,7 @@ onMounted(async () => {
           <p class="text-sm leading-7 text-rose-700">{{ loadError }}</p>
           <div class="flex flex-wrap gap-2">
             <AppButton @click="loadSnapshot">Reload Local Data</AppButton>
-            <AppButton variant="secondary" @click="useEmbeddedDemo">Use Demo</AppButton>
+            <AppButton variant="secondary" @click="useEmbeddedSample">Load Sample Cases</AppButton>
           </div>
         </div>
       </AppCard>
@@ -605,7 +596,7 @@ onMounted(async () => {
           <p class="text-base leading-8 text-slate-600">
             The dev server is looking for case directories under
             <code class="rounded bg-slate-100 px-2 py-1 text-sm">{{ diagnostics?.root }}</code>.
-            Fix the listed issues or switch to the embedded demo workspace.
+            Fix the listed issues or load the bundled sample cases.
           </p>
           <div class="grid gap-3 lg:grid-cols-3">
             <div class="rounded-[1.4rem] border border-slate-200 bg-slate-50/90 p-4">
@@ -632,7 +623,7 @@ onMounted(async () => {
           </div>
           <div class="flex flex-wrap gap-2">
             <AppButton @click="loadSnapshot">Reload Local Data</AppButton>
-            <AppButton variant="secondary" @click="useEmbeddedDemo">Use Demo</AppButton>
+            <AppButton variant="secondary" @click="useEmbeddedSample">Load Sample Cases</AppButton>
           </div>
         </div>
       </AppCard>
@@ -645,7 +636,7 @@ onMounted(async () => {
             <div
               class="rounded-full border px-3 py-1 text-[10px] font-semibold tracking-[0.18em] uppercase"
               :class="
-                sourceMode === 'demo'
+                sourceMode === 'sample'
                   ? 'border-amber-200 bg-amber-50 text-amber-700'
                   : 'border-sky-200 bg-sky-50 text-sky-700'
               "
@@ -680,7 +671,7 @@ onMounted(async () => {
             />
             <AppButton variant="secondary" @click="activateReviewer()">Switch Reviewer</AppButton>
             <AppButton v-if="isDevMode" variant="ghost" @click="loadSnapshot">Reload Local Data</AppButton>
-            <AppButton v-if="sourceMode !== 'demo'" variant="ghost" @click="useEmbeddedDemo">Use Demo</AppButton>
+            <AppButton v-if="sourceMode !== 'sample'" variant="ghost" @click="useEmbeddedSample">Load Sample Cases</AppButton>
             <AppButton @click="exportResponses">Export JSON</AppButton>
           </div>
         </div>
@@ -799,7 +790,7 @@ onMounted(async () => {
                 v-else-if="caseLoadState === 'loading'"
                 class="rounded-[1.35rem] border border-slate-200 bg-slate-50/80 px-5 py-8 text-sm leading-7 text-slate-600"
               >
-                Loading Q{{ currentQuestionQid }} materials and framework outputs...
+                Loading Q{{ currentQuestionQid }} materials and submission outputs...
               </div>
 
               <div
@@ -815,7 +806,7 @@ onMounted(async () => {
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Compare</div>
                 <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-600">
-                  {{ benchmarkRuns.length }} frameworks + reference
+                  {{ submissionCandidates.length }} submissions + reference
                 </div>
               </div>
 
@@ -838,25 +829,22 @@ onMounted(async () => {
 
               <template v-if="currentQuestion && activeCompareTab">
                 <div
-                  v-if="activeCompareTab.kind === 'framework' && activeFrameworkCandidate"
+                  v-if="activeCompareTab.kind === 'candidate' && activeCandidate"
                   class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3"
                 >
                   <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                     <span class="rounded-full bg-white px-3 py-1 font-semibold text-slate-900">
-                      {{ activeFrameworkCandidate.runLabel }}
-                    </span>
-                    <span class="rounded-full border border-slate-200 bg-white px-3 py-1">
-                      {{ activeFrameworkCandidate.backend ?? 'snapshot' }}
+                      {{ activeCompareTab.label }}
                     </span>
                     <span
-                      v-if="draftChoice === activeFrameworkCandidate.runId"
+                      v-if="draftChoice === activeCandidate.runId"
                       class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700"
                     >
                       Selected
                     </span>
                   </div>
                   <p class="mt-3 text-sm leading-7 text-slate-600">
-                    {{ activeFrameworkCandidate.summary ?? 'No summary recorded for this framework output.' }}
+                    {{ activeCandidate.summary ?? 'No summary recorded for this submission.' }}
                   </p>
                 </div>
 
@@ -875,12 +863,12 @@ onMounted(async () => {
                   </p>
                 </div>
 
-                <div v-if="activeCompareTab.kind === 'framework' && activeFrameworkCandidate" class="space-y-4">
+                <div v-if="activeCompareTab.kind === 'candidate' && activeCandidate" class="space-y-4">
                   <div class="prose prose-slate max-w-none rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3" v-html="renderedActiveAnswer" />
 
                   <ArtifactViewer
-                    :artifacts="activeFrameworkCandidate.artifacts"
-                    :title="`${activeFrameworkCandidate.runLabel} Artifacts`"
+                    :artifacts="activeCandidate.artifacts"
+                    :title="`${activeCompareTab.label} Files`"
                   />
                 </div>
 
@@ -936,7 +924,7 @@ onMounted(async () => {
 
               <div v-if="currentQuestion" class="space-y-2">
                 <button
-                  v-for="item in frameworkCandidates"
+                  v-for="item in submissionCandidates"
                   :key="item.candidate.runId"
                   type="button"
                   class="w-full rounded-[1rem] border px-3 py-2 text-left transition"
@@ -948,7 +936,7 @@ onMounted(async () => {
                   @click="draftChoice = item.candidate.runId"
                 >
                   <div class="flex items-center justify-between gap-2">
-                    <span class="text-sm font-semibold">{{ item.candidate.runLabel }}</span>
+                    <span class="text-sm font-semibold">Submission {{ item.slot }}</span>
                     <span class="text-[11px] opacity-75">{{ item.candidate.artifacts.length }} files</span>
                   </div>
                 </button>
@@ -963,7 +951,7 @@ onMounted(async () => {
                   "
                   @click="draftChoice = 'none'"
                 >
-                  None / 都不好
+                  No Acceptable Submission
                 </button>
               </div>
 
