@@ -57,79 +57,214 @@ export const projectMeta = {
       kind: 'ghost' as const,
     },
   ],
-  details: [
-    { label: 'Runtime', value: 'Meta -> Executor -> Evaluator -> Reflector' },
-    { label: 'Benchmarks', value: 'EHRFlowBench, MedAgentBoard, MedAgentsBench, HLE, CureBench' },
-    { label: 'Main Baselines', value: 'Alita, Biomni, STELLA, BioDSA, BioMedAgent' },
-  ],
 }
 
-export const frameworkStages = [
+export const sectionNav = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'framework', label: 'Framework' },
+  { id: 'benchmarks', label: 'Benchmarks' },
+  { id: 'results', label: 'Results' },
+  { id: 'citation', label: 'Citation' },
+]
+
+export const projectFacts = [
   {
-    title: 'Meta agent',
-    description:
-      'Profiles the task, retrieves bounded EHR-aware experience, and writes an attempt-specific plan under dataset, schema, and risk constraints.',
+    label: 'Runtime',
+    value: 'Meta -> Executor -> Evaluator -> Reflector',
+    note: 'Four-agent loop that plans, executes, critiques, and writes back governed experience.',
   },
   {
-    title: 'Executor agent',
-    description:
-      'Carries out code and tool actions through an external coding-agent backend in a sandboxed workspace with inspectable artifacts.',
+    label: 'Benchmarks',
+    value: '5 benchmark suites',
+    note: 'EHRFlowBench, MedAgentBoard, MedAgentsBench, HLE, and CureBench.',
   },
   {
-    title: 'Evaluator agent',
-    description:
-      'Judges both execution traces and generated artifacts so the system can recover from hidden methodological flaws, not only runtime crashes.',
-  },
-  {
-    title: 'Reflector agent',
-    description:
-      'Synthesizes safeguards, workflows, dataset anchors, and code snippets from the full trajectory so later tasks can reuse governed experience.',
+    label: 'Main baselines',
+    value: 'Alita, Biomni, STELLA, BioDSA, BioMedAgent',
+    note: 'Homepage and evaluation focus on the primary framework baselines used in the manuscript.',
   },
 ]
 
-export const benchmarkOverview = {
-  intro:
-    'HealthFlow is evaluated across five benchmarks spanning open-ended EHR workflow orchestration, executable artifact generation, deterministic medical reasoning, and tool-augmented biomedical decision-making.',
-  benchmarkNames: ['EHRFlowBench', 'MedAgentBoard', 'MedAgentsBench', 'HLE', 'CureBench'],
-  baselineNames: ['Alita', 'Biomni', 'STELLA', 'BioDSA', 'BioMedAgent'],
-  ehrflowbench: {
-    title: 'EHRFlowBench',
-    subtitle: 'Open-ended EHR analysis benchmark derived from peer-reviewed literature',
+export const frameworkStages = [
+  {
+    id: 'meta',
+    shortLabel: 'Meta',
+    title: 'Meta agent',
+    kicker: 'Strategic planner',
+    description:
+      'Profiles the task, retrieves bounded EHR-aware experience, and writes the next attempt-specific plan under dataset, schema, and risk constraints.',
+    outputs: ['Task family + dataset signature', 'Retrieved safeguards and workflows', 'Attempt-specific plan'],
+  },
+  {
+    id: 'executor',
+    shortLabel: 'Executor',
+    title: 'Executor agent',
+    kicker: 'Faithful implementation',
+    description:
+      'Turns the plan into code, tool calls, and artifacts through an external coding-agent backend in a sandboxed workspace.',
+    outputs: ['CLI and tool actions', 'Intermediate artifacts', 'Auditable execution trace'],
+  },
+  {
+    id: 'evaluator',
+    shortLabel: 'Evaluator',
+    title: 'Evaluator agent',
+    kicker: 'Artifact-and-trace critique',
+    description:
+      'Reviews runtime traces and generated outputs so the system can repair hidden methodological errors instead of only catching crashes.',
+    outputs: ['Success verdict', 'Violated constraints', 'Targeted repair guidance'],
+  },
+  {
+    id: 'reflector',
+    shortLabel: 'Reflector',
+    title: 'Reflector agent',
+    kicker: 'Governed memory writeback',
+    description:
+      'Synthesizes safeguards, reusable workflows, dataset anchors, and code snippets from the completed trajectory so later tasks can reuse validated experience.',
+    outputs: ['Safeguards', 'Reusable workflows', 'Dataset anchors + snippets'],
+  },
+]
+
+export const benchmarkDeck = [
+  {
+    id: 'ehrflowbench',
+    label: 'EHRFlowBench',
+    kicker: 'Primary open-ended benchmark',
+    title: 'Literature-derived end-to-end EHR analysis.',
     body:
-      'EHRFlowBench is the core benchmark for full-cycle EHR analysis. It evaluates whether an agent can move from clinical objective to cohort construction, feature engineering, modeling, visualization, and report writing under realistic dataset constraints.',
-    pipeline: [
-      'Start from 51,280 papers published between 2020 and 2025 across major AI and data mining venues.',
-      'Filter to 162 EHR-relevant candidates, then manually retain 118 seed papers for task extraction.',
-      'Generate 236 dataset-grounded candidate tasks, paired across TJH and the MIMIC-IV Public Demo Release.',
-      'Build the final 100-task benchmark as 50 TJH tasks and 50 MIMIC-IV tasks.',
+      'EHRFlowBench evaluates whether an agent can move from a clinical objective to cohort construction, feature engineering, modeling, visualization, and report writing under real dataset constraints.',
+    metrics: [
+      { label: 'Papers screened', value: '51,280' },
+      { label: 'Seed papers retained', value: '118' },
+      { label: 'Final tasks', value: '100' },
+    ],
+    bullets: [
+      'Collect 51,280 papers from major AI and data mining venues between 2020 and 2025.',
+      'Filter to 162 EHR-relevant candidates, then manually retain 118 seed papers.',
+      'Generate 236 dataset-grounded tasks paired across TJH and the MIMIC-IV Public Demo Release.',
+      'Sample a balanced 100-task benchmark with 50 TJH tasks and 50 MIMIC-IV tasks.',
     ],
   },
-  medagentboard: {
-    title: 'MedAgentBoard',
-    subtitle: 'Workflow-grounded executable benchmark for clinical artifacts',
+  {
+    id: 'medagentboard',
+    label: 'MedAgentBoard',
+    kicker: 'Executable artifact benchmark',
+    title: 'Workflow-grounded review of data, models, and visualizations.',
     body:
-      'MedAgentBoard complements EHRFlowBench with a more deterministic executable task surface spanning data extraction, predictive modeling, and visualization. It is where artifact quality, chart validity, and structured outputs can be inspected directly.',
-    highlights: [
-      'Balanced over TJH and the MIMIC-IV Public Demo Release.',
-      'Covers data processing, predictive modeling, and visualization tasks.',
-      'Supports artifact-first review through images, tables, CSV files, markdown, and reports.',
+      'MedAgentBoard complements EHRFlowBench with a more deterministic task surface spanning data processing, predictive modeling, and visualization, making artifact quality directly inspectable.',
+    metrics: [
+      { label: 'Executable tasks', value: '100' },
+      { label: 'Datasets', value: 'TJH + MIMIC-IV Demo' },
+      { label: 'Task families', value: '3' },
+    ],
+    bullets: [
+      'Balanced over 50 TJH tasks and 50 MIMIC-IV tasks.',
+      'Targets data processing, predictive modeling, and visualization in equal proportion.',
+      'Supports artifact-first review through images, CSV files, markdown, and reports.',
     ],
   },
-  additionalBenchmarks: [
-    {
-      title: 'MedAgentsBench',
-      body: 'Deterministic hard-set multiple-choice benchmark for medical knowledge and reasoning.',
-    },
-    {
-      title: 'HLE',
-      body: 'Selected Biology and Medicine questions from Humanity’s Last Exam.',
-    },
-    {
-      title: 'CureBench',
-      body: 'Selected benchmark questions for biomedical tool-augmented decision-making and reasoning.',
-    },
-  ],
-}
+  {
+    id: 'medagentsbench',
+    label: 'MedAgentsBench',
+    kicker: 'Deterministic reasoning benchmark',
+    title: 'Hard-set medical knowledge and reasoning.',
+    body:
+      'Used to measure whether stronger workflow performance still preserves strong medical reasoning on deterministic multiple-choice questions.',
+    metrics: [
+      { label: 'Format', value: 'Multiple choice' },
+      { label: 'Focus', value: 'Medical reasoning' },
+      { label: 'Role', value: 'Knowledge floor' },
+    ],
+    bullets: [
+      'Evaluates hard medical QA rather than open-ended execution.',
+      'Acts as a reasoning anchor beside workflow-heavy evaluations.',
+    ],
+  },
+  {
+    id: 'hle',
+    label: 'HLE',
+    kicker: 'External benchmark coverage',
+    title: 'Selected Biology and Medicine questions from Humanity’s Last Exam.',
+    body:
+      'Adds broader scientific reasoning pressure so the evaluation suite is not limited to EHR-native tasks alone.',
+    metrics: [
+      { label: 'Source', value: 'Humanity’s Last Exam' },
+      { label: 'Subset', value: 'Biology + Medicine' },
+      { label: 'Role', value: 'Cross-domain pressure' },
+    ],
+    bullets: [
+      'Tests broader science reasoning under deterministic evaluation.',
+      'Helps separate workflow gains from general question-answering ability.',
+    ],
+  },
+  {
+    id: 'curebench',
+    label: 'CureBench',
+    kicker: 'Biomedical decision-making',
+    title: 'Tool-augmented biomedical reasoning under controlled grading.',
+    body:
+      'Adds a biomedical decision-making benchmark so the suite covers not only workflow orchestration but also practical biomedical reasoning with structured answers.',
+    metrics: [
+      { label: 'Format', value: 'Deterministic subset' },
+      { label: 'Focus', value: 'Biomedical decisions' },
+      { label: 'Role', value: 'Practical reasoning' },
+    ],
+    bullets: [
+      'Used as a deterministic external check on biomedical reasoning.',
+      'Completes the five-benchmark evaluation surface reported in the manuscript.',
+    ],
+  },
+]
+
+export const resultDeck = [
+  {
+    id: 'open-ended',
+    label: 'Open-ended EHR',
+    title: 'HealthFlow leads on the hardest open-ended workflows.',
+    summary:
+      'On EHRFlowBench, HealthFlow reaches an LLM score of 3.82 and 3.98 with tool support, outperforming strong agent baselines such as AFlow (3.31) and STELLA (2.39).',
+    stats: [
+      { label: 'HealthFlow', value: '3.82' },
+      { label: 'HealthFlow + tools', value: '3.98' },
+      { label: 'Best highlighted baseline', value: 'AFlow 3.31' },
+    ],
+  },
+  {
+    id: 'artifacts',
+    label: 'Artifacts',
+    title: 'Artifact-heavy tasks improve even more with tool access.',
+    summary:
+      'On MedAgentBoard, HealthFlow reaches 66.09% success and 81.89% with tool access, well above the best baseline result highlighted in the manuscript (Biomni at 45.61%).',
+    stats: [
+      { label: 'HealthFlow', value: '66.09%' },
+      { label: 'HealthFlow + tools', value: '81.89%' },
+      { label: 'Best highlighted baseline', value: '45.61%' },
+    ],
+  },
+  {
+    id: 'reasoning',
+    label: 'Reasoning',
+    title: 'The benchmark suite still checks medical reasoning, not only execution.',
+    summary:
+      'HealthFlow is evaluated across MedAgentsBench, HLE, and CureBench in addition to the workflow-heavy tasks, so the platform narrative stays anchored in five benchmarks rather than only two.',
+    stats: [
+      { label: 'Reasoning benchmarks', value: '3' },
+      { label: 'Workflow benchmarks', value: '2' },
+      { label: 'Total suite', value: '5' },
+    ],
+  },
+  {
+    id: 'human-eval',
+    label: 'Human evaluation',
+    title: 'Blinded expert review favors HealthFlow outputs.',
+    summary:
+      'Twelve domain experts reviewed 20 tasks in a blinded online interface and consistently preferred HealthFlow, with 71.54% average pairwise inter-rater agreement.',
+    stats: [
+      { label: 'Experts', value: '12' },
+      { label: 'Tasks', value: '20' },
+      { label: 'Agreement', value: '71.54%' },
+    ],
+  },
+]
 
 export const citation = `@misc{zhu2025healthflow,
   title={HealthFlow: Automating electronic health record analysis via a strategically self-evolving multi-agent framework},
