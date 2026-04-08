@@ -148,7 +148,7 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(entries[0]["turns_text"], "2 turns")
         self.assertTrue(entries[0]["updated_text"])
 
-    def test_visible_recent_tasks_keeps_untitled_drafts_accessible(self):
+    def test_visible_recent_tasks_hides_inactive_untitled_drafts(self):
         draft = TaskSessionSummary(task_id="task-draft", title="Untitled task", updated_at_utc="2026-04-08T03:00:00Z")
         previous = TaskSessionSummary(
             task_id="task-real",
@@ -159,6 +159,20 @@ class WebAppTests(unittest.TestCase):
         )
 
         visible = _visible_recent_tasks([draft, previous], current_task_id="task-real")
+
+        self.assertEqual([item.task_id for item in visible], ["task-real"])
+
+    def test_visible_recent_tasks_keeps_current_untitled_draft_accessible(self):
+        draft = TaskSessionSummary(task_id="task-draft", title="Untitled task", updated_at_utc="2026-04-08T03:00:00Z")
+        previous = TaskSessionSummary(
+            task_id="task-real",
+            title="Analyze the uploaded vitals cohort",
+            updated_at_utc="2026-04-08T01:00:00Z",
+            turn_count=2,
+            latest_turn_status="success",
+        )
+
+        visible = _visible_recent_tasks([draft, previous], current_task_id="task-draft")
 
         self.assertEqual([item.task_id for item in visible], ["task-draft", "task-real"])
 
