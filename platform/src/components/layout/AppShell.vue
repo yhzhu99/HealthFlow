@@ -21,7 +21,7 @@ const navItems = computed(() => [
 const isActive = (path: string) => route.path === path
 
 const contentWidthClass = computed(() =>
-  props.contentWidth === 'wide' ? 'max-w-[1580px]' : 'max-w-7xl',
+  props.contentWidth === 'wide' ? 'max-w-[1740px]' : 'max-w-7xl',
 )
 </script>
 

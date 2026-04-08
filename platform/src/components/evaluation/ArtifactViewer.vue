@@ -99,8 +99,11 @@ watch(
         {{ error }}
       </div>
 
-      <div v-else-if="selectedArtifact.kind === 'image'" class="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-slate-50">
-        <img :src="selectedUrl" :alt="selectedArtifact.label" class="w-full object-contain" />
+      <div
+        v-else-if="selectedArtifact.kind === 'image'"
+        class="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white px-4 py-4"
+      >
+        <img :src="selectedUrl" :alt="selectedArtifact.label" class="mx-auto max-h-[760px] w-full object-contain" />
       </div>
 
       <PdfPreview v-else-if="selectedArtifact.kind === 'pdf'" :src="selectedUrl" />
