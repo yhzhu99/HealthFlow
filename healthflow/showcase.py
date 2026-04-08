@@ -889,7 +889,7 @@ def _write_chart_roc(path: Path) -> None:
 
     fpr = [0.0, 0.03, 0.08, 0.15, 0.25, 1.0]
     tpr = [0.0, 0.46, 0.71, 0.82, 0.92, 1.0]
-    figure, axis = plt.subplots(figsize=(5.8, 4.0), dpi=160)
+    figure, axis = plt.subplots(figsize=(6.4, 3.6), dpi=160)
     figure.patch.set_facecolor("#f7fbfd")
     axis.set_facecolor("#ffffff")
     axis.plot(fpr, tpr, color="#155a8a", linewidth=2.8, label="HealthFlow baseline")
@@ -908,7 +908,7 @@ def _write_chart_calibration(path: Path) -> None:
 
     predicted = [0.08, 0.18, 0.32, 0.51, 0.67, 0.83]
     observed = [0.05, 0.17, 0.28, 0.56, 0.7, 0.87]
-    figure, axis = plt.subplots(figsize=(5.8, 4.0), dpi=160)
+    figure, axis = plt.subplots(figsize=(6.4, 3.6), dpi=160)
     figure.patch.set_facecolor("#f7fbfd")
     axis.set_facecolor("#ffffff")
     axis.plot(predicted, observed, marker="o", color="#0f4a74", linewidth=2.5)
@@ -926,7 +926,7 @@ def _write_chart_distribution(path: Path, rows: list[dict[str, Any]]) -> None:
     positive = [float(item["predicted_risk"]) for item in rows if int(item["mortality"]) == 1]
     negative = [float(item["predicted_risk"]) for item in rows if int(item["mortality"]) == 0]
     bins = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-    figure, axis = plt.subplots(figsize=(5.8, 4.0), dpi=160)
+    figure, axis = plt.subplots(figsize=(6.4, 3.6), dpi=160)
     figure.patch.set_facecolor("#f7fbfd")
     axis.set_facecolor("#ffffff")
     axis.hist([negative, positive], bins=bins, stacked=True, color=["#94a3b8", "#155a8a"], label=["Survived", "Died"])
@@ -940,8 +940,8 @@ def _write_chart_distribution(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def _save_figure(figure: Any, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    figure.tight_layout()
-    figure.savefig(path, format="png", bbox_inches="tight")
+    figure.tight_layout(pad=0.32)
+    figure.savefig(path, format="png", bbox_inches="tight", pad_inches=0.04)
     figure.clf()
     import matplotlib.pyplot as plt
 

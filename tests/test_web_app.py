@@ -399,9 +399,13 @@ class WebAppTests(unittest.TestCase):
 
         self.assertEqual(type(main_history[1]["content"]).__name__, "HTML")
         self.assertIn("Pipeline State", main_history[1]["content"].value)
+        self.assertIn("Plan", main_history[1]["content"].value)
+        self.assertIn("Evaluate", main_history[1]["content"].value)
         self.assertIn("Reflect", main_history[1]["content"].value)
         self.assertIn("Reusable learnings archived for future runs.", main_history[1]["content"].value)
         self.assertNotIn("Artifacts", main_history[1]["content"].value)
+        self.assertNotIn("Memory", main_history[1]["content"].value)
+        self.assertNotIn("Execute", main_history[1]["content"].value)
         self.assertEqual(type(main_history[-2]["content"]).__name__, "Gallery")
         self.assertEqual(main_history[-2]["content"].constructor_args["value"][0][0], str(image_path))
         self.assertEqual(main_history[-1]["content"], "All artifacts are ready.")

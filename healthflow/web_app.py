@@ -40,6 +40,12 @@ _RUN_STAGE_LABELS = {
     "evaluator": "Evaluate",
     "reflection": "Reflect",
 }
+_PIPELINE_STAGE_ORDER = ["plan", "evaluate", "reflect"]
+_PIPELINE_STAGE_LABELS = {
+    "plan": "Plan",
+    "evaluate": "Evaluate",
+    "reflect": "Reflect",
+}
 _DEMO_CASE = {
     "id": SHOWCASE_TASK_ID,
     "title": SHOWCASE_TITLE,
@@ -233,10 +239,39 @@ _WEB_APP_HEAD = """
     });
   };
 
+  const focusShowcaseViewport = () => {
+    const log =
+      document.querySelector(".hf-chatbot [role='log']")
+      || document.querySelector(".hf-chatbot > .wrap");
+    const objective =
+      document.querySelector(".hf-chatbot .hf-process-card-subcopy")
+      || document.querySelector(".hf-chatbot .hf-process-card");
+    const gallery = document.querySelector(".hf-chatbot .gallery-container");
+    if (!log || !objective || !gallery) {
+      return;
+    }
+    const focusKey = [
+      objective.textContent?.trim() || "",
+      gallery.querySelectorAll(".gallery-item").length,
+      log.scrollHeight,
+    ].join("|");
+    if (log.dataset.hfFocusKey === focusKey) {
+      return;
+    }
+    log.dataset.hfFocusKey = focusKey;
+    const alignViewport = () => {
+      const logRect = log.getBoundingClientRect();
+      const objectiveTop = objective.getBoundingClientRect().top - logRect.top + log.scrollTop;
+      log.scrollTop = Math.max(0, Math.round(objectiveTop - 16));
+    };
+    window.requestAnimationFrame(() => window.requestAnimationFrame(alignViewport));
+  };
+
   const boot = () => {
     bindComposerAttachments();
     bindHistoryInteractions();
     bindWorkspaceInteractions();
+    focusShowcaseViewport();
   };
   document.addEventListener("DOMContentLoaded", boot);
   window.addEventListener("load", boot);
@@ -408,7 +443,7 @@ aside > div {
 
 .hf-task-header h2 {
     margin: 0;
-    font-size: 2.02rem;
+    font-size: 2.14rem;
     font-weight: 700;
     letter-spacing: -0.045em;
     color: var(--hf-text);
@@ -424,7 +459,7 @@ aside > div {
 .hf-run-overview-shell {
     flex: 0 0 auto;
     margin: 0;
-    padding: 0 1rem 0.85rem;
+    padding: 0 1rem 0.72rem;
 }
 
 .hf-run-overview {
@@ -443,8 +478,8 @@ aside > div {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.9rem;
-    padding: 0.88rem 0.95rem;
+    gap: 0.78rem;
+    padding: 0.8rem 0.9rem;
     list-style: none;
     cursor: pointer;
     background: linear-gradient(180deg, rgba(230, 237, 243, 0.82) 0%, rgba(255, 255, 255, 0.22) 100%);
@@ -473,7 +508,7 @@ aside > div {
 
 .hf-run-overview-summary-line h3 {
     margin: 0;
-    font-size: 1.24rem;
+    font-size: 1.32rem;
     font-weight: 700;
     letter-spacing: -0.02em;
 }
@@ -485,7 +520,7 @@ aside > div {
     border-radius: var(--hf-radius-chip);
     background: var(--hf-surface-contrast);
     color: var(--hf-text);
-    font-size: 0.76rem;
+    font-size: 0.8rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -499,36 +534,36 @@ aside > div {
     border-radius: var(--hf-radius-chip);
     background: rgba(255, 255, 255, 0.86);
     color: var(--hf-text-muted);
-    font-size: 0.76rem;
+    font-size: 0.8rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
 }
 
 .hf-run-overview-detail {
-    padding: 0 0.95rem 0.95rem;
+    padding: 0 0.9rem 0.88rem;
     border-top: 1px solid var(--hf-border);
 }
 
 .hf-run-overview-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.62rem;
-    padding-top: 0.82rem;
+    gap: 0.56rem;
+    padding-top: 0.72rem;
 }
 
 .hf-run-overview-panel {
     min-width: 0;
-    padding: 0.8rem 0.84rem;
+    padding: 0.72rem 0.78rem;
     border: 1px solid var(--hf-border);
     border-radius: var(--hf-radius-control);
     background: rgba(244, 248, 251, 0.92);
 }
 
 .hf-run-overview-label {
-    margin-bottom: 0.42rem;
+    margin-bottom: 0.36rem;
     color: var(--hf-text-muted);
-    font-size: 0.72rem;
+    font-size: 0.74rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -536,23 +571,23 @@ aside > div {
 
 .hf-run-overview-objective {
     color: var(--hf-text);
-    font-size: 1.1rem;
+    font-size: 1.14rem;
     font-weight: 600;
     line-height: 1.5;
 }
 
 .hf-run-overview-note {
-    margin-top: 0.3rem;
+    margin-top: 0.24rem;
     color: var(--hf-text-muted);
-    font-size: 1.04rem;
+    font-size: 1.08rem;
     line-height: 1.52;
 }
 
 .hf-stage-chip-row {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0.42rem;
-    padding-top: 0.82rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.34rem;
+    padding-top: 0.72rem;
 }
 
 .hf-stage-chip {
@@ -570,13 +605,13 @@ aside > div {
 }
 
 .hf-stage-chip-label {
-    font-size: 0.94rem;
+    font-size: 0.98rem;
     font-weight: 700;
 }
 
 .hf-stage-chip-state {
     color: var(--hf-text-muted);
-    font-size: 0.76rem;
+    font-size: 0.74rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -817,7 +852,7 @@ aside > div {
 }
 
 .hf-composer textarea {
-    font-size: 1rem !important;
+    font-size: 1.06rem !important;
     line-height: 1.6 !important;
     padding-top: 0.72rem !important;
     padding-bottom: 0.72rem !important;
@@ -941,8 +976,8 @@ aside > div {
 }
 
 .hf-browser-pane {
-    flex: 0 0 44%;
-    min-width: 12.75rem;
+    flex: 0 0 41%;
+    min-width: 11.8rem;
     overflow: hidden;
 }
 
@@ -1053,7 +1088,7 @@ aside > div {
 }
 
 .hf-tree-root {
-    gap: 0.16rem;
+    gap: 0.12rem;
     padding: 0.08rem 0;
 }
 
@@ -1082,14 +1117,34 @@ aside > div {
 .hf-tree-folder {
     display: flex;
     align-items: center;
-    gap: 0.48rem;
-    min-height: 2rem;
-    padding: 0.34rem 0.1rem 0.18rem;
+    gap: 0.4rem;
+    min-height: 1.88rem;
+    padding: 0.3rem 0.08rem 0.14rem;
     color: #334155;
-    font-size: 1.02rem;
+    font-size: 1.08rem;
     font-weight: 700;
     letter-spacing: -0.01em;
     text-transform: none;
+}
+
+.hf-tree-folder-prefix {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 0.78rem;
+    color: var(--hf-accent);
+    font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.hf-tree-folder-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .hf-tree-file {
@@ -1097,8 +1152,8 @@ aside > div {
     align-items: center;
     justify-content: space-between;
     gap: 0.55rem;
-    min-height: 2.28rem;
-    padding: 0.4rem 0.5rem;
+    min-height: 2.18rem;
+    padding: 0.34rem 0.42rem;
     border: 1px solid transparent;
     border-radius: var(--hf-radius-control);
     background: rgba(255, 255, 255, 0);
@@ -1109,7 +1164,7 @@ aside > div {
 .hf-tree-file-main {
     display: flex;
     align-items: center;
-    gap: 0.48rem;
+    gap: 0.42rem;
     min-width: 0;
     flex: 1 1 auto;
 }
@@ -1119,17 +1174,17 @@ aside > div {
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    min-width: 2.16rem;
-    height: 1.22rem;
-    padding: 0 0.3rem;
+    min-width: 1.56rem;
+    height: 1.02rem;
+    padding: 0 0.24rem;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: var(--hf-radius-chip);
     background: rgba(248, 250, 252, 0.98);
     color: #526171;
     font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
-    font-size: 0.64rem;
+    font-size: 0.55rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
 }
 
@@ -1163,7 +1218,7 @@ aside > div {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 1rem;
+    font-size: 1.04rem;
     font-weight: 600;
     line-height: 1.35;
     color: #0f172a;
@@ -1407,7 +1462,7 @@ aside > div {
 .hf-chatbot > .wrap,
 .hf-trace-panel > .wrap {
     height: 100%;
-    padding: 0.25rem 0.2rem 0.1rem !important;
+    padding: 0.2rem 0.08rem 0.08rem !important;
 }
 
 .hf-chatbot .message-row,
@@ -1427,8 +1482,8 @@ aside > div {
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
     margin-left: auto;
-    width: min(76%, 52rem) !important;
-    max-width: min(76%, 52rem) !important;
+    width: min(88%, 62rem) !important;
+    max-width: min(88%, 62rem) !important;
 }
 
 .hf-chatbot :is(.user .panel-full-width, .panel-full-width.user) {
@@ -1447,8 +1502,8 @@ aside > div {
 
 .hf-chatbot .bubble-wrap:has(:is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user)) {
     flex: 0 0 auto !important;
-    width: min(76%, 52rem) !important;
-    max-width: min(76%, 52rem) !important;
+    width: min(88%, 62rem) !important;
+    max-width: min(88%, 62rem) !important;
     margin-left: auto !important;
 }
 
@@ -1460,8 +1515,8 @@ aside > div {
 
 .hf-chatbot .message-row,
 .hf-trace-panel .message-row {
-    padding-left: 0.6rem !important;
-    padding-right: 0.6rem !important;
+    padding-left: 0.3rem !important;
+    padding-right: 0.3rem !important;
 }
 
 .hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width),
@@ -1472,8 +1527,8 @@ aside > div {
 
 .hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) :is(.prose, p, li, div, span, strong, em),
 .hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) :is(.prose, p, li, div, span, strong, em) {
-    font-size: 1.18rem !important;
-    line-height: 1.68 !important;
+    font-size: 1.22rem !important;
+    line-height: 1.7 !important;
     margin-left: 0 !important;
     margin-right: 0 !important;
 }
@@ -1522,7 +1577,7 @@ aside > div {
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: var(--hf-radius-panel);
     background: linear-gradient(180deg, rgba(244, 248, 251, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
-    padding: 0.86rem 0.94rem;
+    padding: 0.8rem 0.9rem;
 }
 
 .hf-process-card-head {
@@ -1594,9 +1649,9 @@ aside > div {
 
 .hf-process-stage-rail {
     display: flex;
-    gap: 0.34rem;
+    gap: 0.3rem;
     flex-wrap: wrap;
-    margin-top: 0.72rem;
+    margin-top: 0.6rem;
 }
 
 .hf-process-stage {
@@ -1639,14 +1694,32 @@ aside > div {
 
 .hf-process-card-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.15fr) minmax(0, 1.25fr);
-    gap: 0.62rem;
-    margin-top: 0.72rem;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+    gap: 0.56rem;
+    margin-top: 0.66rem;
+    align-items: stretch;
+}
+
+.hf-process-card-subcopy {
+    margin: 0.48rem 0 0;
+    color: var(--hf-text);
+    font-size: 1.05rem;
+    line-height: 1.54;
+}
+
+.hf-process-card-inline-label {
+    display: inline-block;
+    margin-right: 0.42rem;
+    color: var(--hf-text-muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }
 
 .hf-process-card-block {
     min-width: 0;
-    padding: 0.68rem 0.72rem;
+    padding: 0.62rem 0.68rem;
     border: 1px solid rgba(15, 23, 42, 0.06);
     border-radius: var(--hf-radius-control);
     background: rgba(255, 255, 255, 0.88);
@@ -1664,16 +1737,16 @@ aside > div {
 .hf-process-card-copy {
     margin: 0;
     color: var(--hf-text);
-    font-size: 1.04rem;
-    line-height: 1.55;
+    font-size: 1.08rem;
+    line-height: 1.58;
 }
 
 .hf-process-card-list {
     margin: 0;
     padding-left: 1rem;
     color: var(--hf-text);
-    font-size: 1rem;
-    line-height: 1.5;
+    font-size: 1.03rem;
+    line-height: 1.54;
 }
 
 .hf-inline-gallery {
@@ -1684,33 +1757,42 @@ aside > div {
 }
 
 .hf-inline-gallery .gallery-container,
-.hf-inline-gallery > .wrap {
-    width: 100%;
-    max-width: 84rem;
+.hf-inline-gallery > .wrap,
+.hf-chatbot .gallery-container {
+    width: 100% !important;
+    max-width: 100%;
     margin: 0 auto;
 }
 
-.hf-inline-gallery .gallery-container {
-    padding: 0.12rem 0;
+.hf-inline-gallery .gallery-container,
+.hf-chatbot .gallery-container {
+    padding: 0.08rem 0;
 }
 
-.hf-inline-gallery .grid-wrap {
-    display: flex;
-    justify-content: center;
+.hf-inline-gallery .grid-wrap,
+.hf-chatbot .gallery-container .grid-wrap {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100%;
 }
 
-.hf-inline-gallery .grid-container {
+.hf-inline-gallery .grid-container,
+.hf-chatbot .gallery-container .grid-container {
     width: 100% !important;
     max-width: 100%;
     margin: 0 auto !important;
+    display: grid !important;
     justify-content: center;
-    gap: 0.72rem !important;
+    gap: 0.54rem !important;
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 }
 
 .hf-inline-gallery .gallery-item,
 .hf-inline-gallery .thumbnail-item,
-.hf-inline-gallery .thumbnail-item.thumbnail-lg {
+.hf-inline-gallery .thumbnail-item.thumbnail-lg,
+.hf-chatbot .gallery-container .gallery-item,
+.hf-chatbot .gallery-container .thumbnail-item,
+.hf-chatbot .gallery-container .thumbnail-item.thumbnail-lg {
     border-radius: var(--hf-radius-panel) !important;
     border: 1px solid rgba(15, 23, 42, 0.08) !important;
     background: linear-gradient(180deg, rgba(244, 248, 251, 0.98) 0%, rgba(255, 255, 255, 0.99) 100%) !important;
@@ -1719,33 +1801,41 @@ aside > div {
 }
 
 .hf-inline-gallery .thumbnail-item,
-.hf-inline-gallery .thumbnail-item.thumbnail-lg {
-    padding: 0.42rem !important;
-    min-height: 18.5rem;
+.hf-inline-gallery .thumbnail-item.thumbnail-lg,
+.hf-chatbot .gallery-container .thumbnail-item,
+.hf-chatbot .gallery-container .thumbnail-item.thumbnail-lg {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0;
+    padding: 0.2rem !important;
 }
 
-.hf-inline-gallery .caption-label {
+.hf-inline-gallery .caption-label,
+.hf-chatbot .gallery-container .caption-label {
     display: flex;
     justify-content: center;
-    padding: 0.18rem 0.24rem 0.28rem;
+    padding: 0.08rem 0.16rem 0.18rem;
     color: var(--hf-text) !important;
-    font-size: 1rem !important;
+    font-size: 0.98rem !important;
     font-weight: 700 !important;
     text-align: center;
 }
 
-.hf-inline-gallery img {
+.hf-inline-gallery img,
+.hf-chatbot .gallery-container img {
     display: block;
     margin: 0 auto;
     width: 100%;
-    min-height: 16.75rem;
+    height: auto !important;
+    min-height: 0;
     object-fit: contain !important;
     border-radius: var(--hf-radius-control) !important;
-    border: 1px solid rgba(15, 23, 42, 0.06);
-    background: rgba(255, 255, 255, 0.96);
+    border: none;
+    background: transparent;
 }
 
-.hf-inline-gallery button {
+.hf-inline-gallery button,
+.hf-chatbot .gallery-container button {
     box-shadow: none !important;
 }
 
@@ -1902,7 +1992,8 @@ footer {
         margin-right: 0.85rem;
     }
 
-    .hf-inline-gallery .grid-container {
+    .hf-inline-gallery .grid-container,
+    .hf-chatbot .gallery-container .grid-container {
         grid-template-columns: 1fr !important;
     }
 }
@@ -2152,6 +2243,33 @@ def _run_stage_badge(status: str) -> str:
     return "pending"
 
 
+def _pipeline_stage_badge(overview: dict[str, Any], stage: str) -> str:
+    stage_status = dict(overview.get("stage_status") or {})
+    normalized_stage = str(stage or "").strip().lower()
+    if normalized_stage == "plan":
+        return _run_stage_badge(str(stage_status.get("planner") or "pending"))
+    if normalized_stage == "reflect":
+        return _run_stage_badge(str(stage_status.get("reflection") or "pending"))
+    if normalized_stage != "evaluate":
+        return "pending"
+
+    executor_badge = _run_stage_badge(str(stage_status.get("executor") or "pending"))
+    evaluator_badge = _run_stage_badge(str(stage_status.get("evaluator") or "pending"))
+    if "failed" in {executor_badge, evaluator_badge}:
+        return "failed"
+    if "cancelled" in {executor_badge, evaluator_badge}:
+        return "cancelled"
+    if evaluator_badge == "done":
+        return "done"
+    if evaluator_badge == "active":
+        return "active"
+    if executor_badge in {"active", "done"}:
+        return "active"
+    if evaluator_badge == "skipped":
+        return "skipped"
+    return "pending"
+
+
 def _stage_sequence_after(stage: str) -> list[str]:
     if stage not in _RUN_STAGE_ORDER:
         return []
@@ -2327,9 +2445,9 @@ def _run_overview_html(state: dict[str, Any] | None) -> str:
     latest_message = html.escape(str(overview.get("latest_message") or "").strip() or "Planning details and runtime progress will appear here.")
     details_open = str(overview.get("mode") or "").strip().lower() in {"running", "failed", "cancelled"}
     stage_html = []
-    for stage in _RUN_STAGE_ORDER:
-        badge = _run_stage_badge(str((overview.get("stage_status") or {}).get(stage) or "pending"))
-        label = html.escape(_RUN_STAGE_LABELS[stage])
+    for stage in _PIPELINE_STAGE_ORDER:
+        badge = _pipeline_stage_badge(overview, stage)
+        label = html.escape(_PIPELINE_STAGE_LABELS[stage])
         badge_label = {
             "done": "done",
             "active": "running",
@@ -2906,11 +3024,10 @@ def _process_snapshot_headline(
 
 
 def _process_stage_rail_html(overview: dict[str, Any]) -> str:
-    stage_status = dict(overview.get("stage_status") or {})
     items = []
-    for stage in _RUN_STAGE_ORDER:
-        badge = _run_stage_badge(str(stage_status.get(stage) or "pending"))
-        label = html.escape(_RUN_STAGE_LABELS.get(stage, stage.title()))
+    for stage in _PIPELINE_STAGE_ORDER:
+        badge = _pipeline_stage_badge(overview, stage)
+        label = html.escape(_PIPELINE_STAGE_LABELS[stage])
         items.append(f'<span class="hf-process-stage is-{badge}">{label}</span>')
     return "".join(items)
 
@@ -2953,11 +3070,8 @@ def _process_snapshot_markup(
         "</div>"
         "</div>"
         f'<div class="hf-process-stage-rail">{_process_stage_rail_html(overview)}</div>'
+        f'<p class="hf-process-card-subcopy"><span class="hf-process-card-inline-label">Objective</span>{objective}</p>'
         '<div class="hf-process-card-grid">'
-        '<div class="hf-process-card-block">'
-        '<div class="hf-process-card-label">Objective</div>'
-        f'<p class="hf-process-card-copy">{objective}</p>'
-        "</div>"
         '<div class="hf-process-card-block">'
         '<div class="hf-process-card-label">Plan</div>'
         f'<ul class="hf-process-card-list">{steps_html}</ul>'
@@ -3377,7 +3491,7 @@ def _workspace_tree_html(
         if row.get("kind") == "folder":
             label = html.escape(str(row.get("label") or ""))
             html_rows.append(
-                f'<div class="hf-tree-folder {depth_class}"><span class="hf-tree-node-badge is-folder">dir</span><span>{label}</span></div>'
+                f'<div class="hf-tree-folder {depth_class}"><span class="hf-tree-folder-prefix">/</span><span class="hf-tree-folder-name">{label}</span></div>'
             )
             continue
 
@@ -3387,24 +3501,17 @@ def _workspace_tree_html(
         label = html.escape(str(row.get("label") or Path(source_path).name))
         origin = str(row.get("origin") or "").strip().lower()
         suffix = Path(source_path).suffix.lower()
-        badge = "file"
+        trimmed_suffix = suffix.lstrip(".")
+        badge = trimmed_suffix[:5] if trimmed_suffix else "file"
         badge_class = "is-text"
         if origin == "report":
-            badge = "report"
             badge_class = "is-report"
         elif suffix in {".png", ".jpg", ".jpeg", ".webp"}:
-            badge = "img"
             badge_class = "is-image"
         elif suffix in {".csv", ".tsv", ".parquet", ".xlsx"}:
-            badge = "tab"
             badge_class = "is-table"
-        elif suffix in {".md", ".txt"}:
-            badge = "note"
+        elif suffix in {".md", ".txt", ".json"}:
             badge_class = "is-text"
-        else:
-            trimmed_suffix = suffix.lstrip(".")
-            if trimmed_suffix:
-                badge = trimmed_suffix[:5]
         active_class = " is-active" if source_path == selected_file_value else ""
         html_rows.append(
             f"""
@@ -4217,7 +4324,7 @@ def launch_web_app(
 
         with gr.Column(elem_classes=["hf-content-shell"]):
             with gr.Row(elem_classes=["hf-main"]):
-                with gr.Column(scale=9, min_width=700, elem_classes=["hf-chat-shell"]):
+                with gr.Column(scale=10, min_width=760, elem_classes=["hf-chat-shell"]):
                     task_header = gr.Markdown(elem_classes=["hf-task-header"], container=False)
                     run_overview = gr.HTML(
                         value=_run_overview_html(_empty_run_overview()),
@@ -4256,7 +4363,7 @@ def launch_web_app(
                             elem_id="hf-prompt-input",
                             elem_classes=["hf-composer"],
                         )
-                with gr.Column(scale=4, min_width=420, elem_classes=["hf-workspace-shell"]):
+                with gr.Column(scale=3, min_width=360, elem_classes=["hf-workspace-shell"]):
                     with gr.Column(elem_classes=["hf-detail-shell"]):
                         with gr.Row(elem_classes=["hf-detail-nav"]):
                             workspace_panel_button = gr.Button(
