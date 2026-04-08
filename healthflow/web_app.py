@@ -19,6 +19,28 @@ _EMPTY_PREVIEW_TEXT = "Select a file to preview it."
 _UPLOAD_ONLY_USER_MESSAGE = "Please inspect the uploaded files and continue the current task."
 _DRAFT_BROWSER_TASK_ID = "__healthflow_draft__"
 _BRANDING_DIR = Path(__file__).resolve().parent.parent / "assets" / "branding"
+_DEMO_DIR = Path(__file__).resolve().parent.parent / "assets" / "demo"
+_RUN_STAGE_ORDER = ["memory", "planner", "executor", "evaluator", "reflection"]
+_RUN_STAGE_LABELS = {
+    "memory": "Memory",
+    "planner": "Planner",
+    "executor": "Executor",
+    "evaluator": "Evaluator",
+    "reflection": "Reflection",
+}
+_DEMO_CASE = {
+    "id": "predictive_modeling_demo",
+    "title": "EHR Predictive Modeling Demo",
+    "description": "Run a compact in-hospital mortality modeling case with figures rendered directly in the main panel.",
+    "file_name": "ehr_predictive_demo.csv",
+    "prompt": (
+        "Use the attached demo EHR cohort to build a compact predictive modeling diagnostic packet for "
+        "in-hospital mortality. Inspect the schema first, use a reproducible patient-level split, train a "
+        "reasonable baseline model, and save `metrics.json`, `predictions.csv`, `figures/roc_curve.png`, "
+        "`figures/calibration.png`, and a concise `final_report.md`. In the final answer, summarize cohort "
+        "size, the strongest risk pattern you observed, and reference the generated figures and report."
+    ),
+}
 _WEB_APP_HEAD = """
 <script>
 (() => {
@@ -214,17 +236,24 @@ _WEB_APP_HEAD = """
 """
 _WEB_APP_CSS = """
 :root {
-    --hf-border: rgba(15, 23, 42, 0.08);
-    --hf-border-strong: rgba(11, 132, 219, 0.18);
-    --hf-surface: rgba(255, 255, 255, 0.9);
-    --hf-surface-strong: rgba(255, 255, 255, 0.97);
-    --hf-surface-muted: rgba(247, 250, 252, 0.94);
-    --hf-text: #0f172a;
-    --hf-text-muted: #526171;
-    --hf-accent: #0b84db;
-    --hf-accent-strong: #0f6bdc;
-    --hf-shadow-shell: 0 18px 48px rgba(15, 23, 42, 0.08);
-    --hf-shadow-soft: 0 10px 26px rgba(15, 23, 42, 0.06);
+    --hf-border: rgba(15, 23, 42, 0.1);
+    --hf-border-strong: rgba(15, 86, 140, 0.24);
+    --hf-surface: #f8fbfd;
+    --hf-surface-strong: rgba(255, 255, 255, 0.99);
+    --hf-surface-muted: #f2f6f9;
+    --hf-surface-contrast: #edf3f8;
+    --hf-text: #102033;
+    --hf-text-muted: #536579;
+    --hf-accent: #155a8a;
+    --hf-accent-strong: #0f4a74;
+    --hf-accent-soft: rgba(21, 90, 138, 0.08);
+    --hf-danger-soft: rgba(185, 28, 28, 0.08);
+    --hf-shadow-shell: 0 10px 24px rgba(15, 23, 42, 0.05);
+    --hf-shadow-soft: 0 4px 12px rgba(15, 23, 42, 0.04);
+    --hf-radius-shell: 16px;
+    --hf-radius-panel: 12px;
+    --hf-radius-control: 10px;
+    --hf-radius-chip: 8px;
 }
 
 html,
@@ -240,6 +269,7 @@ body {
 
 body {
     color: var(--hf-text);
+    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
 .gradio-container,
@@ -287,10 +317,9 @@ aside {
     height: 100%;
     border: 1px solid var(--hf-border);
     border-right: 1px solid var(--hf-border);
-    border-radius: 28px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 248, 252, 0.98) 100%);
+    border-radius: var(--hf-radius-shell);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(242, 246, 249, 0.98) 100%);
     box-shadow: var(--hf-shadow-shell);
-    backdrop-filter: blur(20px);
     overflow: hidden;
 }
 
@@ -342,7 +371,7 @@ aside > div {
     min-height: 0;
     height: 100%;
     border: 1px solid var(--hf-border);
-    border-radius: 28px;
+    border-radius: var(--hf-radius-shell);
     background: var(--hf-surface-strong);
     box-shadow: var(--hf-shadow-shell);
     overflow: hidden;
@@ -379,6 +408,277 @@ aside > div {
     display: none;
 }
 
+.hf-run-overview-shell {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0 1rem 0.85rem;
+}
+
+.hf-run-overview {
+    border: 1px solid var(--hf-border);
+    border-radius: var(--hf-radius-panel);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(245, 249, 252, 0.98) 100%);
+    box-shadow: none;
+    overflow: hidden;
+}
+
+.hf-run-overview-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1rem 0.85rem;
+    border-bottom: 1px solid var(--hf-border);
+    background: linear-gradient(180deg, rgba(237, 243, 248, 0.92) 0%, rgba(255, 255, 255, 0) 100%);
+}
+
+.hf-run-overview-eyebrow {
+    margin-bottom: 0.35rem;
+    color: var(--hf-text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.hf-run-overview-head h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.hf-run-overview-head p {
+    margin: 0.18rem 0 0;
+    color: var(--hf-text-muted);
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.hf-run-overview-status {
+    flex: 0 0 auto;
+    padding: 0.28rem 0.56rem;
+    border: 1px solid var(--hf-border);
+    border-radius: var(--hf-radius-chip);
+    background: var(--hf-surface-contrast);
+    color: var(--hf-text);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.hf-run-overview-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    padding: 0.9rem 1rem 1rem;
+}
+
+.hf-run-overview-panel {
+    min-width: 0;
+    padding: 0.8rem 0.85rem;
+    border: 1px solid var(--hf-border);
+    border-radius: var(--hf-radius-control);
+    background: var(--hf-surface);
+}
+
+.hf-run-overview-label {
+    margin-bottom: 0.45rem;
+    color: var(--hf-text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.hf-run-overview-objective {
+    color: var(--hf-text);
+    font-size: 0.92rem;
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.hf-run-overview-note {
+    margin-top: 0.5rem;
+    color: var(--hf-text-muted);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.hf-stage-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.hf-stage-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    min-width: 0;
+    width: calc(50% - 0.225rem);
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--hf-border);
+    border-radius: var(--hf-radius-chip);
+    background: #ffffff;
+}
+
+.hf-stage-chip-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.hf-stage-chip-state {
+    color: var(--hf-text-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.hf-stage-chip.is-active {
+    border-color: var(--hf-border-strong);
+    background: rgba(224, 238, 248, 0.95);
+}
+
+.hf-stage-chip.is-active .hf-stage-chip-state {
+    color: var(--hf-accent);
+}
+
+.hf-stage-chip.is-done {
+    border-color: rgba(5, 150, 105, 0.18);
+    background: rgba(236, 253, 245, 0.96);
+}
+
+.hf-stage-chip.is-done .hf-stage-chip-state {
+    color: #047857;
+}
+
+.hf-stage-chip.is-failed,
+.hf-stage-chip.is-cancelled {
+    border-color: rgba(185, 28, 28, 0.18);
+    background: rgba(254, 242, 242, 0.96);
+}
+
+.hf-stage-chip.is-failed .hf-stage-chip-state,
+.hf-stage-chip.is-cancelled .hf-stage-chip-state {
+    color: #b91c1c;
+}
+
+.hf-stage-chip.is-skipped {
+    background: var(--hf-surface-contrast);
+}
+
+.hf-run-overview-list,
+.hf-run-overview-watchouts {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.hf-run-overview-list li,
+.hf-run-overview-watchouts li {
+    display: flex;
+    gap: 0.65rem;
+    align-items: flex-start;
+    padding: 0.38rem 0;
+    color: var(--hf-text);
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.hf-run-overview-list li + li,
+.hf-run-overview-watchouts li + li {
+    border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.hf-run-overview-list li span {
+    flex: 0 0 auto;
+    min-width: 1.65rem;
+    color: var(--hf-accent);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+}
+
+.hf-starter-shell {
+    flex: 0 0 auto;
+    gap: 0.7rem;
+    margin: 0 1rem 0.8rem;
+    padding: 0.95rem 1rem 1rem;
+    border: 1px solid var(--hf-border);
+    border-radius: var(--hf-radius-panel);
+    background:
+        linear-gradient(135deg, rgba(225, 236, 246, 0.72) 0%, rgba(248, 251, 253, 0.98) 54%, rgba(255, 255, 255, 0.98) 100%);
+}
+
+.hf-starter-card h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+}
+
+.hf-starter-card p {
+    margin: 0.35rem 0 0;
+    color: var(--hf-text-muted);
+    font-size: 0.88rem;
+    line-height: 1.55;
+}
+
+.hf-starter-eyebrow {
+    margin-bottom: 0.45rem;
+    color: var(--hf-accent);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.hf-starter-meta,
+.hf-starter-deliverables {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.hf-starter-meta {
+    margin-top: 0.85rem;
+}
+
+.hf-starter-meta-item,
+.hf-starter-deliverable {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    padding: 0.34rem 0.55rem;
+    border: 1px solid var(--hf-border);
+    border-radius: var(--hf-radius-chip);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--hf-text);
+    font-size: 0.75rem;
+    line-height: 1.2;
+}
+
+.hf-starter-deliverable code,
+.hf-starter-meta-item code {
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: inherit;
+}
+
+.hf-starter-button {
+    min-height: 2.8rem;
+    border-radius: var(--hf-radius-control) !important;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
 .hf-chatbot,
 .hf-trace-panel {
     flex: 1 1 auto;
@@ -400,9 +700,9 @@ aside > div {
 
 .hf-composer {
     border: 1px solid rgba(15, 23, 42, 0.1) !important;
-    border-radius: 26px !important;
+    border-radius: calc(var(--hf-radius-panel) + 2px) !important;
     background: rgba(255, 255, 255, 0.98) !important;
-    box-shadow: var(--hf-shadow-soft) !important;
+    box-shadow: none !important;
     overflow: hidden !important;
 }
 
@@ -425,7 +725,7 @@ aside > div {
     min-width: 0;
     padding: 0.36rem 0.7rem;
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 999px;
+    border-radius: var(--hf-radius-chip);
     background: rgba(248, 250, 252, 0.96);
     color: #334155;
     font-size: 0.78rem;
@@ -472,7 +772,7 @@ aside > div {
     width: 2.75rem;
     min-width: 2.75rem;
     height: 2.75rem;
-    border-radius: 999px;
+    border-radius: var(--hf-radius-control);
 }
 
 .hf-composer button.upload-button {
@@ -484,7 +784,7 @@ aside > div {
 .hf-composer button.submit-button {
     background: linear-gradient(135deg, var(--hf-accent) 0%, var(--hf-accent-strong) 100%);
     color: #ffffff;
-    box-shadow: 0 10px 26px rgba(15, 107, 220, 0.24);
+    box-shadow: none;
 }
 
 .hf-workspace-shell {
@@ -502,7 +802,7 @@ aside > div {
     min-height: 0;
     height: 100%;
     border: 1px solid var(--hf-border);
-    border-radius: 28px;
+    border-radius: var(--hf-radius-shell);
     background: var(--hf-surface-strong);
     box-shadow: var(--hf-shadow-shell);
     overflow: hidden;
@@ -520,7 +820,7 @@ aside > div {
     flex: 1 1 0;
     min-width: 0;
     height: 2.5rem;
-    border-radius: 999px;
+    border-radius: var(--hf-radius-control);
     font-weight: 600;
     letter-spacing: -0.01em;
     box-shadow: none !important;
@@ -564,7 +864,7 @@ aside > div {
 .hf-preview-pane,
 .hf-advanced-toolbar {
     border: 1px solid var(--hf-border);
-    border-radius: 22px;
+    border-radius: var(--hf-radius-panel);
     background: var(--hf-surface-muted);
     box-shadow: none !important;
 }
@@ -626,7 +926,7 @@ aside > div {
 
 .hf-history-card {
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 16px;
+    border-radius: var(--hf-radius-control);
     background: rgba(255, 255, 255, 0.96);
     box-shadow: none !important;
     transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
@@ -716,7 +1016,7 @@ aside > div {
     gap: 0.16rem;
     padding: 0.54rem 0.64rem;
     border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 12px;
+    border-radius: var(--hf-radius-chip);
     background: rgba(255, 255, 255, 0.96);
     cursor: pointer;
 }
@@ -990,7 +1290,7 @@ aside > div {
 
 .hf-chatbot :is(.message, .panel-full-width),
 .hf-trace-panel :is(.message, .panel-full-width) {
-    border-radius: 16px !important;
+    border-radius: var(--hf-radius-control) !important;
     box-shadow: none !important;
 }
 
@@ -1003,12 +1303,12 @@ aside > div {
 .hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width),
 .hf-trace-panel :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) {
     border: 1px solid rgba(15, 23, 42, 0.07);
-    background: rgba(248, 250, 252, 0.98) !important;
+    background: rgba(246, 249, 252, 0.98) !important;
 }
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
     border: 1px solid rgba(15, 23, 42, 0.06);
-    background: rgba(255, 255, 255, 0.99) !important;
+    background: rgba(226, 236, 245, 0.7) !important;
     color: var(--hf-text) !important;
 }
 
@@ -1082,6 +1382,10 @@ footer {
         min-height: 34rem;
     }
 
+    .hf-run-overview-grid {
+        grid-template-columns: 1fr;
+    }
+
     .hf-workspace-row {
         flex-direction: column;
     }
@@ -1110,7 +1414,7 @@ footer {
     .hf-chat-shell,
     .hf-detail-shell,
     aside {
-        border-radius: 24px;
+        border-radius: 14px;
     }
 
     .hf-composer-shell {
@@ -1128,6 +1432,16 @@ footer {
     .hf-browser-pane {
         flex-basis: 12rem;
         min-height: 12rem;
+    }
+
+    .hf-stage-chip {
+        width: 100%;
+    }
+
+    .hf-run-overview-shell,
+    .hf-starter-shell {
+        margin-left: 0.85rem;
+        margin-right: 0.85rem;
     }
 }
 """
@@ -1271,6 +1585,311 @@ def _sidebar_brand_html() -> str:
     if logo_svg:
         return f'<section class="hf-sidebar-brand" aria-label="HealthFlow brand">{logo_svg}</section>'
     return '<p class="hf-sidebar-brand__fallback">HealthFlow</p>'
+
+
+def _starter_card_html() -> str:
+    deliverables = [
+        "metrics.json",
+        "predictions.csv",
+        "figures/roc_curve.png",
+        "figures/calibration.png",
+        "final_report.md",
+    ]
+    deliverables_html = "".join(
+        f'<span class="hf-starter-deliverable"><code>{html.escape(item)}</code></span>'
+        for item in deliverables
+    )
+    return (
+        '<section class="hf-starter-card">'
+        '<div class="hf-starter-eyebrow">Showcase Case</div>'
+        f'<h3>{html.escape(str(_DEMO_CASE["title"]))}</h3>'
+        f'<p>{html.escape(str(_DEMO_CASE["description"]))}</p>'
+        '<div class="hf-starter-meta">'
+        '<span class="hf-starter-meta-item">Built-in demo file</span>'
+        f'<span class="hf-starter-meta-item"><code>{html.escape(str(_DEMO_CASE["file_name"]))}</code></span>'
+        "</div>"
+        f'<div class="hf-starter-deliverables">{deliverables_html}</div>'
+        "</section>"
+    )
+
+
+def _empty_run_overview() -> dict[str, Any]:
+    return {
+        "attempt": None,
+        "mode": "idle",
+        "current_stage": "",
+        "latest_message": "",
+        "objective": "",
+        "assumptions_to_check": [],
+        "recommended_steps": [],
+        "recommended_workflows": [],
+        "avoidances": [],
+        "success_signals": [],
+        "stage_status": {stage: "pending" for stage in _RUN_STAGE_ORDER},
+    }
+
+
+def _copy_run_overview(state: dict[str, Any] | None) -> dict[str, Any]:
+    overview = dict(state or _empty_run_overview())
+    overview["stage_status"] = dict(overview.get("stage_status") or {})
+    for key in (
+        "assumptions_to_check",
+        "recommended_steps",
+        "recommended_workflows",
+        "avoidances",
+        "success_signals",
+    ):
+        overview[key] = list(overview.get(key) or [])
+    return overview
+
+
+def _run_stage_badge(status: str) -> str:
+    normalized = str(status or "pending").strip().lower()
+    if normalized in {"done", "success", "completed"}:
+        return "done"
+    if normalized in {"failed", "error"}:
+        return "failed"
+    if normalized in {"cancelled", "canceled"}:
+        return "cancelled"
+    if normalized in {"active", "running", "in_progress"}:
+        return "active"
+    if normalized in {"skipped"}:
+        return "skipped"
+    return "pending"
+
+
+def _stage_sequence_after(stage: str) -> list[str]:
+    if stage not in _RUN_STAGE_ORDER:
+        return []
+    index = _RUN_STAGE_ORDER.index(stage)
+    return _RUN_STAGE_ORDER[index + 1 :]
+
+
+def _run_stage_sequence_before(stage: str) -> list[str]:
+    if stage not in _RUN_STAGE_ORDER:
+        return []
+    index = _RUN_STAGE_ORDER.index(stage)
+    return _RUN_STAGE_ORDER[:index]
+
+
+def _apply_progress_to_overview(state: dict[str, Any] | None, event: HealthFlowProgressEvent) -> dict[str, Any]:
+    overview = _copy_run_overview(state)
+    metadata = event.metadata if isinstance(event.metadata, dict) else {}
+    if event.attempt is not None:
+        overview["attempt"] = event.attempt
+
+    stage = str(event.stage or "").strip().lower()
+    stage_status = overview["stage_status"]
+
+    if stage in _RUN_STAGE_ORDER and event.kind == "stage_started":
+        for previous_stage in _run_stage_sequence_before(stage):
+            if _run_stage_badge(stage_status.get(previous_stage, "pending")) == "active":
+                stage_status[previous_stage] = "done"
+        stage_status[stage] = "active"
+        for next_stage in _stage_sequence_after(stage):
+            if _run_stage_badge(stage_status.get(next_stage, "pending")) == "active":
+                stage_status[next_stage] = "pending"
+        overview["current_stage"] = stage
+        overview["mode"] = "running"
+        overview["latest_message"] = str(event.message or "").strip()
+
+    if stage in _RUN_STAGE_ORDER and event.kind == "stage_finished":
+        resolved_status = _run_stage_badge(event.status)
+        if stage == "evaluator" and resolved_status in {"failed", "cancelled"}:
+            stage_status[stage] = resolved_status
+        elif resolved_status == "pending":
+            stage_status[stage] = "done"
+        elif resolved_status == "active":
+            stage_status[stage] = "done"
+        else:
+            stage_status[stage] = resolved_status
+        overview["current_stage"] = stage
+        overview["latest_message"] = str(event.message or "").strip()
+
+    if stage == "planner" and metadata:
+        overview["objective"] = str(metadata.get("objective") or overview.get("objective") or "").strip()
+        for key in (
+            "assumptions_to_check",
+            "recommended_steps",
+            "recommended_workflows",
+            "avoidances",
+            "success_signals",
+        ):
+            overview[key] = [str(item).strip() for item in list(metadata.get(key) or []) if str(item).strip()]
+
+    if event.kind == "turn_finished":
+        resolved_mode = "completed"
+        resolved_status = _status_label(event.status)
+        if resolved_status == "failed":
+            resolved_mode = "failed"
+        elif resolved_status == "cancelled":
+            resolved_mode = "cancelled"
+        overview["mode"] = resolved_mode
+        overview["latest_message"] = str(event.message or "").strip()
+        if resolved_mode == "completed" and _run_stage_badge(stage_status.get("reflection")) == "pending":
+            stage_status["reflection"] = "skipped"
+
+    if event.kind == "turn_cancelled":
+        overview["mode"] = "cancelled"
+        overview["latest_message"] = str(event.message or "").strip()
+        current_stage = overview.get("current_stage")
+        if current_stage in _RUN_STAGE_ORDER:
+            stage_status[current_stage] = "cancelled"
+
+    return overview
+
+
+def _run_overview_from_task_root(task_root: Path | None) -> dict[str, Any]:
+    if task_root is None:
+        return _empty_run_overview()
+
+    trajectory_path = task_root / "runtime" / "run" / "trajectory.json"
+    summary_path = task_root / "runtime" / "run" / "summary.json"
+    if not trajectory_path.exists():
+        return _empty_run_overview()
+
+    try:
+        trajectory = json.loads(trajectory_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return _empty_run_overview()
+
+    overview = _empty_run_overview()
+    attempts = list(trajectory.get("attempts") or [])
+    summary = {}
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            summary = {}
+
+    if not attempts:
+        if trajectory.get("response_mode") == "direct_response":
+            overview["mode"] = "completed"
+            overview["objective"] = str(summary.get("answer") or trajectory.get("user_request") or "").strip()
+            overview["latest_message"] = str(summary.get("final_summary") or "").strip()
+        return overview
+
+    latest_attempt = dict(attempts[-1] or {})
+    plan = dict(latest_attempt.get("plan") or {})
+    evaluation = dict(latest_attempt.get("evaluation") or {})
+    execution = dict(latest_attempt.get("execution") or {})
+    gate = dict(latest_attempt.get("gate") or {})
+
+    overview["attempt"] = int(latest_attempt.get("attempt") or len(attempts))
+    overview["objective"] = str(plan.get("objective") or trajectory.get("user_request") or "").strip()
+    for key in (
+        "assumptions_to_check",
+        "recommended_steps",
+        "recommended_workflows",
+        "avoidances",
+        "success_signals",
+    ):
+        overview[key] = [str(item).strip() for item in list(plan.get(key) or []) if str(item).strip()]
+
+    stage_status = overview["stage_status"]
+    stage_status["memory"] = "done" if latest_attempt.get("memory") else "pending"
+    stage_status["planner"] = "done" if plan else "pending"
+    if execution:
+        if execution.get("cancelled"):
+            stage_status["executor"] = "cancelled"
+        else:
+            stage_status["executor"] = "done" if execution.get("success") else "failed"
+    if evaluation:
+        stage_status["evaluator"] = _status_label(evaluation.get("status"))
+    if "reflection" in trajectory or trajectory.get("memory_updates") or trajectory.get("new_experiences"):
+        stage_status["reflection"] = "done"
+    else:
+        stage_status["reflection"] = "skipped" if summary else "pending"
+
+    if summary.get("cancelled"):
+        overview["mode"] = "cancelled"
+    elif summary.get("success"):
+        overview["mode"] = "completed"
+    elif gate.get("retry_recommended") or _status_label(summary.get("evaluation_status")) == "failed":
+        overview["mode"] = "failed"
+    else:
+        overview["mode"] = "completed"
+
+    overview["current_stage"] = next(
+        (
+            stage
+            for stage in reversed(_RUN_STAGE_ORDER)
+            if _run_stage_badge(stage_status.get(stage, "pending")) not in {"pending", "skipped"}
+        ),
+        "",
+    )
+    overview["latest_message"] = str(summary.get("final_summary") or evaluation.get("feedback") or "").strip()
+    return overview
+
+
+def _run_overview_html(state: dict[str, Any] | None) -> str:
+    overview = _copy_run_overview(state)
+    status_class = f"is-{html.escape(str(overview.get('mode') or 'idle'))}"
+    attempt = overview.get("attempt")
+    attempt_text = f"Attempt {attempt}" if attempt else "Run idle"
+    current_stage = str(overview.get("current_stage") or "").strip().lower()
+    current_stage_label = _RUN_STAGE_LABELS.get(current_stage, "Ready")
+    objective = html.escape(str(overview.get("objective") or "").strip() or "No active plan yet.")
+    latest_message = html.escape(str(overview.get("latest_message") or "").strip() or "Planner details and runtime progress will appear here.")
+    stage_html = []
+    for stage in _RUN_STAGE_ORDER:
+        badge = _run_stage_badge(str((overview.get("stage_status") or {}).get(stage) or "pending"))
+        label = html.escape(_RUN_STAGE_LABELS[stage])
+        badge_label = {
+            "done": "done",
+            "active": "running",
+            "failed": "failed",
+            "cancelled": "cancelled",
+            "skipped": "skipped",
+            "pending": "pending",
+        }[badge]
+        stage_html.append(
+            f'<div class="hf-stage-chip is-{badge}"><span class="hf-stage-chip-label">{label}</span><span class="hf-stage-chip-state">{badge_label}</span></div>'
+        )
+
+    step_items = []
+    for index, item in enumerate(list(overview.get("recommended_steps") or [])[:6], start=1):
+        step_items.append(f"<li><span>{index:02d}</span>{html.escape(str(item))}</li>")
+    if not step_items:
+        step_items.append("<li><span>--</span>Planner steps will appear after plan generation.</li>")
+
+    avoidance_items = []
+    for item in list(overview.get("avoidances") or [])[:3]:
+        avoidance_items.append(f"<li>{html.escape(str(item))}</li>")
+    if not avoidance_items:
+        avoidance_items.append("<li>Artifact rendering and progress checkpoints stay visible in the main panel.</li>")
+
+    return (
+        f'<section class="hf-run-overview {status_class}">'
+        '<div class="hf-run-overview-head">'
+        '<div>'
+        '<div class="hf-run-overview-eyebrow">Run Overview</div>'
+        f'<h3>{attempt_text}</h3>'
+        f'<p>{html.escape(current_stage_label)} is the current foreground stage.</p>'
+        "</div>"
+        f'<div class="hf-run-overview-status">{html.escape(str(overview.get("mode") or "idle"))}</div>'
+        "</div>"
+        '<div class="hf-run-overview-grid">'
+        '<div class="hf-run-overview-panel">'
+        '<div class="hf-run-overview-label">Current objective</div>'
+        f'<div class="hf-run-overview-objective">{objective}</div>'
+        f'<div class="hf-run-overview-note">{latest_message}</div>'
+        "</div>"
+        '<div class="hf-run-overview-panel">'
+        '<div class="hf-run-overview-label">Runtime stages</div>'
+        f'<div class="hf-stage-chip-row">{"".join(stage_html)}</div>'
+        "</div>"
+        '<div class="hf-run-overview-panel">'
+        '<div class="hf-run-overview-label">Execution plan</div>'
+        f'<ol class="hf-run-overview-list">{"".join(step_items)}</ol>'
+        "</div>"
+        '<div class="hf-run-overview-panel">'
+        '<div class="hf-run-overview-label">Watchouts</div>'
+        f'<ul class="hf-run-overview-watchouts">{"".join(avoidance_items)}</ul>'
+        "</div>"
+        "</div>"
+        "</section>"
+    )
 
 
 def _build_task_choices(recent_tasks: Sequence[TaskSessionSummary]) -> list[tuple[str, str]]:
@@ -1512,6 +2131,14 @@ def _empty_task_header() -> str:
     return "## New Task"
 
 
+def _demo_case_uploads() -> dict[str, bytes]:
+    demo_path = _DEMO_DIR / str(_DEMO_CASE["file_name"])
+    try:
+        return {demo_path.name: demo_path.read_bytes()}
+    except OSError:
+        return {}
+
+
 def _resolved_upload_name(raw_file: Any) -> str:
     for attr in ("orig_name", "name"):
         value = getattr(raw_file, attr, None)
@@ -1644,6 +2271,106 @@ def _restore_trace_history(client: TaskSessionClient, *, restored: bool) -> list
             lines.append(record.evaluation_feedback.strip())
         trace_history.append({"role": "assistant", "content": "\n\n".join(lines)})
     return trace_history
+
+
+def _progress_title(event: HealthFlowProgressEvent) -> str:
+    stage_label = _RUN_STAGE_LABELS.get(str(event.stage or "").strip().lower(), str(event.stage or "Run").title())
+    if event.attempt:
+        return f"{stage_label} · Attempt {event.attempt}"
+    return stage_label
+
+
+def _main_progress_messages(
+    event: HealthFlowProgressEvent,
+    *,
+    task_root: Path | None,
+    seen_image_paths: set[str],
+) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    metadata_status = "pending" if event.kind == "stage_started" else "done"
+
+    if event.kind in {"stage_started", "stage_finished"}:
+        content = str(event.message or "").strip() or f"{_progress_title(event)} update."
+        planner_steps = []
+        if event.stage == "planner" and event.kind == "stage_finished":
+            objective = str((event.metadata or {}).get("objective") or content).strip()
+            planner_steps = [str(item).strip() for item in list((event.metadata or {}).get("recommended_steps") or []) if str(item).strip()]
+            content = f"**Objective**\n\n{objective}"
+            if planner_steps:
+                content += "\n\n**Recommended steps**\n\n" + "\n".join(
+                    f"{index}. {item}" for index, item in enumerate(planner_steps, start=1)
+                )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": content,
+                "metadata": {
+                    "title": _progress_title(event),
+                    "status": metadata_status,
+                    "log": str(event.message or "").strip() or None,
+                },
+            }
+        )
+        return messages
+
+    if event.kind == "artifact_delta":
+        artifacts = list((event.metadata or {}).get("artifacts") or [])
+        image_messages = _inline_image_messages(artifacts, task_root=task_root, seen_image_paths=seen_image_paths)
+        if image_messages:
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": "Rendered artifact previews are available below.",
+                    "metadata": {
+                        "title": _progress_title(event),
+                        "status": "done",
+                        "log": f"{len(image_messages)} image artifact(s) surfaced",
+                    },
+                }
+            )
+            messages.extend(image_messages)
+        return messages
+
+    if event.kind == "turn_cancelled":
+        messages.append(
+            {
+                "role": "assistant",
+                "content": str(event.message or "The run was cancelled.").strip(),
+                "metadata": {"title": "Run Cancelled", "status": "done"},
+            }
+        )
+    return messages
+
+
+def _inline_image_messages(
+    artifact_paths: Sequence[str],
+    *,
+    task_root: Path | None,
+    seen_image_paths: set[str],
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    if task_root is None:
+        return []
+
+    messages: list[dict[str, Any]] = []
+    sandbox_root = task_root / "sandbox"
+    for artifact_path in artifact_paths:
+        resolved_relative_path = str(artifact_path or "").strip()
+        if not resolved_relative_path:
+            continue
+        path = sandbox_root / resolved_relative_path
+        if not path.exists() or not path.is_file():
+            continue
+        if artifact_preview_kind(path) != "image":
+            continue
+        path_str = str(path)
+        if path_str in seen_image_paths:
+            continue
+        seen_image_paths.add(path_str)
+        messages.append({"role": "assistant", "content": (path_str, path.name)})
+        if len(messages) >= limit:
+            break
+    return messages
 
 
 def _collect_artifact_catalog(client: TaskSessionClient) -> list[dict[str, Any]]:
@@ -2113,9 +2840,10 @@ def launch_web_app(
     def _compose_outputs(
         client: TaskSessionClient,
         *,
-        main_history: list[dict[str, str]],
-        trace_history: list[dict[str, str]],
+        main_history: list[dict[str, Any]],
+        trace_history: list[dict[str, Any]],
         preferred_file: str | None,
+        run_overview: dict[str, Any] | None = None,
         history_notice: str | None = None,
         history_action_mode: str = "",
         history_action_title: str = "",
@@ -2125,6 +2853,7 @@ def launch_web_app(
         catalog = _collect_artifact_catalog(client)
         selected_file = _default_selected_file(catalog, preferred_file=preferred_file)
         task_root = Path(client.task_root) if client.task_root else None
+        resolved_run_overview = _copy_run_overview(run_overview or _run_overview_from_task_root(task_root))
         preview_outputs = _artifact_preview_outputs(selected_file, task_root=task_root, gr=gr)
         history_updates = _history_panel_updates(
             visible_recent_tasks,
@@ -2134,12 +2863,16 @@ def launch_web_app(
             action_placeholder=history_action_placeholder,
         )
         workspace_updates = _workspace_browser_updates(catalog, selected_file)
+        starter_visible = client.turn_count <= 0 and not main_history
         return (
             main_history,
             trace_history,
             client.task_id,
             client.task_id,
             _build_task_header(client, visible_recent_tasks),
+            gr.update(value=_run_overview_html(resolved_run_overview), visible=True),
+            resolved_run_overview,
+            gr.update(visible=starter_visible),
             *history_updates,
             _history_notice_update(history_notice, gr=gr),
             workspace_updates,
@@ -2151,6 +2884,9 @@ def launch_web_app(
 
     def _compose_draft_outputs(
         *,
+        main_history: list[dict[str, Any]] | None = None,
+        trace_history: list[dict[str, Any]] | None = None,
+        run_overview: dict[str, Any] | None = None,
         history_notice: str | None = None,
         history_action_mode: str = "",
         history_action_title: str = "",
@@ -2167,11 +2903,14 @@ def launch_web_app(
         )
         workspace_updates = _workspace_browser_updates([], None)
         return (
-            [],
-            [{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}],
+            list(main_history or []),
+            list(trace_history or [{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}]),
             _draft_browser_task_id(),
             None,
             _empty_task_header(),
+            gr.update(value=_run_overview_html(run_overview or _empty_run_overview()), visible=True),
+            _copy_run_overview(run_overview),
+            gr.update(visible=not main_history),
             *history_updates,
             _history_notice_update(history_notice, gr=gr),
             workspace_updates,
@@ -2184,9 +2923,10 @@ def launch_web_app(
     def _compose_for_task_id(
         task_id: str | None,
         *,
-        main_history: list[dict[str, str]] | None = None,
-        trace_history: list[dict[str, str]] | None = None,
+        main_history: list[dict[str, Any]] | None = None,
+        trace_history: list[dict[str, Any]] | None = None,
         preferred_file: str | None = None,
+        run_overview: dict[str, Any] | None = None,
         history_notice: str | None = None,
         history_action_mode: str = "",
         history_action_title: str = "",
@@ -2208,6 +2948,7 @@ def launch_web_app(
             main_history=main_history,
             trace_history=trace_history,
             preferred_file=preferred_file,
+            run_overview=run_overview,
             history_notice=history_notice,
             history_action_mode=history_action_mode,
             history_action_title=history_action_title,
@@ -2232,6 +2973,7 @@ def launch_web_app(
         task_id: str | None,
         *,
         preferred_file: str | None = None,
+        run_overview: dict[str, Any] | None = None,
         history_notice: str | None = None,
         history_action_mode: str = "",
         history_action_title: str = "",
@@ -2241,6 +2983,7 @@ def launch_web_app(
         normalized_task_id = str(task_id or "").strip()
         if _is_draft_browser_task_id(normalized_task_id):
             return _compose_draft_outputs(
+                run_overview=run_overview,
                 history_notice=history_notice,
                 history_action_mode=history_action_mode,
                 history_action_title=history_action_title,
@@ -2250,6 +2993,7 @@ def launch_web_app(
             return _compose_for_task_id(
                 normalized_task_id,
                 preferred_file=preferred_file,
+                run_overview=run_overview,
                 history_notice=history_notice,
                 history_action_mode=history_action_mode,
                 history_action_title=history_action_title,
@@ -2262,12 +3006,14 @@ def launch_web_app(
                 return _compose_for_task_id(
                     fallback_task_id,
                     preferred_file=None,
+                    run_overview=run_overview,
                     history_notice=history_notice,
                     history_action_mode=history_action_mode,
                     history_action_title=history_action_title,
                     history_action_placeholder=history_action_placeholder,
                 )
         return _compose_draft_outputs(
+            run_overview=run_overview,
             history_notice=history_notice,
             history_action_mode=history_action_mode,
             history_action_title=history_action_title,
@@ -2289,7 +3035,7 @@ def launch_web_app(
         )
 
     def _new_task():
-        return _compose_draft_outputs()
+        return _compose_draft_outputs(run_overview=_empty_run_overview())
 
     def _preview_outputs_for_task(selected_file: str | None, task_id: str | None):
         task_root = _task_root_path(task_id, session_store)
@@ -2305,6 +3051,127 @@ def launch_web_app(
             gr.update(variant="primary" if resolved_mode == "advanced" else "secondary"),
             gr.update(visible=resolved_mode == "workspace"),
             gr.update(visible=resolved_mode == "advanced"),
+        )
+
+    def _submit_turn(
+        *,
+        text: str,
+        upload_payloads: dict[str, bytes],
+        main_history: list[dict[str, Any]] | None,
+        trace_history: list[dict[str, Any]] | None,
+        browser_task_id: str | None,
+        task_id: str | None,
+        report_requested: bool,
+        selected_file: str | None,
+        run_overview: dict[str, Any] | None,
+    ):
+        resolved_turn_task_id = _turn_task_id_for_submission(task_id, browser_task_id)
+        draft_submission = resolved_turn_task_id is None
+        if draft_submission:
+            client = session_store.new_client()
+            resolved_draft_title = _draft_task_title(text, list(upload_payloads.keys()))
+            if resolved_draft_title:
+                client.rename(resolved_draft_title)
+        else:
+            client, _ = _resolve_requested_task(resolved_turn_task_id)
+
+        main_history = list(main_history or _restore_main_history(client))
+        trace_history = list(trace_history or _restore_trace_history(client, restored=client.turn_count > 0))
+        overview_state = _copy_run_overview(run_overview or _run_overview_from_task_root(Path(client.task_root) if client.task_root else None))
+
+        if not text.strip() and not upload_payloads:
+            yield _compose_outputs(
+                client,
+                main_history=main_history,
+                trace_history=trace_history,
+                preferred_file=selected_file,
+                run_overview=overview_state,
+            )
+            return
+
+        attachment_names = list(upload_payloads.keys())
+        user_display = _user_message_content(text, attachment_names)
+        user_message = text.strip() or _UPLOAD_ONLY_USER_MESSAGE
+        main_history.append({"role": "user", "content": user_display})
+        trace_history.append({"role": "assistant", "content": "Working on your latest request."})
+        yield _compose_outputs(
+            client,
+            main_history=main_history,
+            trace_history=trace_history,
+            preferred_file=selected_file,
+            run_overview=overview_state,
+        )
+
+        result: dict[str, Any] | None = None
+        error: Exception | None = None
+        seen_image_paths: set[str] = set()
+        task_root = Path(client.task_root) if client.task_root else None
+        for kind, payload in _stream_task_turn(
+            client,
+            user_message,
+            report_requested=report_requested,
+            uploaded_files=upload_payloads or None,
+        ):
+            if kind == "progress":
+                event = payload
+                trace_history.append({"role": "assistant", "content": _format_progress_event(event)})
+                overview_state = _apply_progress_to_overview(overview_state, event)
+                main_history.extend(
+                    _main_progress_messages(event, task_root=task_root, seen_image_paths=seen_image_paths)
+                )
+                yield _compose_outputs(
+                    client,
+                    main_history=main_history,
+                    trace_history=trace_history,
+                    preferred_file=selected_file,
+                    run_overview=overview_state,
+                )
+                continue
+            if kind == "error":
+                error = payload
+                break
+            if kind == "result":
+                result = payload
+
+        if error is not None:
+            result = {
+                "success": False,
+                "answer": "The web session failed before the run completed.",
+                "final_summary": str(error),
+                "cancelled": False,
+            }
+
+        result = result or {
+            "success": False,
+            "answer": "The run stopped before a result was returned.",
+            "final_summary": "",
+            "cancelled": False,
+        }
+        summary = str(result.get("final_summary") or "").strip()
+        if task_root is not None:
+            image_messages = _inline_image_messages(
+                [str(item.get("task_relative_path") or "").removeprefix("sandbox/") for item in _collect_artifact_catalog(client) if item.get("origin") == "generated"],
+                task_root=task_root,
+                seen_image_paths=seen_image_paths,
+            )
+            main_history.extend(image_messages)
+        main_history.append({"role": "assistant", "content": _result_answer_text(result)})
+        if summary:
+            trace_history.append({"role": "assistant", "content": f"**Run summary**\n\n{summary}"})
+        final_event = HealthFlowProgressEvent(
+            kind="turn_finished" if not result.get("cancelled") else "turn_cancelled",
+            stage="run",
+            status="cancelled" if result.get("cancelled") else ("completed" if result.get("success") else "failed"),
+            message=summary,
+        )
+        overview_state = _apply_progress_to_overview(overview_state, final_event)
+
+        yield _compose_outputs(
+            client,
+            main_history=main_history,
+            trace_history=trace_history,
+            preferred_file=selected_file,
+            run_overview=overview_state,
         )
 
     def _start_history_rename(
@@ -2419,6 +3286,7 @@ def launch_web_app(
         task_id: str | None,
         report_requested: bool,
         selected_file: str | None,
+        run_overview: dict[str, Any] | None,
     ):
         prompt_input = prompt_input or {}
         text = str(prompt_input.get("text") or "")
@@ -2431,92 +3299,43 @@ def launch_web_app(
                 continue
             upload_payloads[_resolved_upload_name(raw_file)] = file_path.read_bytes()
 
-        resolved_turn_task_id = _turn_task_id_for_submission(task_id, browser_task_id)
-        draft_submission = resolved_turn_task_id is None
-        if draft_submission:
-            client = session_store.new_client()
-            resolved_draft_title = _draft_task_title(text, list(upload_payloads.keys()))
-            if resolved_draft_title:
-                client.rename(resolved_draft_title)
-        else:
-            client, _ = _resolve_requested_task(resolved_turn_task_id)
-
-        main_history = list(main_history or _restore_main_history(client))
-        trace_history = list(trace_history or _restore_trace_history(client, restored=client.turn_count > 0))
-
-        if not text.strip() and not upload_payloads:
-            yield _compose_outputs(
-                client,
-                main_history=main_history,
-                trace_history=trace_history,
-                preferred_file=selected_file,
-            )
-            return
-
-        attachment_names = list(upload_payloads.keys())
-        user_display = _user_message_content(text, attachment_names)
-        user_message = text.strip() or _UPLOAD_ONLY_USER_MESSAGE
-        main_history.append({"role": "user", "content": user_display})
-        trace_history.append({"role": "assistant", "content": "Working on your latest request."})
-        yield _compose_outputs(
-            client,
+        yield from _submit_turn(
+            text=text,
+            upload_payloads=upload_payloads,
             main_history=main_history,
             trace_history=trace_history,
-            preferred_file=selected_file,
+            browser_task_id=browser_task_id,
+            task_id=task_id,
+            report_requested=report_requested,
+            selected_file=selected_file,
+            run_overview=run_overview,
         )
 
-        result: dict[str, Any] | None = None
-        error: Exception | None = None
-        for kind, payload in _stream_task_turn(
-            client,
-            user_message,
-            report_requested=report_requested,
-            uploaded_files=upload_payloads or None,
-        ):
-            if kind == "progress":
-                event = payload
-                trace_history.append({"role": "assistant", "content": _format_progress_event(event)})
-                yield _compose_outputs(
-                    client,
-                    main_history=main_history,
-                    trace_history=trace_history,
-                    preferred_file=selected_file,
-                )
-                continue
-            if kind == "error":
-                error = payload
-                break
-            if kind == "result":
-                result = payload
-
-        if error is not None:
-            result = {
-                "success": False,
-                "answer": "The web session failed before the run completed.",
-                "final_summary": str(error),
-            }
-
-        result = result or {
-            "success": False,
-            "answer": "The run stopped before a result was returned.",
-            "final_summary": "",
-        }
-        summary = str(result.get("final_summary") or "").strip()
-        main_history.append({"role": "assistant", "content": _result_answer_text(result)})
-        if summary:
-            trace_history.append({"role": "assistant", "content": f"**Run summary**\n\n{summary}"})
-
-        yield _compose_outputs(
-            client,
+    def _run_demo_case(
+        main_history: list[dict[str, Any]] | None,
+        trace_history: list[dict[str, Any]] | None,
+        browser_task_id: str | None,
+        task_id: str | None,
+        selected_file: str | None,
+        run_overview: dict[str, Any] | None,
+    ):
+        yield from _submit_turn(
+            text=str(_DEMO_CASE["prompt"]),
+            upload_payloads=_demo_case_uploads(),
             main_history=main_history,
             trace_history=trace_history,
-            preferred_file=selected_file,
+            browser_task_id=browser_task_id,
+            task_id=task_id,
+            report_requested=True,
+            selected_file=selected_file,
+            run_overview=run_overview,
         )
 
     with gr.Blocks(title="HealthFlow Web", fill_width=True, fill_height=True, css=_WEB_APP_CSS, head=_WEB_APP_HEAD) as demo:
         browser_task_id = gr.BrowserState(None, storage_key="healthflow-active-task")
         active_task_state = gr.State(None)
         selected_file_state = gr.State(None)
+        run_overview_state = gr.State(_empty_run_overview())
 
         with gr.Sidebar(label="History", open=True, width=336):
             gr.HTML(_sidebar_brand_html())
@@ -2543,6 +3362,17 @@ def launch_web_app(
             with gr.Row(elem_classes=["hf-main"]):
                 with gr.Column(scale=8, min_width=640, elem_classes=["hf-chat-shell"]):
                     task_header = gr.Markdown(elem_classes=["hf-task-header"], container=False)
+                    run_overview = gr.HTML(
+                        value=_run_overview_html(_empty_run_overview()),
+                        elem_classes=["hf-run-overview-shell"],
+                    )
+                    with gr.Column(visible=True, elem_classes=["hf-starter-shell"]) as starter_panel:
+                        starter_html = gr.HTML(value=_starter_card_html(), container=False)
+                        demo_case_button = gr.Button(
+                            "Launch Predictive Modeling Demo",
+                            variant="primary",
+                            elem_classes=["hf-starter-button"],
+                        )
                     main_chatbot = gr.Chatbot(
                         show_label=False,
                         container=False,
@@ -2673,6 +3503,9 @@ def launch_web_app(
             browser_task_id,
             active_task_state,
             task_header,
+            run_overview,
+            run_overview_state,
+            starter_panel,
             history_list,
             history_action_panel,
             history_action_heading,
@@ -2726,6 +3559,19 @@ def launch_web_app(
                 active_task_state,
                 report_requested,
                 selected_file_state,
+                run_overview_state,
+            ],
+            app_outputs,
+        )
+        demo_case_button.click(
+            _run_demo_case,
+            [
+                main_chatbot,
+                trace_chatbot,
+                browser_task_id,
+                active_task_state,
+                selected_file_state,
+                run_overview_state,
             ],
             app_outputs,
         )

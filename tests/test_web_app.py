@@ -9,20 +9,27 @@ from types import SimpleNamespace
 from healthflow.session import HealthFlowProgressEvent, TaskSessionSummary, TaskTurnRecord
 from healthflow.web_app import (
     WebTaskSessionStore,
+    _apply_progress_to_overview,
     _artifact_preview_outputs,
     _branding_header_html,
     _build_history_entries,
     _build_task_choices,
     _build_task_header,
     _composer_attachment_preview_update,
+    _demo_case_uploads,
     _draft_browser_task_id,
     _draft_task_title,
     _default_selected_file,
+    _empty_run_overview,
     _history_list_html,
+    _main_progress_messages,
     _resolved_recent_task_id,
     _restore_main_history,
     _restore_trace_history,
     _result_answer_text,
+    _run_overview_from_task_root,
+    _run_overview_html,
+    _starter_card_html,
     _stream_task_turn,
     _task_id_after_deletion,
     _task_title_text,
@@ -364,6 +371,20 @@ class WebAppTests(unittest.TestCase):
         self.assertNotIn("Mode:", header_html)
         self.assertNotIn("task_id", header_html)
 
+    def test_starter_card_html_surfaces_demo_case_details(self):
+        html = _starter_card_html()
+
+        self.assertIn("EHR Predictive Modeling Demo", html)
+        self.assertIn("ehr_predictive_demo.csv", html)
+        self.assertIn("roc_curve.png", html)
+        self.assertIn("calibration.png", html)
+
+    def test_demo_case_uploads_reads_builtin_demo_file(self):
+        uploads = _demo_case_uploads()
+
+        self.assertIn("ehr_predictive_demo.csv", uploads)
+        self.assertIn(b"subject_id,mortality,label", uploads["ehr_predictive_demo.csv"])
+
     def test_composer_attachment_preview_update_lists_selected_file_names(self):
         prompt_input = {
             "text": "",
@@ -515,6 +536,98 @@ class WebAppTests(unittest.TestCase):
         self.assertNotIn("Size:", preview_header["value"])
         self.assertNotIn("Summary:", preview_header["value"])
         self.assertEqual(preview_markdown["value"], "# Report\n\nSummary.\n")
+
+    def test_apply_progress_to_overview_tracks_planner_objective_and_steps(self):
+        overview = _apply_progress_to_overview(
+            _empty_run_overview(),
+            HealthFlowProgressEvent(
+                kind="stage_finished",
+                stage="planner",
+                status="completed",
+                attempt=2,
+                message="Build the predictive modeling plan.",
+                metadata={
+                    "objective": "Predict in-hospital mortality.",
+                    "recommended_steps": ["Inspect schema.", "Train baseline.", "Render ROC."],
+                    "avoidances": ["Do not leak labels."],
+                },
+            ),
+        )
+
+        self.assertEqual(overview["attempt"], 2)
+        self.assertEqual(overview["objective"], "Predict in-hospital mortality.")
+        self.assertEqual(overview["recommended_steps"][1], "Train baseline.")
+        self.assertEqual(overview["avoidances"], ["Do not leak labels."])
+        self.assertEqual(overview["stage_status"]["planner"], "done")
+        self.assertIn("Attempt 2", _run_overview_html(overview))
+
+    def test_main_progress_messages_inline_generated_images(self):
+        task_root = self.workspace_dir / "task-inline"
+        image_path = task_root / "sandbox" / "figures" / "roc_curve.png"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        image_path.write_bytes(b"png")
+
+        messages = _main_progress_messages(
+            HealthFlowProgressEvent(
+                kind="artifact_delta",
+                stage="executor",
+                status="completed",
+                metadata={"artifacts": ["figures/roc_curve.png"]},
+            ),
+            task_root=task_root,
+            seen_image_paths=set(),
+        )
+
+        self.assertEqual(messages[0]["metadata"]["title"], "Executor")
+        self.assertEqual(messages[1]["content"], (str(image_path), "roc_curve.png"))
+
+    def test_run_overview_from_task_root_restores_latest_plan_summary(self):
+        task_root = self.workspace_dir / "task-overview"
+        run_dir = task_root / "runtime" / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "trajectory.json").write_text(
+            inspect.cleandoc(
+                """
+                {
+                  "task_id": "task-overview",
+                  "user_request": "Predict mortality.",
+                  "attempts": [
+                    {
+                      "attempt": 1,
+                      "memory": {"retrieval": {}},
+                      "plan": {
+                        "objective": "Predict mortality.",
+                        "recommended_steps": ["Inspect schema.", "Train baseline."]
+                      },
+                      "execution": {"success": true, "cancelled": false},
+                      "evaluation": {"status": "success", "feedback": "Looks good."},
+                      "gate": {"retry_recommended": false}
+                    }
+                  ]
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "summary.json").write_text(
+            inspect.cleandoc(
+                """
+                {
+                  "success": true,
+                  "final_summary": "Completed successfully.",
+                  "evaluation_status": "success"
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        overview = _run_overview_from_task_root(task_root)
+
+        self.assertEqual(overview["mode"], "completed")
+        self.assertEqual(overview["objective"], "Predict mortality.")
+        self.assertEqual(overview["recommended_steps"], ["Inspect schema.", "Train baseline."])
+        self.assertEqual(overview["stage_status"]["reflection"], "skipped")
 
     def test_stream_task_turn_returns_sync_iterator(self):
         class _FakeStreamingClient:
