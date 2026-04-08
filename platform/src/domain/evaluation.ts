@@ -1,4 +1,4 @@
-export type BenchmarkId = 'medagentboard' | 'ehrflowbench'
+export type BenchmarkId = string
 
 export type SnapshotArtifactKind = 'markdown' | 'pdf' | 'image' | 'csv' | 'json' | 'text' | 'download'
 
@@ -81,6 +81,30 @@ export interface EvaluationSnapshot {
   runs: SnapshotRun[]
   questions: SnapshotQuestion[]
 }
+
+export interface EvaluationDiagnostics {
+  root: string
+  warnings: string[]
+}
+
+export interface LiveEvaluationDiagnostics extends EvaluationDiagnostics {}
+
+export interface DiagnosticEvaluationDiagnostics extends EvaluationDiagnostics {
+  missing: string[]
+  invalid: string[]
+}
+
+export type DevEvaluationPayload =
+  | {
+      mode: 'live'
+      snapshot: EvaluationSnapshot
+      diagnostics: LiveEvaluationDiagnostics
+    }
+  | {
+      mode: 'diagnostic'
+      snapshot: null
+      diagnostics: DiagnosticEvaluationDiagnostics
+    }
 
 export interface BlindCandidateSlot {
   slot: string
