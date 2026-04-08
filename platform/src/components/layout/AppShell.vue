@@ -28,7 +28,7 @@ const isActive = (path: string) => route.path === path
           <span>HealthFlow</span>
         </RouterLink>
 
-        <nav class="hidden items-center gap-1 rounded-full bg-slate-950/[0.03] p-1 md:flex">
+        <nav class="mx-4 hidden items-center gap-1 rounded-full bg-slate-950/[0.03] p-1 lg:flex">
           <RouterLink
             v-for="item in navItems"
             :key="item.to"
@@ -49,6 +49,20 @@ const isActive = (path: string) => route.path === path
           Read Paper
         </a>
       </div>
+
+      <div class="mx-auto mt-3 w-full max-w-7xl overflow-x-auto lg:hidden">
+        <nav class="inline-flex min-w-full gap-2 rounded-full border border-white/60 bg-white/72 p-1 shadow-[0_14px_36px_rgba(15,23,42,0.05)] backdrop-blur-xl">
+          <RouterLink
+            v-for="item in navItems"
+            :key="item.to"
+            :to="item.to"
+            class="rounded-full px-4 py-2 text-sm font-medium whitespace-nowrap transition"
+            :class="isActive(item.to) ? 'bg-slate-950 text-white' : 'text-slate-600'"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </nav>
+      </div>
     </header>
 
     <main class="relative">
@@ -56,5 +70,15 @@ const isActive = (path: string) => route.path === path
         <slot />
       </div>
     </main>
+
+    <footer class="px-4 pb-8 sm:px-6">
+      <div class="mx-auto flex max-w-7xl flex-col gap-4 rounded-[2rem] border border-white/70 bg-white/75 px-6 py-5 text-sm text-slate-500 shadow-[0_20px_60px_rgba(15,23,42,0.06)] backdrop-blur xl:flex-row xl:items-center xl:justify-between">
+        <div>HealthFlow Platform unifies paper-facing storytelling, benchmark definitions, and blind evaluation review.</div>
+        <div class="flex gap-4 text-slate-900">
+          <a href="https://arxiv.org/abs/2508.02621" target="_blank" rel="noreferrer">arXiv</a>
+          <RouterLink to="/evaluation">Evaluation</RouterLink>
+        </div>
+      </div>
+    </footer>
   </div>
 </template>

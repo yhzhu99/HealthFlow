@@ -87,9 +87,35 @@ export interface BlindCandidateSlot {
   candidate: SnapshotCandidate
 }
 
+export interface ReviewerResponse {
+  questionId: string
+  datasetId: BenchmarkId
+  qid: string
+  choice: string
+  selectedSlot: string | null
+  selectedModelId: string | null
+  slotMapping: Record<string, string>
+  note: string
+  updatedAt: string
+}
+
+export interface ReviewerState {
+  reviewerId: string
+  activeBenchmarkId: BenchmarkId | null
+  currentIndexByDataset: Partial<Record<BenchmarkId, number>>
+  responses: Record<string, ReviewerResponse>
+}
+
 export const BLIND_SLOTS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
 export const evaluationStorageKey = (reviewerId: string) => `healthflow:evaluation:${reviewerId.trim()}`
+
+export const createReviewerState = (reviewerId: string): ReviewerState => ({
+  reviewerId: reviewerId.trim(),
+  activeBenchmarkId: null,
+  currentIndexByDataset: {},
+  responses: {},
+})
 
 export const stableHash = (value: string) => {
   let hash = 2166136261

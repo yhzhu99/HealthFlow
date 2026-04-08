@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { frameworkStages, overviewStats, resultHighlights } from '../content/site'
 import AppShell from '../components/layout/AppShell.vue'
+import AppCard from '../components/ui/AppCard.vue'
+import AppButton from '../components/ui/AppButton.vue'
+import SectionHeader from '../components/ui/SectionHeader.vue'
 </script>
 
 <template>
@@ -19,12 +23,8 @@ import AppShell from '../components/layout/AppShell.vue'
           </p>
         </div>
         <div class="flex flex-wrap gap-3">
-          <RouterLink to="/evaluation" class="rounded-full bg-slate-950 px-6 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
-            Open Evaluation
-          </RouterLink>
-          <RouterLink to="/benchmarks" class="rounded-full border border-slate-950/10 bg-white/80 px-6 py-3 text-sm font-medium text-slate-900 transition hover:border-slate-950/20">
-            Explore Benchmarks
-          </RouterLink>
+          <RouterLink to="/evaluation"><AppButton>Open Evaluation</AppButton></RouterLink>
+          <RouterLink to="/benchmarks"><AppButton variant="secondary">Explore Benchmarks</AppButton></RouterLink>
         </div>
       </div>
 
@@ -34,6 +34,41 @@ import AppShell from '../components/layout/AppShell.vue'
           alt="HealthFlow framework"
           class="aspect-[4/3] w-full rounded-[1.5rem] object-cover"
         />
+      </div>
+    </section>
+
+    <section class="grid gap-4 py-10 sm:grid-cols-2 xl:grid-cols-4">
+      <AppCard v-for="item in overviewStats" :key="item.label">
+        <div class="text-sm font-semibold tracking-[0.2em] text-slate-500 uppercase">{{ item.label }}</div>
+        <div class="mt-4 text-xl font-semibold tracking-[-0.03em] text-slate-950">{{ item.value }}</div>
+      </AppCard>
+    </section>
+
+    <section class="space-y-10 py-14 sm:py-18">
+      <SectionHeader
+        eyebrow="Framework"
+        title="A runtime loop designed for inspectable, retry-aware research execution."
+        description="HealthFlow keeps the workflow narrow and legible: plan with memory, execute in a workspace, evaluate outcomes, then reflect reusable knowledge back into memory."
+      />
+      <div class="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+        <AppCard v-for="stage in frameworkStages" :key="stage.title">
+          <div class="text-sm font-semibold tracking-[0.2em] text-slate-500 uppercase">{{ stage.title }}</div>
+          <p class="mt-4 text-base leading-7 text-slate-600">{{ stage.description }}</p>
+        </AppCard>
+      </div>
+    </section>
+
+    <section class="space-y-10 py-14 sm:py-18">
+      <SectionHeader
+        eyebrow="Highlights"
+        title="Built for benchmark-facing, artifact-rich evaluation."
+        description="The platform focuses on showing the work: task prompts, expected outputs, generated answers, and the files a reviewer needs to judge."
+      />
+      <div class="grid gap-4 lg:grid-cols-3">
+        <AppCard v-for="item in resultHighlights" :key="item.title">
+          <div class="text-2xl font-semibold tracking-[-0.04em] text-slate-950">{{ item.title }}</div>
+          <p class="mt-4 text-base leading-7 text-slate-600">{{ item.body }}</p>
+        </AppCard>
       </div>
     </section>
   </AppShell>
