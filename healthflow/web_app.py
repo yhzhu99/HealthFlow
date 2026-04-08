@@ -7,6 +7,155 @@ from typing import Any, Callable
 from .session import HealthFlowProgressEvent
 from .session_client import TaskSessionClient
 
+_MAIN_ASSISTANT_TEXT = (
+    "This is HealthFlow Web. Describe the task, upload files if needed, and keep refining the same "
+    "task here. Follow-ups stay on this task until you click New Task."
+)
+_TRACE_ASSISTANT_TEXT = (
+    "Planner, executor, evaluator, and artifact updates will appear here. Refreshing the page keeps "
+    "the same task session."
+)
+
+
+class WebTaskSessionStore:
+    def __init__(self, system_factory: Callable[[], Any]):
+        self._system_factory = system_factory
+        self._clients: dict[str, TaskSessionClient] = {}
+
+    def get_client(self, task_id: str | None = None) -> TaskSessionClient:
+        normalized_task_id = str(task_id).strip() if task_id else None
+        if normalized_task_id and normalized_task_id in self._clients:
+            return self._clients[normalized_task_id]
+
+        client = TaskSessionClient(self._system_factory(), task_id=normalized_task_id)
+        self._clients[client.task_id] = client
+        return client
+
+    def new_client(self) -> TaskSessionClient:
+        client = TaskSessionClient(self._system_factory())
+        self._clients[client.task_id] = client
+        return client
+
+
+def _status_label(status: str | None) -> str:
+    normalized = (status or "ready").strip().lower()
+    if normalized in {"success", "completed"}:
+        return "success"
+    if normalized in {"cancelled", "canceled"}:
+        return "cancelled"
+    if normalized in {"failed", "failure", "error"}:
+        return "failed"
+    if normalized in {"needs_retry", "retry"}:
+        return "needs_retry"
+    return normalized or "ready"
+
+
+def _task_info(client: TaskSessionClient) -> str:
+    task_root = Path(client.task_root) if client.task_root else None
+    lines = [
+        f"**Mode:** Web UI",
+        f"**Active task:** `{client.task_id}`",
+        "Follow-up messages keep working on this same task until you click **New Task**.",
+    ]
+    if client.turn_count:
+        lines.append(f"**Completed turns:** `{client.turn_count}`")
+    if client.latest_turn_status:
+        lines.append(f"**Latest status:** `{_status_label(client.latest_turn_status)}`")
+    if task_root is not None:
+        lines.append(f"**Workspace:** `{task_root}`")
+        lines.append(f"**Sandbox:** `{task_root / 'sandbox'}`")
+    return "\n\n".join(lines)
+
+
+def _artifact_files(client: TaskSessionClient, result: dict[str, Any] | None = None) -> list[str]:
+    task_root = Path(client.task_root) if client.task_root else None
+    if task_root is None:
+        return []
+
+    sandbox_dir = task_root / "sandbox"
+    files = [str(path) for path in sorted(sandbox_dir.rglob("*")) if path.is_file()]
+    runtime_report = task_root / "runtime" / "report.md"
+    if runtime_report.exists():
+        files.append(str(runtime_report))
+    if result and result.get("report_path"):
+        files.append(str(result["report_path"]))
+    return list(dict.fromkeys(files))[:100]
+
+
+def _restore_main_history(client: TaskSessionClient) -> list[dict[str, str]]:
+    history = client.load_history()
+    main_history: list[dict[str, str]] = [{"role": "assistant", "content": _MAIN_ASSISTANT_TEXT}]
+    for record in history:
+        main_history.append({"role": "user", "content": record.user_message})
+        main_history.append({"role": "assistant", "content": _history_answer_text(record)})
+    return main_history
+
+
+def _restore_trace_history(client: TaskSessionClient, *, restored: bool) -> list[dict[str, str]]:
+    history = client.load_history()
+    if not history:
+        if restored:
+            message = (
+                f"Reopened task session `{client.task_id}`. New planner, executor, evaluator, and "
+                "artifact updates will appear here."
+            )
+        else:
+            message = _TRACE_ASSISTANT_TEXT
+        return [{"role": "assistant", "content": message}]
+
+    trace_history = [
+        {
+            "role": "assistant",
+            "content": (
+                f"Reopened task session `{client.task_id}` from saved runtime history. Prior turns are "
+                "listed below; new progress updates will stream here."
+            ),
+        }
+    ]
+    for record in history[-5:]:
+        status = _status_label(record.status)
+        lines = [f"**Turn {record.turn_number}** · `{status}`"]
+        if record.evaluation_feedback:
+            lines.append(record.evaluation_feedback.strip())
+        if record.report_path:
+            lines.append(f"Report: `{record.report_path}`")
+        trace_history.append({"role": "assistant", "content": "\n\n".join(lines)})
+    return trace_history
+
+
+def _history_answer_text(record: Any) -> str:
+    answer = str(getattr(record, "answer", "") or "").strip() or "No answer available."
+    status = _status_label(getattr(record, "status", None))
+    lines = [answer, f"_Status: {status}_"]
+    feedback = str(getattr(record, "evaluation_feedback", "") or "").strip()
+    if feedback and status != "success":
+        lines.append(feedback)
+    return "\n\n".join(lines)
+
+
+def _result_answer_text(result: dict[str, Any]) -> str:
+    answer = str(result.get("answer") or "").strip() or "No answer available."
+    status = "cancelled" if result.get("cancelled") else ("success" if result.get("success") else "failed")
+    lines = [answer, f"_Status: {status} · {result.get('execution_time', 0):.2f}s_"]
+    summary = str(result.get("final_summary") or "").strip()
+    if summary and status != "success":
+        lines.append(summary)
+    return "\n\n".join(lines)
+
+
+def _session_view(
+    client: TaskSessionClient,
+    *,
+    restored: bool,
+) -> tuple[list[dict[str, str]], list[dict[str, str]], str, str, list[str]]:
+    return (
+        _restore_main_history(client),
+        _restore_trace_history(client, restored=restored),
+        client.task_id,
+        _task_info(client),
+        _artifact_files(client),
+    )
+
 
 def launch_web_app(
     system_factory: Callable[[], Any],
@@ -22,32 +171,7 @@ def launch_web_app(
             "Gradio is not installed. Install the web extra first, for example: uv sync --extra web"
         ) from None
 
-    def _ensure_state(state: dict[str, Any] | None) -> dict[str, Any]:
-        if isinstance(state, dict) and isinstance(state.get("client"), TaskSessionClient):
-            return state
-        client = TaskSessionClient(system_factory())
-        return {"client": client}
-
-    def _task_info(client: TaskSessionClient) -> str:
-        task_root = Path(client.system.workspace_dir) / client.task_id if hasattr(client.system, "workspace_dir") else None
-        lines = [
-            f"**Active task:** `{client.task_id}`",
-            "This chat stays on the same task session until you click **New Task**.",
-        ]
-        if task_root is not None:
-            lines.append(f"**Workspace:** `{task_root}`")
-            lines.append(f"**Sandbox:** `{task_root / 'sandbox'}`")
-        return "\n\n".join(lines)
-
-    def _artifact_files(client: TaskSessionClient, result: dict[str, Any] | None = None) -> list[str]:
-        if not hasattr(client.system, "workspace_dir"):
-            return []
-        task_root = Path(client.system.workspace_dir) / client.task_id
-        sandbox_dir = task_root / "sandbox"
-        files = [str(path) for path in sorted(sandbox_dir.rglob("*")) if path.is_file()]
-        if result and result.get("report_path"):
-            files.append(str(result["report_path"]))
-        return files[:100]
+    session_store = WebTaskSessionStore(system_factory)
 
     def _format_progress_event(event: HealthFlowProgressEvent) -> str:
         if event.kind == "log_chunk":
@@ -75,13 +199,12 @@ def launch_web_app(
         prompt_input: dict[str, Any] | None,
         main_history: list[dict[str, str]] | None,
         trace_history: list[dict[str, str]] | None,
-        state: dict[str, Any] | None,
+        task_id: str | None,
         report_requested: bool,
     ):
-        state = _ensure_state(state)
-        client: TaskSessionClient = state["client"]
-        main_history = list(main_history or [])
-        trace_history = list(trace_history or [])
+        client = session_store.get_client(task_id)
+        main_history = list(main_history or _restore_main_history(client))
+        trace_history = list(trace_history or _restore_trace_history(client, restored=bool(task_id)))
         prompt_input = prompt_input or {}
         text = str(prompt_input.get("text") or "")
         files = list(prompt_input.get("files") or [])
@@ -96,14 +219,14 @@ def launch_web_app(
             upload_names.append(file_path.name)
 
         if not text.strip() and not upload_payloads:
-            yield main_history, trace_history, state, _task_info(client), _artifact_files(client)
+            yield main_history, trace_history, client.task_id, _task_info(client), _artifact_files(client)
             return
 
         user_display = _submit_display_text(text, upload_names)
         user_message = text.strip() or "Please inspect the uploaded files and continue the current task."
         main_history.append({"role": "user", "content": user_display})
         trace_history.append({"role": "assistant", "content": f"Starting turn on `{client.task_id}`."})
-        yield main_history, trace_history, state, _task_info(client), _artifact_files(client)
+        yield main_history, trace_history, client.task_id, _task_info(client), _artifact_files(client)
 
         queue: asyncio.Queue[HealthFlowProgressEvent] = asyncio.Queue()
 
@@ -123,7 +246,7 @@ def launch_web_app(
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=0.1)
                 trace_history.append({"role": "assistant", "content": _format_progress_event(event)})
-                yield main_history, trace_history, state, _task_info(client), _artifact_files(client)
+                yield main_history, trace_history, client.task_id, _task_info(client), _artifact_files(client)
             except asyncio.TimeoutError:
                 if task.done():
                     break
@@ -133,45 +256,36 @@ def launch_web_app(
             trace_history.append({"role": "assistant", "content": _format_progress_event(event)})
 
         result = await task
-        answer = str(result.get("answer") or "No answer available.").strip()
         summary = str(result.get("final_summary") or "").strip()
-        main_history.append({"role": "assistant", "content": answer})
+        main_history.append({"role": "assistant", "content": _result_answer_text(result)})
         if summary:
             trace_history.append({"role": "assistant", "content": f"**Run summary**\n\n{summary}"})
-        yield main_history, trace_history, state, _task_info(client), _artifact_files(client, result)
+        yield main_history, trace_history, client.task_id, _task_info(client), _artifact_files(client, result)
 
     def _new_task(
-        state: dict[str, Any] | None,
+        _task_id: str | None,
     ):
-        state = _ensure_state(state)
-        client: TaskSessionClient = state["client"]
-        client.new_task()
-        main_history = [
-            {
-                "role": "assistant",
-                "content": "Describe the task, upload any supporting files, and keep refining it here. Use this same session for follow-up feedback.",
-            }
-        ]
-        trace_history = [
-            {
-                "role": "assistant",
-                "content": f"Started a fresh task session: `{client.task_id}`.",
-            }
-        ]
-        return main_history, trace_history, state, _task_info(client), []
+        client = session_store.new_client()
+        main_history, trace_history, task_id, task_info, artifact_files = _session_view(client, restored=False)
+        trace_history[0]["content"] = f"Started a fresh task session: `{client.task_id}`."
+        return main_history, trace_history, task_id, task_info, artifact_files
 
-    initial_state = _ensure_state(None)
+    def _load_session(task_id: str | None):
+        client = session_store.get_client(task_id)
+        return _session_view(client, restored=bool(task_id))
+
     with gr.Blocks(title="HealthFlow Web") as demo:
-        state = gr.State(initial_state)
+        browser_task_id = gr.BrowserState(None, storage_key="healthflow-active-task")
         gr.Markdown(
             """
             # HealthFlow Web
 
-            Work in one task session, upload files as you go, and keep giving expert feedback in the same workspace.
+            Browser mode for HealthFlow. Work in one task session, upload files as you go, and keep
+            giving follow-up feedback in the same workspace until you click **New Task**.
             """
         )
         with gr.Row():
-            task_info = gr.Markdown(value=_task_info(initial_state["client"]))
+            task_info = gr.Markdown()
             report_requested = gr.Checkbox(label="Generate report.md for each turn", value=False)
             new_task_button = gr.Button("New Task", variant="primary")
         with gr.Row():
@@ -179,12 +293,7 @@ def launch_web_app(
                 main_chatbot = gr.Chatbot(
                     label="HealthFlow",
                     type="messages",
-                    value=[
-                        {
-                            "role": "assistant",
-                            "content": "Describe the task, upload files if needed, and keep refining the same task here.",
-                        }
-                    ],
+                    value=[{"role": "assistant", "content": _MAIN_ASSISTANT_TEXT}],
                     height=680,
                     show_copy_button=True,
                 )
@@ -192,12 +301,7 @@ def launch_web_app(
                 trace_chatbot = gr.Chatbot(
                     label="Execution Trace",
                     type="messages",
-                    value=[
-                        {
-                            "role": "assistant",
-                            "content": "Planner, executor, evaluator, and artifact updates will appear here.",
-                        }
-                    ],
+                    value=[{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}],
                     height=680,
                     show_copy_button=True,
                 )
@@ -209,16 +313,25 @@ def launch_web_app(
         )
         artifact_files = gr.Files(label="Current task artifacts", interactive=False)
 
+        demo.load(
+            _load_session,
+            [browser_task_id],
+            [main_chatbot, trace_chatbot, browser_task_id, task_info, artifact_files],
+            queue=False,
+            show_progress="hidden",
+        )
+
         prompt_input.submit(
             _run_turn,
-            [prompt_input, main_chatbot, trace_chatbot, state, report_requested],
-            [main_chatbot, trace_chatbot, state, task_info, artifact_files],
+            [prompt_input, main_chatbot, trace_chatbot, browser_task_id, report_requested],
+            [main_chatbot, trace_chatbot, browser_task_id, task_info, artifact_files],
         ).then(lambda: gr.MultimodalTextbox(value=None), None, [prompt_input])
 
         new_task_button.click(
             _new_task,
-            [state],
-            [main_chatbot, trace_chatbot, state, task_info, artifact_files],
+            [browser_task_id],
+            [main_chatbot, trace_chatbot, browser_task_id, task_info, artifact_files],
+            queue=False,
         )
 
     demo.queue()

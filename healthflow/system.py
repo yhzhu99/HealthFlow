@@ -156,6 +156,10 @@ class HealthFlowSystem:
         payload = self._read_json(session_path)
         return TaskSessionState.from_dict(payload)
 
+    def load_task_history(self, task_id: str) -> list[TaskTurnRecord]:
+        task_workspace = self.workspace_dir / task_id
+        return self._read_session_history(task_workspace)
+
     async def run_task_turn(
         self,
         task_id: str,
