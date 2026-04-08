@@ -7,7 +7,6 @@ import AppButton from '../components/ui/AppButton.vue'
 import AppCard from '../components/ui/AppCard.vue'
 import {
   blindOrderCandidates,
-  createReviewerState,
   DEFAULT_REVIEWER_ID,
   type BenchmarkId,
   type DevEvaluationManifest,
@@ -20,6 +19,7 @@ import {
   type SnapshotQuestion,
   evaluationStorageKey,
   resolveReviewerId,
+  restoreReviewerState,
 } from '../domain/evaluation'
 import { downloadJson } from '../lib/download'
 import { renderMarkdown } from '../lib/markdown'
@@ -63,7 +63,7 @@ const localManifestUrl = localEvaluationManifestUrl()
 let loadRequestId = 0
 let caseRequestId = 0
 
-const reviewerDraft = ref(resolveReviewerId(readJson<string>(LAST_REVIEWER_KEY, DEFAULT_REVIEWER_ID)))
+const reviewerDraft = ref(resolveReviewerId(readJson<unknown>(LAST_REVIEWER_KEY, DEFAULT_REVIEWER_ID)))
 const reviewerState = ref<ReviewerState | null>(null)
 const draftChoice = ref<string | null>(null)
 const draftNote = ref('')
@@ -323,8 +323,7 @@ const hydrateDraft = () => {
 const activateReviewer = (requestedId?: string) => {
   const reviewerId = resolveReviewerId(requestedId ?? reviewerDraft.value)
   reviewerDraft.value = reviewerId
-  reviewerState.value =
-    readJson<ReviewerState | null>(evaluationStorageKey(reviewerId), null) ?? createReviewerState(reviewerId)
+  reviewerState.value = restoreReviewerState(readJson<unknown>(evaluationStorageKey(reviewerId), null), reviewerId)
 
   if (!reviewerState.value.activeBenchmarkId && benchmarks.value[0]) {
     reviewerState.value.activeBenchmarkId = benchmarks.value[0].id
