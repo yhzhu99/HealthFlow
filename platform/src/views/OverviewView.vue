@@ -32,6 +32,19 @@ const activeBenchmark = computed(
 )
 const activeResult = computed(() => resultDeck.find((item) => item.id === activeResultId.value) ?? resultDeck[0])
 
+const isNumericAuthorMark = (mark: string) => /^\d+$/.test(mark)
+const formatAuthorMarks = (marks: string[]) => {
+  const numericMarks = marks.filter(isNumericAuthorMark)
+  const symbolicMarks = marks.filter((mark) => !isNumericAuthorMark(mark))
+  return [...numericMarks, ...symbolicMarks]
+}
+const formattedAuthors = computed(() =>
+  projectMeta.authors.map((author) => ({
+    ...author,
+    formattedMarks: formatAuthorMarks(author.marks),
+  })),
+)
+
 const citationButtonLabel = ref('Copy BibTeX')
 let citationResetTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -85,17 +98,28 @@ onBeforeUnmount(() => {
         </div>
 
         <h1
-          class="max-w-none text-balance text-[clamp(1.95rem,2.85vw,3.45rem)] font-semibold leading-[0.94] tracking-[-0.07em] text-slate-950"
+          class="max-w-[92rem] text-[clamp(1.72rem,2.18vw,2.92rem)] font-semibold leading-[0.92] tracking-[-0.07em] text-slate-950"
         >
           {{ projectMeta.title }}
         </h1>
 
-        <div class="max-w-[92rem] text-sm leading-8 text-slate-900 sm:text-base lg:text-lg">
-          <template v-for="(author, index) in projectMeta.authors" :key="author.name">
-            <span>
-              {{ author.name }}<sup class="ml-0.5 text-[0.7em] align-super">{{ author.marks.join(',') }}</sup>
+        <div class="max-w-[108rem] text-[0.98rem] leading-[1.9] text-slate-900 sm:text-[1.02rem] lg:text-[1.08rem]">
+          <template v-for="(author, index) in formattedAuthors" :key="author.name">
+            <span class="inline-flex items-start">
+              <span>{{ author.name }}</span>
+              <span
+                v-if="author.formattedMarks.length"
+                class="ml-1 inline-flex -translate-y-[0.38em] items-start gap-[0.14rem] text-[0.66em] font-semibold tracking-[0.02em] text-slate-500"
+              >
+                <template v-for="(mark, markIndex) in author.formattedMarks" :key="`${author.name}-${mark}-${markIndex}`">
+                  <span :class="isNumericAuthorMark(mark) ? 'text-slate-500' : 'text-slate-900'">{{ mark }}</span>
+                  <span v-if="markIndex < author.formattedMarks.length - 1" class="text-slate-400">,</span>
+                </template>
+              </span>
             </span>
-            <span v-if="index < projectMeta.authors.length - 1">, </span>
+            <span>
+              <span v-if="index < formattedAuthors.length - 1">, </span>
+            </span>
           </template>
         </div>
 

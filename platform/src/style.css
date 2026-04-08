@@ -6,9 +6,9 @@
   --hf-ink: #0f172a;
   --hf-ink-soft: #475569;
   --hf-line: rgba(15, 23, 42, 0.12);
-  --hf-card: rgba(255, 255, 255, 0.72);
-  --hf-serif: 'Instrument Serif', Georgia, serif;
-  --hf-sans: 'Manrope', 'Segoe UI', sans-serif;
+  --hf-card: rgba(255, 255, 255, 0.74);
+  --hf-font: 'Instrument Sans', 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  --hf-display: 'Instrument Sans', 'SF Pro Display', 'Helvetica Neue', sans-serif;
 }
 
 html {
@@ -23,7 +23,7 @@ body,
 
 body {
   margin: 0;
-  font-family: var(--hf-sans);
+  font-family: var(--hf-font);
   color: var(--hf-ink);
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0) 42%),
@@ -34,10 +34,16 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'liga' 1, 'calt' 1, 'ss01' 1;
 }
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(15, 23, 42, 0.12);
+  color: var(--hf-ink);
 }
 
 a {
@@ -51,7 +57,28 @@ img {
 }
 
 .font-display {
-  font-family: var(--hf-serif);
+  font-family: var(--hf-display);
+  letter-spacing: -0.04em;
+}
+
+.prose {
+  font-family: var(--hf-font);
+  color: var(--hf-ink);
+}
+
+.prose :where(h1, h2, h3, h4) {
+  font-family: var(--hf-display);
+  letter-spacing: -0.045em;
+  color: var(--hf-ink);
+}
+
+.prose :where(p, li) {
+  color: var(--hf-ink-soft);
+}
+
+.prose :where(strong) {
+  color: var(--hf-ink);
+  font-weight: 600;
 }
 
 .glass-panel {

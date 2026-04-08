@@ -40,7 +40,7 @@ const brandIconUrl = toBasePath('branding/healthflow-icon.svg')
         class="mx-auto flex w-full items-center justify-between gap-4 rounded-full border border-white/70 bg-white/78 px-4 py-3 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:px-5"
         :class="contentWidthClass"
       >
-        <RouterLink to="/" class="flex items-center gap-3 text-sm font-semibold tracking-[0.18em] text-slate-900">
+        <RouterLink to="/" class="flex items-center gap-3 text-sm font-semibold tracking-[0.12em] text-slate-900">
           <img :src="brandIconUrl" alt="" class="h-9 w-9 rounded-full bg-slate-950/5 p-1.5" />
           <span>HealthFlow</span>
         </RouterLink>
@@ -50,7 +50,7 @@ const brandIconUrl = toBasePath('branding/healthflow-icon.svg')
             v-for="item in navItems"
             :key="item.to"
             :to="item.to"
-            class="rounded-full px-4 py-2 text-sm font-medium transition"
+            class="rounded-full px-4 py-2 text-sm font-semibold tracking-[-0.01em] transition"
             :class="isActive(item.to) ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-950'"
           >
             {{ item.label }}
