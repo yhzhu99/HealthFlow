@@ -1,21 +1,18 @@
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
-
 import { describe, expect, it } from 'vitest'
+
+import { demoEvaluationSnapshot } from '../src/content/demo-evaluation'
 
 describe('demo snapshot', () => {
   it('ships a committed mock snapshot with two demo questions and six framework baselines per benchmark', () => {
-    const snapshotPath = path.resolve(process.cwd(), 'src/content/demo-evaluation.snapshot.json')
-    const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8'))
-
-    expect(snapshot.snapshotVersion).toBe('healthflow-demo-v3')
-    expect(snapshot.questions).toHaveLength(2)
-    expect(snapshot.runs).toHaveLength(12)
-    expect(snapshot.benchmarks.map((item: { id: string }) => item.id)).toEqual(['medagentboard', 'ehrflowbench'])
-    expect(snapshot.questions.map((item: { datasetId: string }) => item.datasetId)).toEqual([
+    expect(demoEvaluationSnapshot.snapshotVersion).toBe('healthflow-demo-v4')
+    expect(demoEvaluationSnapshot.questions).toHaveLength(2)
+    expect(demoEvaluationSnapshot.runs).toHaveLength(12)
+    expect(demoEvaluationSnapshot.benchmarks.map((item) => item.id)).toEqual(['medagentboard', 'ehrflowbench'])
+    expect(demoEvaluationSnapshot.questions.map((item) => item.datasetId)).toEqual([
       'medagentboard',
       'ehrflowbench',
     ])
-    expect(snapshot.questions.map((item: { candidates: unknown[] }) => item.candidates.length)).toEqual([6, 6])
+    expect(demoEvaluationSnapshot.questions.map((item) => item.candidates.length)).toEqual([6, 6])
+    expect(demoEvaluationSnapshot.questions.flatMap((item) => item.candidates).every((candidate) => candidate.artifacts.length === 0)).toBe(true)
   })
 })

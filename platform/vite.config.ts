@@ -8,8 +8,10 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 
 import {
-  buildEvaluationSnapshotBundle,
+  buildEvaluationCasePayload,
+  buildEvaluationManifestPayload,
   evaluationDataRootForProject,
+  evaluationCaseRouteFromSegments,
   evaluationManifestRoute,
 } from './dev/evaluation-data'
 
@@ -70,18 +72,54 @@ const evaluationDevPlugin = (): Plugin => ({
       }
 
       const projectRoot = __dirname
+      const evaluationCasePrefix = evaluationCaseRouteFromSegments([])
       if (requestUrl.pathname === evaluationManifestRoute()) {
         try {
-          const bundle = await buildEvaluationSnapshotBundle({
+          const payload = await buildEvaluationManifestPayload({
             projectRoot,
+          })
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json; charset=utf-8')
+          res.end(JSON.stringify(payload))
+          return
+        } catch (caughtError) {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json; charset=utf-8')
+          res.end(
+            JSON.stringify({
+              error: caughtError instanceof Error ? caughtError.message : String(caughtError),
+            }),
+          )
+          return
+        }
+      }
+
+      if (requestUrl.pathname.startsWith(evaluationCasePrefix)) {
+        const decodedSegments = requestUrl.pathname
+          .replace(evaluationCasePrefix, '')
+          .split('/')
+          .filter(Boolean)
+          .map((segment) => decodeURIComponent(segment))
+
+        if (decodedSegments.length !== 2) {
+          res.statusCode = 400
+          res.end('Invalid evaluation case path')
+          return
+        }
+
+        try {
+          const payload = await buildEvaluationCasePayload({
+            projectRoot,
+            benchmarkId: decodedSegments[0] ?? '',
+            caseId: decodedSegments[1] ?? '',
             mode: 'dev',
           })
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/json; charset=utf-8')
-          res.end(JSON.stringify(bundle.payload))
+          res.end(JSON.stringify(payload))
           return
         } catch (caughtError) {
-          res.statusCode = 500
+          res.statusCode = 404
           res.setHeader('Content-Type', 'application/json; charset=utf-8')
           res.end(
             JSON.stringify({

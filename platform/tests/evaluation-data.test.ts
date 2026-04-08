@@ -4,7 +4,12 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { buildEvaluationSnapshotBundle, evaluationDataRootForProject } from '../dev/evaluation-data'
+import {
+  buildEvaluationCasePayload,
+  buildEvaluationManifestPayload,
+  buildEvaluationSnapshotBundle,
+  evaluationDataRootForProject,
+} from '../dev/evaluation-data'
 
 const tempRoots: string[] = []
 
@@ -18,39 +23,128 @@ afterEach(async () => {
 })
 
 describe('evaluation data bundle', () => {
-  it('builds a live dev payload from the committed evaluation-data tree', async () => {
-    const bundle = await buildEvaluationSnapshotBundle({
-      projectRoot: path.resolve(process.cwd()),
-      mode: 'dev',
+  it('builds a live manifest payload from a local evaluation-data tree', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'healthflow-live-'))
+    tempRoots.push(tempRoot)
+
+    const benchmarkRoot = path.join(tempRoot, 'evaluation-data', 'benchmarks', 'medagentboard', 'cases', '0001')
+    await mkdir(path.join(benchmarkRoot, 'reference', 'files'), { recursive: true })
+    await mkdir(path.join(benchmarkRoot, 'frameworks', 'healthflow', 'files'), { recursive: true })
+    await writeFile(
+      path.join(tempRoot, 'evaluation-data', 'benchmarks', 'medagentboard', 'benchmark.json'),
+      JSON.stringify({
+        id: 'medagentboard',
+        label: 'MedAgentBoard',
+        description: 'Local benchmark',
+        frameworkOrder: ['healthflow'],
+      }),
+    )
+    await writeFile(
+      path.join(benchmarkRoot, 'case.json'),
+      JSON.stringify({
+        id: 'medagentboard:1',
+        qid: '1',
+        task: 'Review this local case.',
+        taskBrief: 'Local smoke test',
+        expectedOutputs: [],
+      }),
+    )
+    await writeFile(path.join(benchmarkRoot, 'reference', 'answer.md'), 'Reference answer')
+    await writeFile(path.join(benchmarkRoot, 'reference', 'files', 'reference.md'), '# Reference')
+    await writeFile(
+      path.join(benchmarkRoot, 'frameworks', 'healthflow', 'manifest.json'),
+      JSON.stringify({
+        runId: 'medagentboard-healthflow',
+        runLabel: 'HealthFlow',
+        modelId: 'healthflow',
+        summary: 'Strong answer',
+      }),
+    )
+    await writeFile(path.join(benchmarkRoot, 'frameworks', 'healthflow', 'answer.md'), 'HealthFlow answer')
+    await writeFile(path.join(benchmarkRoot, 'frameworks', 'healthflow', 'files', 'report.md'), '# Report')
+
+    const payload = await buildEvaluationManifestPayload({
+      projectRoot: tempRoot,
     })
 
-    expect(bundle.payload.mode).toBe('live')
-    if (bundle.payload.mode !== 'live') {
+    expect(payload.mode).toBe('live')
+    if (payload.mode !== 'live') {
       throw new Error('Expected live payload')
     }
 
-    expect(bundle.payload.snapshot.benchmarks.map((item) => item.id)).toEqual(['ehrflowbench', 'medagentboard'])
-    expect(bundle.payload.snapshot.questions).toHaveLength(2)
-    expect(bundle.payload.snapshot.questions[0]?.candidates.length).toBe(6)
-    expect(bundle.payload.snapshot.questions[0]?.candidates[0]?.artifacts[0]?.relativePath).toMatch(/^\/__eval\/artifacts\//)
+    expect(payload.manifest.benchmarks.map((item) => item.id)).toEqual(['medagentboard'])
+    expect(payload.manifest.questions).toHaveLength(1)
+    expect(payload.manifest.questions[0]?.candidateCount).toBe(1)
+    expect(payload.manifest.runs[0]?.id).toBe('medagentboard-healthflow')
+  })
+
+  it('builds an on-demand case payload with dev artifact urls', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'healthflow-case-'))
+    tempRoots.push(tempRoot)
+
+    const benchmarkRoot = path.join(tempRoot, 'evaluation-data', 'benchmarks', 'medagentboard', 'cases', '0001')
+    await mkdir(path.join(benchmarkRoot, 'reference', 'files'), { recursive: true })
+    await mkdir(path.join(benchmarkRoot, 'frameworks', 'healthflow', 'files'), { recursive: true })
+    await writeFile(
+      path.join(tempRoot, 'evaluation-data', 'benchmarks', 'medagentboard', 'benchmark.json'),
+      JSON.stringify({
+        id: 'medagentboard',
+        label: 'MedAgentBoard',
+        description: 'Local benchmark',
+        frameworkOrder: ['healthflow'],
+      }),
+    )
+    await writeFile(
+      path.join(benchmarkRoot, 'case.json'),
+      JSON.stringify({
+        id: 'medagentboard:1',
+        qid: '1',
+        task: 'Review this local case.',
+        taskBrief: 'Local smoke test',
+        expectedOutputs: [],
+      }),
+    )
+    await writeFile(path.join(benchmarkRoot, 'reference', 'answer.md'), 'Reference answer')
+    await writeFile(path.join(benchmarkRoot, 'reference', 'files', 'reference.md'), '# Reference')
+    await writeFile(
+      path.join(benchmarkRoot, 'frameworks', 'healthflow', 'manifest.json'),
+      JSON.stringify({
+        runId: 'medagentboard-healthflow',
+        runLabel: 'HealthFlow',
+        modelId: 'healthflow',
+        summary: 'Strong answer',
+      }),
+    )
+    await writeFile(path.join(benchmarkRoot, 'frameworks', 'healthflow', 'answer.md'), 'HealthFlow answer')
+    await writeFile(path.join(benchmarkRoot, 'frameworks', 'healthflow', 'files', 'report.md'), '# Report')
+
+    const payload = await buildEvaluationCasePayload({
+      projectRoot: tempRoot,
+      benchmarkId: 'medagentboard',
+      caseId: '0001',
+      mode: 'dev',
+    })
+
+    expect(payload.question.id).toBe('medagentboard:1')
+    expect(payload.question.candidates).toHaveLength(1)
+    expect(payload.question.candidates[0]?.artifacts[0]?.relativePath).toMatch(/^\/__eval\/artifacts\//)
   })
 
   it('reports a diagnostic payload when the local evaluation root is missing', async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'healthflow-eval-'))
     tempRoots.push(tempRoot)
 
-    const bundle = await buildEvaluationSnapshotBundle({
+    const payload = await buildEvaluationManifestPayload({
       projectRoot: tempRoot,
-      mode: 'dev',
     })
 
-    expect(bundle.payload.mode).toBe('diagnostic')
-    if (bundle.payload.mode !== 'diagnostic') {
+    expect(payload.mode).toBe('diagnostic')
+    if (payload.mode !== 'diagnostic') {
       throw new Error('Expected diagnostic payload')
     }
 
-    expect(bundle.payload.diagnostics.root).toBe(evaluationDataRootForProject(tempRoot))
-    expect(bundle.payload.diagnostics.missing.some((item) => item.includes('Missing evaluation root'))).toBe(true)
+    expect(payload.diagnostics.root).toBe(evaluationDataRootForProject(tempRoot))
+    expect(payload.diagnostics.missing.some((item) => item.includes('Missing evaluation root'))).toBe(true)
   })
 
   it('uses static export paths when building a static bundle', async () => {

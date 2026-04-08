@@ -9,20 +9,48 @@ The home page is the single paper-facing surface. It now includes the full proje
 
 ## Demo Evaluation
 
-The repo now ships a committed mock snapshot at `src/content/demo-evaluation.snapshot.json`, so the Evaluation page boots immediately in local development without requiring any generated public snapshot.
+The repo now ships a tiny embedded text-only demo in source code, so the Evaluation page still has a safe fallback UI when local evaluation data are missing.
 
 Current demo payload:
 
 - 1 MedAgentBoard-style question
 - 1 EHRFlowBench-style question
 - 6 framework baselines per benchmark
-- image, CSV, markdown, and PDF preview coverage
+- text-only comparison coverage
 - default reviewer auto-loaded as `demo-reviewer`
 - compact human-evaluation workspace with benchmark tabs plus framework tabs
 
-## Real Snapshot Workflow
+## Local Dev Evaluation
 
-When real benchmark outputs are available, the same UI can still consume a generated snapshot:
+The real dev workflow no longer depends on a committed `snapshot.json`.
+
+Place your private evaluation data under:
+
+```text
+platform/evaluation-data/
+  benchmarks/
+    <benchmark-id>/
+      benchmark.json
+      cases/
+        <case-id>/
+          case.json
+          reference/
+            answer.md
+            files/
+          frameworks/
+            <framework-id>/
+              manifest.json
+              answer.md
+              files/
+```
+
+The Vite dev server reads this tree through `GET /__eval/manifest` and serves local artifacts through `GET /__eval/artifacts/*`.
+
+These local evaluation directories and generated review artifacts are ignored by git on purpose.
+
+## Static Export
+
+When you do want a static export, build it from the local evaluation tree:
 
 ```bash
 npm install
@@ -30,7 +58,7 @@ npm run snapshot
 npm run dev
 ```
 
-The snapshot builder reads local processed benchmark files plus `benchmark_results/**/<qid>/` and writes a live override snapshot under `public/data/` together with frontend-ready files under `public/evaluation-assets/`.
+The snapshot builder now reads `platform/evaluation-data/` and writes an export snapshot under `public/data/` together with generated files under `public/evaluation-assets/`.
 
 ## Verification
 

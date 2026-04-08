@@ -3,8 +3,11 @@ import path from 'node:path'
 
 import type {
   BenchmarkId,
-  DevEvaluationPayload,
+  DevEvaluationCasePayload,
+  DevEvaluationManifest,
+  DevEvaluationManifestPayload,
   DiagnosticEvaluationDiagnostics,
+  EvaluationQuestionSummary,
   EvaluationSnapshot,
   LiveEvaluationDiagnostics,
   SnapshotArtifact,
@@ -57,8 +60,62 @@ interface InternalArtifact {
   sourcePath: string
 }
 
+interface ScannedFramework {
+  frameworkId: string
+  root: string
+  runId: string
+  runLabel: string
+  modelId: string
+  manifest: FrameworkManifestFile
+}
+
+interface ScannedCase {
+  caseId: string
+  root: string
+  benchmarkId: string
+  benchmarkLabel: string
+  config: CaseFile
+  frameworks: ScannedFramework[]
+}
+
+interface ScannedBenchmark {
+  id: string
+  label: string
+  description: string
+  cases: ScannedCase[]
+}
+
+interface ScannedEvaluationIndex {
+  root: string
+  benchmarks: ScannedBenchmark[]
+  warnings: string[]
+  missing: string[]
+  invalid: string[]
+}
+
+interface ScannedBenchmarkMeta {
+  benchmarkId: string
+  benchmarkLabel: string
+  benchmarkDescription: string
+  benchmarkRoot: string
+  casesRoot: string
+  frameworkOrder: Map<string, number>
+}
+
+type EvaluationSnapshotPayload =
+  | {
+      mode: 'live'
+      snapshot: EvaluationSnapshot
+      diagnostics: LiveEvaluationDiagnostics
+    }
+  | {
+      mode: 'diagnostic'
+      snapshot: null
+      diagnostics: DiagnosticEvaluationDiagnostics
+    }
+
 export interface EvaluationSnapshotBundle {
-  payload: DevEvaluationPayload
+  payload: EvaluationSnapshotPayload
   artifactCopies: ArtifactCopy[]
 }
 
@@ -66,6 +123,7 @@ const DEFAULT_SNAPSHOT_VERSION = 'healthflow-local-dev'
 const EVALUATION_ROUTE_PREFIX = '/__eval'
 const EVALUATION_ARTIFACT_ROUTE_PREFIX = `${EVALUATION_ROUTE_PREFIX}/artifacts`
 const EVALUATION_MANIFEST_ROUTE = `${EVALUATION_ROUTE_PREFIX}/manifest`
+const EVALUATION_CASE_ROUTE_PREFIX = `${EVALUATION_ROUTE_PREFIX}/cases`
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'])
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.log', '.rst'])
@@ -74,7 +132,8 @@ const TABULAR_EXTENSIONS = new Set(['.csv', '.tsv'])
 
 export const evaluationDataRootForProject = (projectRoot: string) => path.join(projectRoot, 'evaluation-data')
 export const evaluationManifestRoute = () => EVALUATION_MANIFEST_ROUTE
-
+export const evaluationCaseRouteFromSegments = (segments: string[]) =>
+  `${EVALUATION_CASE_ROUTE_PREFIX}/${segments.map(encodeURIComponent).join('/')}`
 export const evaluationArtifactRouteFromSegments = (segments: string[]) =>
   `${EVALUATION_ARTIFACT_ROUTE_PREFIX}/${segments.map(encodeURIComponent).join('/')}`
 
@@ -264,19 +323,186 @@ const summarizeDiagnostics = (
   invalid,
 })
 
-export const buildEvaluationSnapshotBundle = async ({
+const buildLiveDiagnostics = (root: string, warnings: string[]): LiveEvaluationDiagnostics => ({
+  root,
+  warnings,
+})
+
+const defaultQuestionId = (benchmarkId: string, qid: string) => `${benchmarkId}:${qid}`
+
+const buildQuestionSummary = ({
+  caseId,
+  benchmarkId,
+  benchmarkLabel,
+  config,
+  candidateCount,
+}: {
+  caseId: string
+  benchmarkId: string
+  benchmarkLabel: string
+  config: CaseFile
+  candidateCount: number
+}): EvaluationQuestionSummary => {
+  const qid = String(config.qid ?? caseId)
+  return {
+    caseId,
+    id: config.id?.trim() || defaultQuestionId(benchmarkId, qid),
+    datasetId: benchmarkId,
+    datasetLabel: benchmarkLabel,
+    qid,
+    taskBrief: config.taskBrief ?? null,
+    taskType: config.taskType ?? null,
+    paperTitle: config.paperTitle ?? null,
+    candidateCount,
+  }
+}
+
+const readBenchmarkMeta = async (
+  projectRoot: string,
+  benchmarkDirectory: string,
+): Promise<ScannedBenchmarkMeta> => {
+  const root = evaluationDataRootForProject(projectRoot)
+  const benchmarkRoot = path.join(root, 'benchmarks', benchmarkDirectory)
+  const benchmarkConfigPath = path.join(benchmarkRoot, 'benchmark.json')
+
+  if (!(await isFile(benchmarkConfigPath))) {
+    throw new Error(`Missing benchmark.json for ${benchmarkDirectory}`)
+  }
+
+  const benchmarkConfig = await safeReadJson<BenchmarkFile>(benchmarkConfigPath)
+  const benchmarkId = String(benchmarkConfig.id ?? benchmarkDirectory)
+  const benchmarkLabel = benchmarkConfig.label?.trim() || benchmarkId
+  const benchmarkDescription = benchmarkConfig.description?.trim() || `${benchmarkLabel} evaluation benchmark`
+  const frameworkOrder = new Map((benchmarkConfig.frameworkOrder ?? []).map((item, index) => [item, index]))
+  const casesRoot = path.join(benchmarkRoot, 'cases')
+
+  if (!(await isDirectory(casesRoot))) {
+    throw new Error(`Missing cases directory for ${benchmarkId}`)
+  }
+
+  return {
+    benchmarkId,
+    benchmarkLabel,
+    benchmarkDescription,
+    benchmarkRoot,
+    casesRoot,
+    frameworkOrder,
+  }
+}
+
+const loadFrameworkSummaries = async ({
+  frameworksRoot,
+  benchmarkId,
+  caseId,
+  frameworkOrder,
+  warnings,
+}: {
+  frameworksRoot: string
+  benchmarkId: string
+  caseId: string
+  frameworkOrder: Map<string, number>
+  warnings: string[]
+}): Promise<ScannedFramework[]> => {
+  if (!(await isDirectory(frameworksRoot))) {
+    throw new Error(`Missing frameworks directory for ${benchmarkId}/${caseId}`)
+  }
+
+  const frameworkDirectories = await listDirectories(frameworksRoot)
+  if (frameworkDirectories.length === 0) {
+    throw new Error(`No frameworks found for ${benchmarkId}/${caseId}`)
+  }
+
+  const orderedFrameworkDirectories = [...frameworkDirectories].sort((left, right) => {
+    const leftOrder = frameworkOrder.get(left) ?? Number.MAX_SAFE_INTEGER
+    const rightOrder = frameworkOrder.get(right) ?? Number.MAX_SAFE_INTEGER
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder
+    return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+  })
+
+  const frameworks: ScannedFramework[] = []
+  for (const frameworkDirectory of orderedFrameworkDirectories) {
+    const frameworkRoot = path.join(frameworksRoot, frameworkDirectory)
+    const frameworkManifestPath = path.join(frameworkRoot, 'manifest.json')
+    if (!(await isFile(frameworkManifestPath))) {
+      warnings.push(`Skipping ${benchmarkId}/${caseId}/${frameworkDirectory}: missing manifest.json`)
+      continue
+    }
+
+    let manifest: FrameworkManifestFile
+    try {
+      manifest = await safeReadJson<FrameworkManifestFile>(frameworkManifestPath)
+    } catch (caughtError) {
+      warnings.push(`Skipping ${benchmarkId}/${caseId}/${frameworkDirectory}: invalid manifest.json (${String(caughtError)})`)
+      continue
+    }
+
+    frameworks.push({
+      frameworkId: frameworkDirectory,
+      root: frameworkRoot,
+      runId: manifest.runId?.trim() || `${benchmarkId}-${frameworkDirectory}`,
+      runLabel: manifest.runLabel?.trim() || frameworkDirectory,
+      modelId: manifest.modelId?.trim() || frameworkDirectory,
+      manifest,
+    })
+  }
+
+  if (frameworks.length === 0) {
+    throw new Error(`No valid framework candidates found for ${benchmarkId}/${caseId}`)
+  }
+
+  return frameworks
+}
+
+const loadCaseSummary = async ({
   projectRoot,
-  mode,
+  benchmarkDirectory,
+  caseId,
+  warnings,
 }: {
   projectRoot: string
-  mode: AssetMode
-}): Promise<EvaluationSnapshotBundle> => {
+  benchmarkDirectory: string
+  caseId: string
+  warnings: string[]
+}): Promise<ScannedCase> => {
+  const meta = await readBenchmarkMeta(projectRoot, benchmarkDirectory)
+  const caseRoot = path.join(meta.casesRoot, caseId)
+  const caseConfigPath = path.join(caseRoot, 'case.json')
+
+  if (!(await isFile(caseConfigPath))) {
+    throw new Error(`Missing case.json for ${meta.benchmarkId}/${caseId}`)
+  }
+
+  let caseConfig: CaseFile
+  try {
+    caseConfig = await safeReadJson<CaseFile>(caseConfigPath)
+  } catch (caughtError) {
+    throw new Error(`Invalid case.json for ${meta.benchmarkId}/${caseId}: ${String(caughtError)}`)
+  }
+
+  const frameworks = await loadFrameworkSummaries({
+    frameworksRoot: path.join(caseRoot, 'frameworks'),
+    benchmarkId: meta.benchmarkId,
+    caseId,
+    frameworkOrder: meta.frameworkOrder,
+    warnings,
+  })
+
+  return {
+    caseId,
+    root: caseRoot,
+    benchmarkId: meta.benchmarkId,
+    benchmarkLabel: meta.benchmarkLabel,
+    config: caseConfig,
+    frameworks,
+  }
+}
+
+const scanEvaluationIndex = async (projectRoot: string): Promise<ScannedEvaluationIndex> => {
   const root = evaluationDataRootForProject(projectRoot)
   const benchmarksRoot = path.join(root, 'benchmarks')
   const missing: string[] = []
   const invalid: string[] = []
   const warnings: string[] = []
-  const artifactCopies: ArtifactCopy[] = []
 
   if (!(await isDirectory(root))) {
     missing.push(`Missing evaluation root: ${root}`)
@@ -288,12 +514,11 @@ export const buildEvaluationSnapshotBundle = async ({
 
   if (missing.length > 0) {
     return {
-      payload: {
-        mode: 'diagnostic',
-        snapshot: null,
-        diagnostics: summarizeDiagnostics(root, warnings, missing, invalid),
-      },
-      artifactCopies,
+      root,
+      benchmarks: [],
+      warnings,
+      missing,
+      invalid,
     }
   }
 
@@ -301,256 +526,370 @@ export const buildEvaluationSnapshotBundle = async ({
   if (benchmarkDirectories.length === 0) {
     missing.push(`No benchmark directories found under ${benchmarksRoot}`)
     return {
-      payload: {
-        mode: 'diagnostic',
-        snapshot: null,
-        diagnostics: summarizeDiagnostics(root, warnings, missing, invalid),
-      },
-      artifactCopies,
+      root,
+      benchmarks: [],
+      warnings,
+      missing,
+      invalid,
     }
   }
 
-  const benchmarks = []
-  const questions: SnapshotQuestion[] = []
-  const runsByKey = new Map<string, SnapshotRun>()
+  const benchmarks: ScannedBenchmark[] = []
 
   for (const benchmarkDirectory of benchmarkDirectories) {
-    const benchmarkRoot = path.join(benchmarksRoot, benchmarkDirectory)
-    const benchmarkConfigPath = path.join(benchmarkRoot, 'benchmark.json')
-    if (!(await isFile(benchmarkConfigPath))) {
-      invalid.push(`Missing benchmark.json for ${benchmarkDirectory}`)
-      continue
-    }
-
-    let benchmarkConfig: BenchmarkFile
+    let meta: ScannedBenchmarkMeta
     try {
-      benchmarkConfig = await safeReadJson<BenchmarkFile>(benchmarkConfigPath)
+      meta = await readBenchmarkMeta(projectRoot, benchmarkDirectory)
     } catch (caughtError) {
-      invalid.push(`Invalid benchmark.json for ${benchmarkDirectory}: ${String(caughtError)}`)
+      invalid.push(caughtError instanceof Error ? caughtError.message : String(caughtError))
       continue
     }
 
-    const benchmarkId = String(benchmarkConfig.id ?? benchmarkDirectory)
-    const benchmarkLabel = benchmarkConfig.label?.trim() || benchmarkId
-    const frameworkOrder = new Map((benchmarkConfig.frameworkOrder ?? []).map((item, index) => [item, index]))
-    const casesRoot = path.join(benchmarkRoot, 'cases')
-    if (!(await isDirectory(casesRoot))) {
-      invalid.push(`Missing cases directory for ${benchmarkId}`)
-      continue
-    }
-
-    const caseDirectories = await listDirectories(casesRoot)
+    const caseDirectories = await listDirectories(meta.casesRoot)
     if (caseDirectories.length === 0) {
-      invalid.push(`No cases found for ${benchmarkId}`)
+      invalid.push(`No cases found for ${meta.benchmarkId}`)
       continue
     }
 
-    const benchmarkQuestions: SnapshotQuestion[] = []
-
-    for (const caseDirectory of caseDirectories) {
-      const caseRoot = path.join(casesRoot, caseDirectory)
-      const caseConfigPath = path.join(caseRoot, 'case.json')
-      if (!(await isFile(caseConfigPath))) {
-        invalid.push(`Missing case.json for ${benchmarkId}/${caseDirectory}`)
-        continue
-      }
-
-      let caseConfig: CaseFile
+    const cases: ScannedCase[] = []
+    for (const caseId of caseDirectories) {
       try {
-        caseConfig = await safeReadJson<CaseFile>(caseConfigPath)
-      } catch (caughtError) {
-        invalid.push(`Invalid case.json for ${benchmarkId}/${caseDirectory}: ${String(caughtError)}`)
-        continue
-      }
-
-      const frameworksRoot = path.join(caseRoot, 'frameworks')
-      if (!(await isDirectory(frameworksRoot))) {
-        invalid.push(`Missing frameworks directory for ${benchmarkId}/${caseDirectory}`)
-        continue
-      }
-
-      const frameworkDirectories = await listDirectories(frameworksRoot)
-      if (frameworkDirectories.length === 0) {
-        invalid.push(`No frameworks found for ${benchmarkId}/${caseDirectory}`)
-        continue
-      }
-
-      const orderedFrameworkDirectories = [...frameworkDirectories].sort((left, right) => {
-        const leftOrder = frameworkOrder.get(left) ?? Number.MAX_SAFE_INTEGER
-        const rightOrder = frameworkOrder.get(right) ?? Number.MAX_SAFE_INTEGER
-        if (leftOrder !== rightOrder) return leftOrder - rightOrder
-        return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
-      })
-
-      const referenceAnswerPath = path.join(caseRoot, 'reference', 'answer.md')
-      const referenceAnswer = await readTextOrNull(referenceAnswerPath)
-      const referenceArtifacts = await loadArtifacts({
-        mode,
-        sourceRoot: path.join(caseRoot, 'reference', 'files'),
-        routeBaseSegments: [benchmarkId, caseDirectory, 'reference'],
-        originalPathPrefix: 'reference/files',
-      })
-      artifactCopies.push(...referenceArtifacts.map(({ sourcePath, artifact }) => ({ sourcePath, relativePath: artifact.relativePath })))
-
-      const candidates: SnapshotCandidate[] = []
-      for (const frameworkDirectory of orderedFrameworkDirectories) {
-        const frameworkRoot = path.join(frameworksRoot, frameworkDirectory)
-        const frameworkManifestPath = path.join(frameworkRoot, 'manifest.json')
-        if (!(await isFile(frameworkManifestPath))) {
-          warnings.push(`Skipping ${benchmarkId}/${caseDirectory}/${frameworkDirectory}: missing manifest.json`)
-          continue
-        }
-
-        let manifest: FrameworkManifestFile
-        try {
-          manifest = await safeReadJson<FrameworkManifestFile>(frameworkManifestPath)
-        } catch (caughtError) {
-          warnings.push(`Skipping ${benchmarkId}/${caseDirectory}/${frameworkDirectory}: invalid manifest.json (${String(caughtError)})`)
-          continue
-        }
-
-        const runLabel = manifest.runLabel?.trim() || frameworkDirectory
-        const runId = manifest.runId?.trim() || `${benchmarkId}-${frameworkDirectory}`
-        const modelId = manifest.modelId?.trim() || frameworkDirectory
-        const answerText =
-          (await readTextOrNull(path.join(frameworkRoot, 'answer.md'))) ??
-          manifest.summary?.trim() ??
-          'No final answer was recorded.'
-        const frameworkArtifacts = await loadArtifacts({
-          mode,
-          sourceRoot: path.join(frameworkRoot, 'files'),
-          routeBaseSegments: [benchmarkId, caseDirectory, frameworkDirectory],
-          originalPathPrefix: `frameworks/${frameworkDirectory}/files`,
-        })
-        artifactCopies.push(
-          ...frameworkArtifacts.map(({ sourcePath, artifact }) => ({ sourcePath, relativePath: artifact.relativePath })),
+        cases.push(
+          await loadCaseSummary({
+            projectRoot,
+            benchmarkDirectory,
+            caseId,
+            warnings,
+          }),
         )
+      } catch (caughtError) {
+        invalid.push(caughtError instanceof Error ? caughtError.message : String(caughtError))
+      }
+    }
 
-        const candidateArtifacts = frameworkArtifacts.map((item) => item.artifact)
-        const candidate: SnapshotCandidate = {
-          id: `${runId}:${String(caseConfig.qid ?? caseDirectory)}`,
-          runId,
-          runLabel,
-          modelId,
-          backend: manifest.backend ?? null,
-          answerText,
-          summary: manifest.summary ?? null,
-          score: manifest.score ?? null,
-          success: manifest.success ?? true,
-          reportPath: findReportPath(candidateArtifacts),
-          artifacts: candidateArtifacts,
-        }
-        candidates.push(candidate)
+    if (cases.length === 0) {
+      invalid.push(`No valid cases found for ${meta.benchmarkId}`)
+      continue
+    }
 
-        const existingRun = runsByKey.get(`${benchmarkId}:${runId}`)
-        if (!existingRun) {
-          runsByKey.set(`${benchmarkId}:${runId}`, {
-            id: runId,
-            label: runLabel,
-            modelId,
-            datasetId: benchmarkId,
+    cases.sort((left, right) =>
+      buildQuestionSummary({
+        caseId: left.caseId,
+        benchmarkId: left.benchmarkId,
+        benchmarkLabel: left.benchmarkLabel,
+        config: left.config,
+        candidateCount: left.frameworks.length,
+      }).qid.localeCompare(
+        buildQuestionSummary({
+          caseId: right.caseId,
+          benchmarkId: right.benchmarkId,
+          benchmarkLabel: right.benchmarkLabel,
+          config: right.config,
+          candidateCount: right.frameworks.length,
+        }).qid,
+        undefined,
+        {
+          numeric: true,
+          sensitivity: 'base',
+        },
+      ),
+    )
+
+    benchmarks.push({
+      id: meta.benchmarkId,
+      label: meta.benchmarkLabel,
+      description: meta.benchmarkDescription,
+      cases,
+    })
+  }
+
+  return {
+    root,
+    benchmarks,
+    warnings,
+    missing,
+    invalid,
+  }
+}
+
+const buildReference = async ({
+  mode,
+  caseRecord,
+  artifactCopies,
+}: {
+  mode: AssetMode
+  caseRecord: ScannedCase
+  artifactCopies: ArtifactCopy[]
+}): Promise<SnapshotReference> => {
+  const referenceAnswerPath = path.join(caseRecord.root, 'reference', 'answer.md')
+  const referenceAnswer = await readTextOrNull(referenceAnswerPath)
+  const referenceArtifacts = await loadArtifacts({
+    mode,
+    sourceRoot: path.join(caseRecord.root, 'reference', 'files'),
+    routeBaseSegments: [caseRecord.benchmarkId, caseRecord.caseId, 'reference'],
+    originalPathPrefix: 'reference/files',
+  })
+
+  artifactCopies.push(...referenceArtifacts.map(({ sourcePath, artifact }) => ({ sourcePath, relativePath: artifact.relativePath })))
+
+  const artifacts = referenceArtifacts.map((item) => item.artifact)
+  return {
+    mode: artifacts.length > 0 ? 'artifacts' : referenceAnswer ? 'text' : 'none',
+    text: referenceAnswer,
+    note: null,
+    artifacts,
+    requiredOutputs: caseRecord.config.expectedOutputs ?? [],
+  }
+}
+
+const buildCandidate = async ({
+  mode,
+  caseRecord,
+  framework,
+  artifactCopies,
+}: {
+  mode: AssetMode
+  caseRecord: ScannedCase
+  framework: ScannedFramework
+  artifactCopies: ArtifactCopy[]
+}): Promise<SnapshotCandidate> => {
+  const answerText =
+    (await readTextOrNull(path.join(framework.root, 'answer.md'))) ??
+    framework.manifest.summary?.trim() ??
+    'No final answer was recorded.'
+
+  const frameworkArtifacts = await loadArtifacts({
+    mode,
+    sourceRoot: path.join(framework.root, 'files'),
+    routeBaseSegments: [caseRecord.benchmarkId, caseRecord.caseId, framework.frameworkId],
+    originalPathPrefix: `frameworks/${framework.frameworkId}/files`,
+  })
+
+  artifactCopies.push(...frameworkArtifacts.map(({ sourcePath, artifact }) => ({ sourcePath, relativePath: artifact.relativePath })))
+
+  const candidateArtifacts = frameworkArtifacts.map((item) => item.artifact)
+  return {
+    id: `${framework.runId}:${String(caseRecord.config.qid ?? caseRecord.caseId)}`,
+    runId: framework.runId,
+    runLabel: framework.runLabel,
+    modelId: framework.modelId,
+    backend: framework.manifest.backend ?? null,
+    answerText,
+    summary: framework.manifest.summary ?? null,
+    score: framework.manifest.score ?? null,
+    success: framework.manifest.success ?? true,
+    reportPath: findReportPath(candidateArtifacts),
+    artifacts: candidateArtifacts,
+  }
+}
+
+const buildQuestionFromCase = async ({
+  mode,
+  caseRecord,
+  artifactCopies,
+}: {
+  mode: AssetMode
+  caseRecord: ScannedCase
+  artifactCopies: ArtifactCopy[]
+}): Promise<SnapshotQuestion> => {
+  const reference = await buildReference({
+    mode,
+    caseRecord,
+    artifactCopies,
+  })
+
+  const candidates: SnapshotCandidate[] = []
+  for (const framework of caseRecord.frameworks) {
+    candidates.push(
+      await buildCandidate({
+        mode,
+        caseRecord,
+        framework,
+        artifactCopies,
+      }),
+    )
+  }
+
+  const qid = String(caseRecord.config.qid ?? caseRecord.caseId)
+  return {
+    id: caseRecord.config.id?.trim() || defaultQuestionId(caseRecord.benchmarkId, qid),
+    datasetId: caseRecord.benchmarkId,
+    datasetLabel: caseRecord.benchmarkLabel,
+    qid,
+    task: caseRecord.config.task?.trim() || 'Task description missing.',
+    taskBrief: caseRecord.config.taskBrief ?? null,
+    taskType: caseRecord.config.taskType ?? null,
+    paperTitle: caseRecord.config.paperTitle ?? null,
+    options: caseRecord.config.options ?? null,
+    reportRequirements: caseRecord.config.reportRequirements ?? [],
+    expectedOutputs: caseRecord.config.expectedOutputs ?? [],
+    reference,
+    candidates,
+  }
+}
+
+const buildRunsAndQuestionsFromIndex = (index: ScannedEvaluationIndex) => {
+  const runsByKey = new Map<string, SnapshotRun>()
+  const questions: EvaluationQuestionSummary[] = []
+
+  for (const benchmark of index.benchmarks) {
+    for (const caseRecord of benchmark.cases) {
+      for (const framework of caseRecord.frameworks) {
+        const runKey = `${benchmark.id}:${framework.runId}`
+        if (!runsByKey.has(runKey)) {
+          runsByKey.set(runKey, {
+            id: framework.runId,
+            label: framework.runLabel,
+            modelId: framework.modelId,
+            datasetId: benchmark.id,
           })
         }
       }
 
-      if (candidates.length === 0) {
-        invalid.push(`No valid framework candidates found for ${benchmarkId}/${caseDirectory}`)
-        continue
-      }
-
-      const referenceArtifactsForQuestion = referenceArtifacts.map((item) => item.artifact)
-      const reference: SnapshotReference = {
-        mode:
-          referenceArtifactsForQuestion.length > 0
-            ? 'artifacts'
-            : referenceAnswer
-              ? 'text'
-              : 'none',
-        text: referenceAnswer,
-        note: null,
-        artifacts: referenceArtifactsForQuestion,
-        requiredOutputs: caseConfig.expectedOutputs ?? [],
-      }
-
-      benchmarkQuestions.push({
-        id: caseConfig.id?.trim() || `${benchmarkId}:${String(caseConfig.qid ?? caseDirectory)}`,
-        datasetId: benchmarkId,
-        datasetLabel: benchmarkLabel,
-        qid: String(caseConfig.qid ?? caseDirectory),
-        task: caseConfig.task?.trim() || 'Task description missing.',
-        taskBrief: caseConfig.taskBrief ?? null,
-        taskType: caseConfig.taskType ?? null,
-        paperTitle: caseConfig.paperTitle ?? null,
-        options: caseConfig.options ?? null,
-        reportRequirements: caseConfig.reportRequirements ?? [],
-        expectedOutputs: caseConfig.expectedOutputs ?? [],
-        reference,
-        candidates,
-      })
+      questions.push(
+        buildQuestionSummary({
+          caseId: caseRecord.caseId,
+          benchmarkId: caseRecord.benchmarkId,
+          benchmarkLabel: caseRecord.benchmarkLabel,
+          config: caseRecord.config,
+          candidateCount: caseRecord.frameworks.length,
+        }),
+      )
     }
-
-    if (benchmarkQuestions.length === 0) {
-      invalid.push(`No valid cases found for ${benchmarkId}`)
-      continue
-    }
-
-    benchmarkQuestions.sort((left, right) =>
-      left.qid.localeCompare(right.qid, undefined, {
-        numeric: true,
-        sensitivity: 'base',
-      }),
-    )
-    questions.push(...benchmarkQuestions)
-    benchmarks.push({
-      id: benchmarkId,
-      label: benchmarkLabel,
-      description: benchmarkConfig.description?.trim() || `${benchmarkLabel} evaluation benchmark`,
-      taskCount: benchmarkQuestions.length,
-    })
   }
 
-  if (questions.length === 0) {
-    missing.push(`No valid evaluation cases were found under ${benchmarksRoot}`)
+  return {
+    runs: [...runsByKey.values()],
+    questions,
+  }
+}
+
+export const buildEvaluationManifestPayload = async ({
+  projectRoot,
+}: {
+  projectRoot: string
+}): Promise<DevEvaluationManifestPayload> => {
+  const index = await scanEvaluationIndex(projectRoot)
+
+  if (index.benchmarks.length === 0) {
     return {
-      payload: {
-        mode: 'diagnostic',
-        snapshot: null,
-        diagnostics: summarizeDiagnostics(root, warnings, missing, invalid),
-      },
-      artifactCopies,
+      mode: 'diagnostic',
+      manifest: null,
+      diagnostics: summarizeDiagnostics(index.root, index.warnings, index.missing, index.invalid),
     }
   }
 
-  const liveDiagnostics: LiveEvaluationDiagnostics = {
-    root,
-    warnings,
-  }
-  const snapshot: EvaluationSnapshot = {
+  const { runs, questions } = buildRunsAndQuestionsFromIndex(index)
+  const manifest: DevEvaluationManifest = {
     snapshotVersion: DEFAULT_SNAPSHOT_VERSION,
     generatedAt: new Date().toISOString(),
     site: {
       title: 'HealthFlow Platform',
       reviewerExportKeyPrefix: 'healthflow:evaluation',
     },
-    benchmarks,
-    runs: [...runsByKey.values()].sort((left, right) => {
-      if (left.datasetId !== right.datasetId) {
-        return left.datasetId.localeCompare(right.datasetId, undefined, { numeric: true, sensitivity: 'base' })
-      }
-      return left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' })
-    }),
+    benchmarks: index.benchmarks.map((benchmark) => ({
+      id: benchmark.id,
+      label: benchmark.label,
+      description: benchmark.description,
+      taskCount: benchmark.cases.length,
+    })),
+    runs,
     questions,
   }
 
-  if (missing.length > 0 || invalid.length > 0) {
-    warnings.push(...missing, ...invalid)
+  if (index.missing.length > 0 || index.invalid.length > 0) {
+    index.warnings.push(...index.missing, ...index.invalid)
+  }
+
+  return {
+    mode: 'live',
+    manifest,
+    diagnostics: buildLiveDiagnostics(index.root, index.warnings),
+  }
+}
+
+export const buildEvaluationCasePayload = async ({
+  projectRoot,
+  benchmarkId,
+  caseId,
+  mode = 'dev',
+}: {
+  projectRoot: string
+  benchmarkId: string
+  caseId: string
+  mode?: AssetMode
+}): Promise<DevEvaluationCasePayload> => {
+  const warnings: string[] = []
+  const caseRecord = await loadCaseSummary({
+    projectRoot,
+    benchmarkDirectory: benchmarkId,
+    caseId,
+    warnings,
+  })
+
+  const artifactCopies: ArtifactCopy[] = []
+  const question = await buildQuestionFromCase({
+    mode,
+    caseRecord,
+    artifactCopies,
+  })
+
+  return { question }
+}
+
+export const buildEvaluationSnapshotBundle = async ({
+  projectRoot,
+  mode,
+}: {
+  projectRoot: string
+  mode: AssetMode
+}): Promise<EvaluationSnapshotBundle> => {
+  const manifestPayload = await buildEvaluationManifestPayload({ projectRoot })
+
+  if (manifestPayload.mode !== 'live') {
+    return {
+      payload: {
+        mode: 'diagnostic',
+        snapshot: null,
+        diagnostics: manifestPayload.diagnostics,
+      },
+      artifactCopies: [],
+    }
+  }
+
+  const artifactCopies: ArtifactCopy[] = []
+  const questions: SnapshotQuestion[] = []
+
+  for (const summary of manifestPayload.manifest.questions) {
+    const caseRecord = await loadCaseSummary({
+      projectRoot,
+      benchmarkDirectory: summary.datasetId,
+      caseId: summary.caseId,
+      warnings: [],
+    })
+    questions.push(
+      await buildQuestionFromCase({
+        mode,
+        caseRecord,
+        artifactCopies,
+      }),
+    )
+  }
+
+  const snapshot: EvaluationSnapshot = {
+    snapshotVersion: manifestPayload.manifest.snapshotVersion,
+    generatedAt: new Date().toISOString(),
+    site: manifestPayload.manifest.site,
+    benchmarks: manifestPayload.manifest.benchmarks,
+    runs: manifestPayload.manifest.runs,
+    questions,
   }
 
   return {
     payload: {
       mode: 'live',
       snapshot,
-      diagnostics: liveDiagnostics,
+      diagnostics: manifestPayload.diagnostics,
     },
     artifactCopies,
   }

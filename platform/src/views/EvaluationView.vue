@@ -9,26 +9,33 @@ import {
   blindOrderCandidates,
   createReviewerState,
   DEFAULT_REVIEWER_ID,
-  evaluationStorageKey,
-  resolveReviewerId,
   type BenchmarkId,
+  type DevEvaluationManifest,
+  type DiagnosticEvaluationDiagnostics,
+  type EvaluationQuestionSummary,
   type EvaluationSnapshot,
   type ReviewerResponse,
   type ReviewerState,
   type SnapshotCandidate,
+  type SnapshotQuestion,
+  evaluationStorageKey,
+  resolveReviewerId,
 } from '../domain/evaluation'
 import { downloadJson } from '../lib/download'
 import { renderMarkdown } from '../lib/markdown'
 import {
   embeddedEvaluationSnapshot,
-  evaluationSnapshotUrl,
-  isEmbeddedSnapshotPreferred,
   loadEvaluationSnapshot,
-  loadLiveEvaluationSnapshot,
+  loadLocalEvaluationCase,
+  loadLocalEvaluationManifest,
+  localEvaluationManifestUrl,
 } from '../lib/snapshot'
 import { readJson, writeJson } from '../lib/storage'
 
 const LAST_REVIEWER_KEY = 'healthflow:evaluation:last-reviewer'
+type EvaluationSourceMode = 'booting' | 'live' | 'demo' | 'diagnostic' | 'error'
+type CaseLoadState = 'idle' | 'loading' | 'ready' | 'error'
+const isDevMode = import.meta.env.DEV
 
 type CompareTab =
   | {
@@ -44,11 +51,17 @@ type CompareTab =
     }
 
 const snapshot = ref<EvaluationSnapshot | null>(null)
-const loading = ref(true)
+const localManifest = ref<DevEvaluationManifest | null>(null)
+const currentQuestionDetail = ref<SnapshotQuestion | null>(null)
+const caseLoadState = ref<CaseLoadState>('idle')
+const caseLoadError = ref<string | null>(null)
+const sourceMode = ref<EvaluationSourceMode>('booting')
 const loadError = ref<string | null>(null)
-const loadAttemptCount = ref(0)
-const snapshotUrl = evaluationSnapshotUrl()
+const diagnostics = ref<DiagnosticEvaluationDiagnostics | null>(null)
+const sourceWarnings = ref<string[]>([])
+const localManifestUrl = localEvaluationManifestUrl()
 let loadRequestId = 0
+let caseRequestId = 0
 
 const reviewerDraft = ref(resolveReviewerId(readJson<string>(LAST_REVIEWER_KEY, DEFAULT_REVIEWER_ID)))
 const reviewerState = ref<ReviewerState | null>(null)
@@ -56,7 +69,45 @@ const draftChoice = ref<string | null>(null)
 const draftNote = ref('')
 const activeCompareKeyByDataset = ref<Partial<Record<BenchmarkId, string>>>({})
 
-const benchmarks = computed(() => snapshot.value?.benchmarks ?? [])
+const allBenchmarks = computed(() => {
+  if (sourceMode.value === 'live' && isDevMode) return localManifest.value?.benchmarks ?? []
+  return snapshot.value?.benchmarks ?? []
+})
+
+const allRuns = computed(() => {
+  if (sourceMode.value === 'live' && isDevMode) return localManifest.value?.runs ?? []
+  return snapshot.value?.runs ?? []
+})
+
+const allQuestionSummaries = computed<EvaluationQuestionSummary[]>(() => {
+  if (sourceMode.value === 'live' && isDevMode) return localManifest.value?.questions ?? []
+
+  return (snapshot.value?.questions ?? []).map((question) => ({
+    caseId: question.id,
+    id: question.id,
+    datasetId: question.datasetId,
+    datasetLabel: question.datasetLabel,
+    qid: question.qid,
+    taskBrief: question.taskBrief ?? null,
+    taskType: question.taskType ?? null,
+    paperTitle: question.paperTitle ?? null,
+    candidateCount: question.candidates.length,
+  }))
+})
+
+const benchmarks = computed(() => allBenchmarks.value)
+const isWorkspaceReady = computed(() => {
+  if (sourceMode.value === 'demo') return Boolean(snapshot.value)
+  if (sourceMode.value === 'live' && isDevMode) return Boolean(localManifest.value)
+  if (sourceMode.value === 'live') return Boolean(snapshot.value)
+  return false
+})
+const sourceBadgeLabel = computed(() => (sourceMode.value === 'demo' ? 'Demo Evaluation' : 'Local Evaluation'))
+const sourceDescription = computed(() =>
+  sourceMode.value === 'demo'
+    ? 'Showing the embedded demo workspace while local case data are unavailable.'
+    : 'Reading a lightweight evaluation manifest first, then loading each case on demand from platform/evaluation-data.',
+)
 
 const activeBenchmarkId = computed<BenchmarkId | null>(() => {
   if (reviewerState.value?.activeBenchmarkId) return reviewerState.value.activeBenchmarkId
@@ -64,13 +115,13 @@ const activeBenchmarkId = computed<BenchmarkId | null>(() => {
 })
 
 const benchmarkQuestions = computed(() => {
-  if (!snapshot.value || !activeBenchmarkId.value) return []
-  return snapshot.value.questions.filter((question) => question.datasetId === activeBenchmarkId.value)
+  if (!activeBenchmarkId.value) return []
+  return allQuestionSummaries.value.filter((question) => question.datasetId === activeBenchmarkId.value)
 })
 
 const benchmarkRuns = computed(() => {
-  if (!snapshot.value || !activeBenchmarkId.value) return []
-  return snapshot.value.runs.filter((run) => run.datasetId === activeBenchmarkId.value)
+  if (!activeBenchmarkId.value) return []
+  return allRuns.value.filter((run) => run.datasetId === activeBenchmarkId.value)
 })
 
 const answeredIds = computed(() => {
@@ -85,7 +136,18 @@ const currentQuestionIndex = computed(() => {
   return reviewerState.value.currentIndexByDataset[activeBenchmarkId.value] ?? 0
 })
 
-const currentQuestion = computed(() => benchmarkQuestions.value[currentQuestionIndex.value] ?? null)
+const currentQuestionSummary = computed(() => benchmarkQuestions.value[currentQuestionIndex.value] ?? null)
+const currentQuestion = computed(() =>
+  sourceMode.value === 'live' && isDevMode
+    ? currentQuestionDetail.value
+    : (snapshot.value?.questions.find((question) => question.id === currentQuestionSummary.value?.id) ?? null),
+)
+
+const currentQuestionLabel = computed(() => currentQuestion.value?.datasetLabel ?? currentQuestionSummary.value?.datasetLabel ?? '')
+const currentQuestionQid = computed(() => currentQuestion.value?.qid ?? currentQuestionSummary.value?.qid ?? '')
+const currentTaskType = computed(() => currentQuestion.value?.taskType ?? currentQuestionSummary.value?.taskType ?? null)
+const currentTaskBrief = computed(() => currentQuestion.value?.taskBrief ?? currentQuestionSummary.value?.taskBrief ?? null)
+const currentPaperTitle = computed(() => currentQuestion.value?.paperTitle ?? currentQuestionSummary.value?.paperTitle ?? null)
 
 const progressPercent = computed(() =>
   benchmarkQuestions.value.length ? (answeredIds.value.size / benchmarkQuestions.value.length) * 100 : 0,
@@ -121,7 +183,7 @@ const frameworkCandidates = computed(() => {
 
 const activeRunId = computed(() => {
   if (!reviewerState.value || !activeBenchmarkId.value) return null
-  return reviewerState.value.activeRunIdByDataset[activeBenchmarkId.value] ?? frameworkCandidates.value[0]?.candidate.runId ?? null
+  return reviewerState.value.activeRunIdByDataset[activeBenchmarkId.value] ?? benchmarkRuns.value[0]?.id ?? null
 })
 
 const compareTabs = computed<CompareTab[]>(() => {
@@ -166,7 +228,11 @@ const activeFrameworkCandidate = computed(() =>
 
 const currentSelectionLabel = computed(() => {
   if (draftChoice.value === 'none') return 'None / 都不好'
-  return frameworkCandidates.value.find((item) => item.candidate.runId === draftChoice.value)?.candidate.runLabel ?? 'Unselected'
+  return (
+    benchmarkRuns.value.find((run) => run.id === draftChoice.value)?.label ??
+    frameworkCandidates.value.find((item) => item.candidate.runId === draftChoice.value)?.candidate.runLabel ??
+    'Unselected'
+  )
 })
 
 const renderedTask = computed(() => renderMarkdown(currentQuestion.value?.task ?? ''))
@@ -190,9 +256,9 @@ const ensureCurrentIndex = () => {
 const ensureActiveRun = () => {
   if (!reviewerState.value || !activeBenchmarkId.value) return
   const storedRunId = reviewerState.value.activeRunIdByDataset[activeBenchmarkId.value]
-  if (storedRunId && frameworkCandidates.value.some((item) => item.candidate.runId === storedRunId)) return
+  if (storedRunId && benchmarkRuns.value.some((run) => run.id === storedRunId)) return
 
-  const firstRunId = frameworkCandidates.value[0]?.candidate.runId
+  const firstRunId = benchmarkRuns.value[0]?.id
   if (firstRunId) {
     reviewerState.value.activeRunIdByDataset[activeBenchmarkId.value] = firstRunId
   }
@@ -342,23 +408,60 @@ const goToRelativeQuestion = (delta: number) => {
 }
 
 const exportResponses = () => {
-  if (!reviewerState.value || !snapshot.value) return
-  const orderedResponses = snapshot.value.questions
+  const activeSnapshotVersion =
+    sourceMode.value === 'live' && isDevMode ? localManifest.value?.snapshotVersion : snapshot.value?.snapshotVersion
+  if (!reviewerState.value || !activeSnapshotVersion) return
+
+  const orderedResponses = allQuestionSummaries.value
     .map((question) => reviewerState.value?.responses[question.id])
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
 
   downloadJson(`${reviewerState.value.reviewerId}_evaluation.json`, {
     reviewer_id: reviewerState.value.reviewerId,
-    snapshot_version: snapshot.value.snapshotVersion,
+    snapshot_version: activeSnapshotVersion,
     exported_at: new Date().toISOString(),
     responses: orderedResponses,
   })
 }
 
+const loadCurrentQuestion = async () => {
+  if (!(sourceMode.value === 'live' && isDevMode) || !currentQuestionSummary.value) {
+    currentQuestionDetail.value = null
+    caseLoadState.value = 'idle'
+    caseLoadError.value = null
+    return
+  }
+
+  const requestId = ++caseRequestId
+  caseLoadState.value = 'loading'
+  caseLoadError.value = null
+  currentQuestionDetail.value = null
+  draftChoice.value = null
+  draftNote.value = ''
+
+  try {
+    const question = await loadLocalEvaluationCase(currentQuestionSummary.value.datasetId, currentQuestionSummary.value.caseId)
+    if (requestId !== caseRequestId) return
+    currentQuestionDetail.value = question
+    caseLoadState.value = 'ready'
+    ensureActiveRun()
+    hydrateDraft()
+    ensureActiveCompareTab()
+  } catch (caughtError) {
+    if (requestId !== caseRequestId) return
+    currentQuestionDetail.value = null
+    caseLoadState.value = 'error'
+    caseLoadError.value = caughtError instanceof Error ? caughtError.message : String(caughtError)
+  }
+}
+
+const reloadCurrentQuestion = async () => {
+  await loadCurrentQuestion()
+}
+
 watch([activeBenchmarkId, benchmarkQuestions], () => {
   ensureCurrentIndex()
   ensureActiveRun()
-  hydrateDraft()
   ensureActiveCompareTab()
 })
 
@@ -373,46 +476,94 @@ watch(frameworkCandidates, () => {
   ensureActiveCompareTab()
 })
 
-const reloadPage = () => {
-  window.location.reload()
-}
+watch(
+  () => currentQuestionSummary.value?.id,
+  async () => {
+    if (sourceMode.value === 'live' && isDevMode) {
+      await loadCurrentQuestion()
+    } else {
+      hydrateDraft()
+    }
+  },
+)
 
-const applySnapshot = (loadedSnapshot: EvaluationSnapshot | null) => {
+const applySnapshot = (loadedSnapshot: EvaluationSnapshot | null, nextMode: Extract<EvaluationSourceMode, 'live' | 'demo'>) => {
   snapshot.value = loadedSnapshot
+  localManifest.value = null
+  currentQuestionDetail.value = null
+  caseLoadState.value = nextMode === 'demo' ? 'ready' : 'idle'
+  caseLoadError.value = null
+  sourceMode.value = nextMode
   if (loadedSnapshot) {
     activateReviewer(reviewerDraft.value)
   }
 }
 
+const applyLocalManifest = (manifest: DevEvaluationManifest) => {
+  snapshot.value = null
+  localManifest.value = manifest
+  currentQuestionDetail.value = null
+  caseLoadState.value = 'idle'
+  caseLoadError.value = null
+  sourceMode.value = 'live'
+  activateReviewer(reviewerDraft.value)
+}
+
+const useEmbeddedDemo = () => {
+  diagnostics.value = null
+  sourceWarnings.value = []
+  loadError.value = null
+  applySnapshot(embeddedEvaluationSnapshot, 'demo')
+}
+
 const loadSnapshot = async () => {
   const requestId = ++loadRequestId
-  loading.value = true
+  sourceMode.value = 'booting'
   loadError.value = null
-  loadAttemptCount.value += 1
-  const shouldBootstrapEmbedded = isEmbeddedSnapshotPreferred()
-
-  if (shouldBootstrapEmbedded) {
-    applySnapshot(embeddedEvaluationSnapshot)
-    loading.value = false
-  }
+  diagnostics.value = null
+  sourceWarnings.value = []
+  caseLoadState.value = 'idle'
+  caseLoadError.value = null
 
   try {
-    const loadedSnapshot = shouldBootstrapEmbedded ? await loadLiveEvaluationSnapshot() : await loadEvaluationSnapshot()
+    if (isDevMode) {
+      const payload = await loadLocalEvaluationManifest()
+      if (requestId !== loadRequestId) return
+
+      if (payload.mode === 'live') {
+        diagnostics.value = null
+        sourceWarnings.value = payload.diagnostics.warnings
+        applyLocalManifest(payload.manifest)
+        return
+      }
+
+      snapshot.value = null
+      localManifest.value = null
+      currentQuestionDetail.value = null
+      diagnostics.value = payload.diagnostics
+      sourceWarnings.value = payload.diagnostics.warnings
+      sourceMode.value = 'diagnostic'
+      return
+    }
+
+    const loadedSnapshot = await loadEvaluationSnapshot()
     if (requestId !== loadRequestId) return
 
     if (loadedSnapshot) {
-      applySnapshot(loadedSnapshot)
-    } else if (!snapshot.value) {
-      applySnapshot(null)
+      diagnostics.value = null
+      sourceWarnings.value = []
+      applySnapshot(loadedSnapshot, 'live')
+      return
     }
+
+    useEmbeddedDemo()
   } catch (caughtError) {
     if (requestId !== loadRequestId) return
-    if (!shouldBootstrapEmbedded) {
-      loadError.value = caughtError instanceof Error ? caughtError.message : String(caughtError)
-    }
-  } finally {
-    if (requestId !== loadRequestId) return
-    loading.value = false
+    snapshot.value = null
+    localManifest.value = null
+    currentQuestionDetail.value = null
+    loadError.value = caughtError instanceof Error ? caughtError.message : String(caughtError)
+    sourceMode.value = 'error'
   }
 }
 
@@ -423,63 +574,86 @@ onMounted(async () => {
 
 <template>
   <AppShell content-width="wide">
-    <div v-if="loading" class="pt-4 sm:pt-5">
+    <div v-if="sourceMode === 'booting'" class="pt-4 sm:pt-5">
       <AppCard class="!p-4">
         <div class="space-y-4 py-4 text-center">
-          <div class="text-lg font-semibold text-slate-950">Loading evaluation snapshot...</div>
+          <div class="text-lg font-semibold text-slate-950">Loading local evaluation workspace...</div>
           <p class="text-sm leading-7 text-slate-500">
-            Fetching
-            <code class="rounded bg-slate-100 px-2 py-1 text-[12px]">{{ snapshotUrl }}</code>
-          </p>
-          <p class="text-xs leading-6 text-slate-500">
-            Attempt {{ loadAttemptCount }}. If this does not resolve within a few seconds, retry the load or refresh the page.
+            Resolving benchmark cases from
+            <code class="rounded bg-slate-100 px-2 py-1 text-[12px]">{{ localManifestUrl }}</code>
           </p>
         </div>
       </AppCard>
     </div>
 
-    <div v-else-if="loadError" class="pt-4 sm:pt-5">
+    <div v-else-if="sourceMode === 'error'" class="pt-4 sm:pt-5">
       <AppCard class="!p-4">
         <div class="space-y-4">
-          <div class="text-lg font-semibold text-rose-700">Snapshot load failed</div>
+          <div class="text-lg font-semibold text-rose-700">Local evaluation runtime failed</div>
           <p class="text-sm leading-7 text-rose-700">{{ loadError }}</p>
-          <p class="text-xs leading-6 text-slate-500">
-            Attempted URL:
-            <code class="rounded bg-slate-100 px-2 py-1 text-[12px] text-slate-700">{{ snapshotUrl }}</code>
-          </p>
           <div class="flex flex-wrap gap-2">
-            <AppButton @click="loadSnapshot">Retry Snapshot</AppButton>
-            <a :href="snapshotUrl" target="_blank" rel="noreferrer">
-              <AppButton variant="secondary">Open Raw JSON</AppButton>
-            </a>
-            <AppButton variant="ghost" @click="reloadPage">Reload Page</AppButton>
+            <AppButton @click="loadSnapshot">Reload Local Data</AppButton>
+            <AppButton variant="secondary" @click="useEmbeddedDemo">Use Demo</AppButton>
           </div>
         </div>
       </AppCard>
     </div>
 
-    <div v-else-if="!snapshot" class="space-y-4 pt-4 sm:pt-5">
+    <div v-else-if="sourceMode === 'diagnostic'" class="space-y-4 pt-4 sm:pt-5">
       <AppCard class="!p-4">
         <div class="space-y-4">
-          <div class="text-lg font-semibold text-slate-950">No snapshot found yet</div>
+          <div class="text-lg font-semibold text-slate-950">Local evaluation data not ready</div>
           <p class="text-base leading-8 text-slate-600">
-            Build one from local benchmark outputs after configuring
-            <code class="rounded bg-slate-100 px-2 py-1 text-sm">platform/content/evaluation.config.json</code>.
+            The dev server is looking for case directories under
+            <code class="rounded bg-slate-100 px-2 py-1 text-sm">{{ diagnostics?.root }}</code>.
+            Fix the listed issues or switch to the embedded demo workspace.
           </p>
-          <pre class="overflow-x-auto rounded-[1.5rem] bg-slate-950 px-4 py-5 text-sm leading-7 text-slate-100"><code>cd platform
-npm run snapshot
-npm run dev</code></pre>
+          <div class="grid gap-3 lg:grid-cols-3">
+            <div class="rounded-[1.4rem] border border-slate-200 bg-slate-50/90 p-4">
+              <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Missing</div>
+              <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                <li v-if="!diagnostics?.missing.length" class="text-slate-500">No missing paths reported.</li>
+                <li v-for="item in diagnostics?.missing ?? []" :key="`missing-${item}`">{{ item }}</li>
+              </ul>
+            </div>
+            <div class="rounded-[1.4rem] border border-slate-200 bg-slate-50/90 p-4">
+              <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Invalid</div>
+              <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                <li v-if="!diagnostics?.invalid.length" class="text-slate-500">No invalid manifests reported.</li>
+                <li v-for="item in diagnostics?.invalid ?? []" :key="`invalid-${item}`">{{ item }}</li>
+              </ul>
+            </div>
+            <div class="rounded-[1.4rem] border border-slate-200 bg-slate-50/90 p-4">
+              <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Warnings</div>
+              <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                <li v-if="!diagnostics?.warnings.length" class="text-slate-500">No warnings reported.</li>
+                <li v-for="item in diagnostics?.warnings ?? []" :key="`warning-${item}`">{{ item }}</li>
+              </ul>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <AppButton @click="loadSnapshot">Reload Local Data</AppButton>
+            <AppButton variant="secondary" @click="useEmbeddedDemo">Use Demo</AppButton>
+          </div>
         </div>
       </AppCard>
     </div>
 
-    <div v-else class="space-y-3 pt-3 sm:pt-4">
+    <div v-else-if="isWorkspaceReady" class="space-y-3 pt-3 sm:pt-4">
       <AppCard class="!p-3 border-slate-200/80 bg-white/88">
         <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div class="flex flex-wrap items-center gap-2">
-            <div class="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[10px] font-semibold tracking-[0.18em] text-sky-700 uppercase">
-              Human Evaluation
+            <div
+              class="rounded-full border px-3 py-1 text-[10px] font-semibold tracking-[0.18em] uppercase"
+              :class="
+                sourceMode === 'demo'
+                  ? 'border-amber-200 bg-amber-50 text-amber-700'
+                  : 'border-sky-200 bg-sky-50 text-sky-700'
+              "
+            >
+              {{ sourceBadgeLabel }}
             </div>
+            <div class="text-sm text-slate-500">{{ sourceDescription }}</div>
 
             <button
               v-for="benchmark in benchmarks"
@@ -506,12 +680,26 @@ npm run dev</code></pre>
               class="min-w-[168px] rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-950"
             />
             <AppButton variant="secondary" @click="activateReviewer()">Switch Reviewer</AppButton>
+            <AppButton v-if="isDevMode" variant="ghost" @click="loadSnapshot">Reload Local Data</AppButton>
+            <AppButton v-if="sourceMode !== 'demo'" variant="ghost" @click="useEmbeddedDemo">Use Demo</AppButton>
             <AppButton @click="exportResponses">Export JSON</AppButton>
           </div>
         </div>
       </AppCard>
 
-      <template v-if="reviewerState && currentQuestion">
+      <AppCard
+        v-if="sourceWarnings.length"
+        class="!p-3 border-amber-200/80 bg-amber-50/80"
+      >
+        <div class="space-y-2">
+          <div class="text-[11px] font-semibold tracking-[0.16em] text-amber-700 uppercase">Local data warnings</div>
+          <ul class="space-y-1.5 text-sm leading-6 text-amber-900">
+            <li v-for="item in sourceWarnings" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+      </AppCard>
+
+      <template v-if="reviewerState && currentQuestionSummary">
         <div class="grid gap-3 xl:grid-cols-[136px_minmax(0,1fr)_280px] 2xl:grid-cols-[144px_minmax(0,1fr)_292px]">
           <AppCard class="!p-3 border-slate-200/80 bg-white/88 xl:sticky xl:top-20 xl:self-start">
             <div class="space-y-3">
@@ -538,7 +726,7 @@ npm run dev</code></pre>
                     type="button"
                     class="rounded-xl px-0 py-2 text-sm font-semibold transition"
                     :class="
-                      question.id === currentQuestion.id
+                      question.id === currentQuestionSummary.id
                         ? 'bg-slate-950 text-white'
                         : answeredIds.has(question.id)
                           ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100'
@@ -557,14 +745,17 @@ npm run dev</code></pre>
             <div class="space-y-3">
               <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                 <span class="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-900">
-                  {{ currentQuestion.datasetLabel }} · Q{{ currentQuestion.qid }}
+                  {{ currentQuestionLabel }} · Q{{ currentQuestionQid }}
                 </span>
-                <span v-if="currentQuestion.taskType">{{ currentQuestion.taskType }}</span>
-                <span v-if="currentQuestion.taskBrief">{{ currentQuestion.taskBrief }}</span>
-                <span v-if="currentQuestion.paperTitle">{{ currentQuestion.paperTitle }}</span>
+                <span v-if="currentTaskType">{{ currentTaskType }}</span>
+                <span v-if="currentTaskBrief">{{ currentTaskBrief }}</span>
+                <span v-if="currentPaperTitle">{{ currentPaperTitle }}</span>
               </div>
 
-              <div class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_240px] 2xl:grid-cols-[minmax(0,1fr)_256px]">
+              <div
+                v-if="currentQuestion"
+                class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_240px] 2xl:grid-cols-[minmax(0,1fr)_256px]"
+              >
                 <div class="prose prose-slate max-w-none" v-html="renderedTask" />
 
                 <div class="space-y-2.5">
@@ -605,10 +796,27 @@ npm run dev</code></pre>
                 </div>
               </div>
 
+              <div
+                v-else-if="caseLoadState === 'loading'"
+                class="rounded-[1.35rem] border border-slate-200 bg-slate-50/80 px-5 py-8 text-sm leading-7 text-slate-600"
+              >
+                Loading Q{{ currentQuestionQid }} materials and framework outputs...
+              </div>
+
+              <div
+                v-else-if="caseLoadState === 'error'"
+                class="rounded-[1.35rem] border border-rose-200 bg-rose-50 px-5 py-6 text-sm leading-7 text-rose-700"
+              >
+                <div>{{ caseLoadError }}</div>
+                <div class="mt-4">
+                  <AppButton variant="secondary" @click="reloadCurrentQuestion">Reload This Case</AppButton>
+                </div>
+              </div>
+
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Compare</div>
                 <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-600">
-                  {{ frameworkCandidates.length }} frameworks + reference
+                  {{ benchmarkRuns.length }} frameworks + reference
                 </div>
               </div>
 
@@ -629,7 +837,7 @@ npm run dev</code></pre>
                 </button>
               </div>
 
-              <template v-if="activeCompareTab">
+              <template v-if="currentQuestion && activeCompareTab">
                 <div
                   v-if="activeCompareTab.kind === 'framework' && activeFrameworkCandidate"
                   class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3"
@@ -727,7 +935,7 @@ npm run dev</code></pre>
                 </div>
               </div>
 
-              <div class="space-y-2">
+              <div v-if="currentQuestion" class="space-y-2">
                 <button
                   v-for="item in frameworkCandidates"
                   :key="item.candidate.runId"
@@ -760,18 +968,33 @@ npm run dev</code></pre>
                 </button>
               </div>
 
+              <div
+                v-else-if="caseLoadState === 'loading'"
+                class="rounded-[1rem] border border-slate-200 bg-slate-50 px-4 py-5 text-sm leading-7 text-slate-500"
+              >
+                Waiting for this case to load before voting.
+              </div>
+
+              <div
+                v-else-if="caseLoadState === 'error'"
+                class="rounded-[1rem] border border-rose-200 bg-rose-50 px-4 py-5 text-sm leading-7 text-rose-700"
+              >
+                Unable to load the active case.
+              </div>
+
               <textarea
                 v-model="draftNote"
                 rows="5"
                 placeholder="Quick note"
+                :disabled="!currentQuestion"
                 class="w-full rounded-[1rem] border border-slate-200 bg-white px-3 py-3 text-sm leading-7 text-slate-900 outline-none transition focus:border-slate-950"
               />
 
               <div class="grid gap-2">
-                <AppButton :disabled="!draftChoice" @click="saveCurrentResponse">Save</AppButton>
+                <AppButton :disabled="!currentQuestion || !draftChoice" @click="saveCurrentResponse">Save</AppButton>
                 <AppButton
                   variant="secondary"
-                  :disabled="!draftChoice"
+                  :disabled="!currentQuestion || !draftChoice"
                   @click="saveCurrentResponse(); goToRelativeQuestion(1)"
                 >
                   Save + Next

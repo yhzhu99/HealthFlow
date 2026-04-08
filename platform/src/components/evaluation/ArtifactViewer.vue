@@ -4,7 +4,7 @@ import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import type { SnapshotArtifact } from '../../domain/evaluation'
 import { parseDelimitedText } from '../../lib/csv'
 import { renderMarkdown } from '../../lib/markdown'
-import { toPublicAssetUrl } from '../../lib/snapshot'
+import { toAssetUrl } from '../../lib/snapshot'
 
 const PdfPreview = defineAsyncComponent(() => import('./PdfPreview.vue'))
 
@@ -19,7 +19,7 @@ const error = ref<string | null>(null)
 const loading = ref(false)
 
 const selectedArtifact = computed(() => props.artifacts[selectedIndex.value] ?? null)
-const selectedUrl = computed(() => (selectedArtifact.value ? toPublicAssetUrl(selectedArtifact.value.relativePath) : ''))
+const selectedUrl = computed(() => (selectedArtifact.value ? toAssetUrl(selectedArtifact.value.relativePath) : ''))
 const parsedTable = computed(() => parseDelimitedText(content.value))
 const renderedMarkdown = computed(() => renderMarkdown(content.value))
 
@@ -42,7 +42,7 @@ watch(
 
     loading.value = true
     try {
-      const response = await fetch(toPublicAssetUrl(artifact.relativePath), { cache: 'force-cache' })
+      const response = await fetch(toAssetUrl(artifact.relativePath), { cache: 'force-cache' })
       if (!response.ok) {
         throw new Error(`Failed to load ${artifact.label}`)
       }

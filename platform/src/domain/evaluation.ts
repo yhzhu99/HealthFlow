@@ -63,6 +63,18 @@ export interface SnapshotBenchmark {
   taskCount: number
 }
 
+export interface EvaluationQuestionSummary {
+  caseId: string
+  id: string
+  datasetId: BenchmarkId
+  datasetLabel: string
+  qid: string
+  taskBrief?: string | null
+  taskType?: string | null
+  paperTitle?: string | null
+  candidateCount: number
+}
+
 export interface SnapshotRun {
   id: string
   label: string
@@ -82,6 +94,18 @@ export interface EvaluationSnapshot {
   questions: SnapshotQuestion[]
 }
 
+export interface DevEvaluationManifest {
+  snapshotVersion: string
+  generatedAt: string
+  site: {
+    title: string
+    reviewerExportKeyPrefix: string
+  }
+  benchmarks: SnapshotBenchmark[]
+  runs: SnapshotRun[]
+  questions: EvaluationQuestionSummary[]
+}
+
 export interface EvaluationDiagnostics {
   root: string
   warnings: string[]
@@ -94,17 +118,21 @@ export interface DiagnosticEvaluationDiagnostics extends EvaluationDiagnostics {
   invalid: string[]
 }
 
-export type DevEvaluationPayload =
+export type DevEvaluationManifestPayload =
   | {
       mode: 'live'
-      snapshot: EvaluationSnapshot
+      manifest: DevEvaluationManifest
       diagnostics: LiveEvaluationDiagnostics
     }
   | {
       mode: 'diagnostic'
-      snapshot: null
+      manifest: null
       diagnostics: DiagnosticEvaluationDiagnostics
     }
+
+export interface DevEvaluationCasePayload {
+  question: SnapshotQuestion
+}
 
 export interface BlindCandidateSlot {
   slot: string

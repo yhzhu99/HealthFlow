@@ -1,13 +1,20 @@
-import type { EvaluationSnapshot } from '../domain/evaluation'
-import embeddedEvaluationSnapshotJson from '../content/demo-evaluation.snapshot.json'
+import type {
+  DevEvaluationCasePayload,
+  DevEvaluationManifestPayload,
+  EvaluationSnapshot,
+  SnapshotQuestion,
+} from '../domain/evaluation'
+import { demoEvaluationSnapshot } from '../content/demo-evaluation'
 import { toBasePath } from './assets'
 
 const DEFAULT_TIMEOUT_MS = 8000
 const DEFAULT_RETRIES = 1
 const DEFAULT_RETRY_DELAY_MS = 350
 const DEFAULT_EMBEDDED_FALLBACK_DELAY_MS = 1500
+const DEFAULT_LOCAL_TIMEOUT_MS = 12000
+const LOCAL_CASE_ROUTE_PREFIX = '/__eval/cases'
 
-export const embeddedEvaluationSnapshot = embeddedEvaluationSnapshotJson as EvaluationSnapshot
+export const embeddedEvaluationSnapshot = demoEvaluationSnapshot as EvaluationSnapshot
 
 export interface LoadEvaluationSnapshotOptions {
   timeoutMs?: number
@@ -17,10 +24,18 @@ export interface LoadEvaluationSnapshotOptions {
   forceEmbeddedFallback?: boolean
 }
 
-export const evaluationSnapshotUrl = () => toBasePath('data/evaluation.snapshot.json')
+export interface LoadLocalEvaluationPayloadOptions {
+  timeoutMs?: number
+}
 
-export const toPublicAssetUrl = (relativePath: string) => {
+export const evaluationSnapshotUrl = () => toBasePath('data/evaluation.snapshot.json')
+export const localEvaluationManifestUrl = () => toBasePath('/__eval/manifest')
+export const localEvaluationCaseUrl = (benchmarkId: string, caseId: string) =>
+  toBasePath(`${LOCAL_CASE_ROUTE_PREFIX}/${encodeURIComponent(benchmarkId)}/${encodeURIComponent(caseId)}`)
+
+export const toAssetUrl = (relativePath: string) => {
   if (!relativePath) return relativePath
+  if (/^(?:[a-z]+:)?\/\//i.test(relativePath)) return relativePath
   return toBasePath(relativePath)
 }
 
@@ -122,4 +137,31 @@ export const loadEvaluationSnapshot = async (
   }
 
   return embeddedEvaluationSnapshot
+}
+
+export const loadLocalEvaluationManifest = async (
+  options: LoadLocalEvaluationPayloadOptions = {},
+): Promise<DevEvaluationManifestPayload> => {
+  const response = await fetchSnapshotResponse(localEvaluationManifestUrl(), options.timeoutMs ?? DEFAULT_LOCAL_TIMEOUT_MS)
+  if (!response.ok) {
+    throw new Error(`Failed to load local evaluation manifest: ${response.status} ${response.statusText}`)
+  }
+  return (await response.json()) as DevEvaluationManifestPayload
+}
+
+export const loadLocalEvaluationCase = async (
+  benchmarkId: string,
+  caseId: string,
+  options: LoadLocalEvaluationPayloadOptions = {},
+): Promise<SnapshotQuestion> => {
+  const response = await fetchSnapshotResponse(
+    localEvaluationCaseUrl(benchmarkId, caseId),
+    options.timeoutMs ?? DEFAULT_LOCAL_TIMEOUT_MS,
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to load local evaluation case: ${response.status} ${response.statusText}`)
+  }
+
+  return ((await response.json()) as DevEvaluationCasePayload).question
 }
