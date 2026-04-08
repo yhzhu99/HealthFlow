@@ -1427,16 +1427,17 @@ aside > div {
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
     margin-left: auto;
-    width: fit-content !important;
-    max-width: min(62%, 38rem) !important;
+    width: auto !important;
+    max-width: min(56%, 34rem) !important;
 }
 
 .hf-chatbot :is(.user .panel-full-width, .panel-full-width.user) {
     display: block !important;
-    width: fit-content !important;
-    max-width: min(62%, 38rem) !important;
+    width: auto !important;
+    max-width: min(56%, 34rem) !important;
     margin-left: auto !important;
-    padding: 0 !important;
+    padding: 0.72rem 0.82rem !important;
+    box-sizing: border-box !important;
 }
 
 .hf-chatbot .message-row:has(:is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user)),
@@ -1447,7 +1448,7 @@ aside > div {
 .hf-chatbot .bubble-wrap:has(:is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user)) {
     flex: 0 0 auto !important;
     width: auto !important;
-    max-width: min(62%, 38rem) !important;
+    max-width: min(56%, 34rem) !important;
     margin-left: auto !important;
 }
 
@@ -1473,6 +1474,8 @@ aside > div {
 .hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) :is(.prose, p, li, div, span, strong, em) {
     font-size: 1.18rem !important;
     line-height: 1.68 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
 }
 
 .hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) code,
@@ -1484,14 +1487,13 @@ aside > div {
     border: 1px solid rgba(15, 23, 42, 0.06);
     background: linear-gradient(180deg, rgba(232, 238, 244, 0.96) 0%, rgba(245, 249, 252, 0.98) 100%) !important;
     color: var(--hf-text) !important;
-    padding: 0.8rem 0.95rem !important;
+    padding: 0.72rem 0.82rem !important;
 }
 
 .hf-chatbot :is(.user .panel-full-width, .panel-full-width.user) {
     border: 1px solid rgba(15, 23, 42, 0.06) !important;
     background: linear-gradient(180deg, rgba(232, 238, 244, 0.96) 0%, rgba(245, 249, 252, 0.98) 100%) !important;
     color: var(--hf-text) !important;
-    padding: 0.8rem 0.95rem !important;
 }
 
 .hf-chatbot .message-row:has(:is(.user .panel-full-width, .panel-full-width.user)),
@@ -1502,6 +1504,14 @@ aside > div {
 
 .hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) :is(.prose, p, span, div, code, li, strong, em) {
     color: var(--hf-text) !important;
+}
+
+.hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) .hf-chat-attachments {
+    margin-top: 0.52rem;
+}
+
+.hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) .hf-chat-attachment {
+    max-width: 100%;
 }
 
 .hf-process-snapshot {
