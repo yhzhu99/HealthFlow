@@ -1,15 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1056 224" role="img" aria-labelledby="healthflowMonoLogoTitle healthflowMonoLogoDesc">
   <title id="healthflowMonoLogoTitle">HealthFlow monochrome logo</title>
-  <desc id="healthflowMonoLogoDesc">Monochrome HealthFlow wordmark paired with a compact flow mark on a transparent background.</desc>
-  <path
-    d="M30 142C34 120 50 104 70 104C86 104 98 114 106 122C114 130 123 130 134 116C147 99 163 91 178 95C188 98 196 104 202 108"
+  <desc id="healthflowMonoLogoDesc">Monochrome HealthFlow wordmark paired with a rounded badge icon that combines a medical cross with a circular flow path.</desc>
+  <rect x="20" y="20" width="184" height="184" rx="56" fill="#1F2933"/>
+  <circle
+    cx="112"
+    cy="112"
+    r="48"
     fill="none"
-    stroke="#1F2933"
+    stroke="#FFFFFF"
+    stroke-width="20"
     stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-width="24"
+    stroke-dasharray="108 40 108 45"
+    transform="rotate(-45 112 112)"
   />
-  <path d="M186 90L212 108L186 126Z" fill="#1F2933"/>
+  <rect x="101" y="77" width="22" height="70" rx="11" fill="#FFFFFF"/>
+  <rect x="77" y="101" width="70" height="22" rx="11" fill="#FFFFFF"/>
   <g fill="#1F2933" transform="translate(236 -14) scale(2.18)">
     <path transform="translate(0 82.65625)" d="M 46.375 0 L 46.375 -52.484375 L 39.671875 -52.484375 L 39.671875 -29.8125 L 12.671875 -29.8125 L 12.671875 -52.484375 L 5.96875 -52.484375 L 5.96875 0 L 12.671875 0 L 12.671875 -23.90625 L 39.671875 -23.90625 L 39.671875 0 Z M 46.375 0 "/>
     <path transform="translate(52 82.65625)" d="M 36.9375 -17.140625 C 36.9375 -22.609375 36.5 -26.0625 35.421875 -28.875 C 32.96875 -35.0625 27.21875 -38.8125 20.15625 -38.8125 C 9.640625 -38.8125 2.875 -31.03125 2.875 -18.640625 C 2.875 -6.265625 9.4375 1.078125 20.015625 1.078125 C 28.65625 1.078125 34.625 -3.8125 36.140625 -11.453125 L 30.09375 -11.453125 C 28.4375 -6.484375 25.0625 -4.46875 20.234375 -4.46875 C 13.96875 -4.46875 9.28125 -8.5 9.140625 -17.140625 Z M 30.53125 -22.46875 C 30.53125 -22.46875 30.53125 -22.171875 30.453125 -22.03125 L 9.28125 -22.03125 C 9.796875 -28.734375 14.046875 -33.265625 20.09375 -33.265625 C 25.984375 -33.265625 30.53125 -28.375 30.53125 -22.46875 Z M 30.53125 -22.46875 "/>
