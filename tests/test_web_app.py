@@ -15,7 +15,10 @@ from healthflow.web_app import (
     _build_task_choices,
     _build_task_header,
     _composer_attachment_preview_update,
+    _draft_browser_task_id,
+    _draft_task_title,
     _default_selected_file,
+    _history_list_html,
     _resolved_recent_task_id,
     _restore_main_history,
     _restore_trace_history,
@@ -23,8 +26,11 @@ from healthflow.web_app import (
     _stream_task_turn,
     _task_id_after_deletion,
     _task_title_text,
+    _turn_task_id_for_submission,
     _user_message_content,
     _visible_recent_tasks,
+    _workspace_tree_html,
+    _workspace_tree_rows,
 )
 
 
@@ -373,6 +379,81 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("notes.txt", update["value"])
         self.assertIn("labs.csv", update["value"])
         self.assertIn("hf-composer-attachment", update["value"])
+
+    def test_turn_task_id_for_submission_keeps_draft_submissions_new(self):
+        draft_browser_task_id = _draft_browser_task_id()
+
+        self.assertIsNone(_turn_task_id_for_submission(None, draft_browser_task_id))
+        self.assertIsNone(_turn_task_id_for_submission("task-existing", draft_browser_task_id))
+        self.assertEqual(_turn_task_id_for_submission("task-existing", "task-existing"), "task-existing")
+        self.assertEqual(_turn_task_id_for_submission(None, "task-existing"), "task-existing")
+
+    def test_draft_task_title_prefers_message_and_falls_back_to_uploads(self):
+        self.assertEqual(_draft_task_title("Review the uploaded cohort", ["cohort.csv"]), "Review the uploaded cohort")
+        self.assertEqual(_draft_task_title("", ["cohort.csv"]), "Review cohort.csv")
+        self.assertEqual(_draft_task_title("", ["cohort.csv", "labs.csv"]), "Review uploaded files")
+        self.assertEqual(_draft_task_title("", []), "")
+
+    def test_workspace_tree_rows_group_nested_files(self):
+        catalog = [
+            {
+                "origin": "uploaded",
+                "display_name": "cohort.csv",
+                "source_path": "/tmp/task/sandbox/cohort.csv",
+                "task_relative_path": "sandbox/cohort.csv",
+            },
+            {
+                "origin": "generated",
+                "display_name": "summary.json",
+                "source_path": "/tmp/task/sandbox/reports/summary.json",
+                "task_relative_path": "sandbox/reports/summary.json",
+            },
+        ]
+
+        rows = _workspace_tree_rows(catalog)
+
+        self.assertEqual(rows[0]["kind"], "file")
+        self.assertEqual(rows[0]["label"], "cohort.csv")
+        self.assertEqual(rows[1]["kind"], "folder")
+        self.assertEqual(rows[1]["label"], "reports")
+        self.assertEqual(rows[2]["kind"], "file")
+        self.assertEqual(rows[2]["label"], "summary.json")
+
+    def test_history_list_html_renders_inline_actions_and_active_state(self):
+        recent_tasks = [
+            TaskSessionSummary(task_id="task-a", title="Alpha", updated_at_utc="2026-04-08T05:00:00Z"),
+            TaskSessionSummary(task_id="task-b", title="Beta", updated_at_utc="2026-04-08T04:00:00Z"),
+        ]
+
+        html = _history_list_html(recent_tasks, "task-a")
+
+        self.assertIn('data-task-id="task-a"', html)
+        self.assertIn('data-history-action="rename"', html)
+        self.assertIn('data-history-action="delete"', html)
+        self.assertIn("hf-history-card is-active", html)
+
+    def test_workspace_tree_html_includes_report_and_selected_file(self):
+        catalog = [
+            {
+                "origin": "report",
+                "display_name": "report.md",
+                "source_path": "/tmp/task/runtime/report.md",
+                "task_relative_path": "runtime/report.md",
+            },
+            {
+                "origin": "generated",
+                "display_name": "summary.json",
+                "source_path": "/tmp/task/sandbox/reports/summary.json",
+                "task_relative_path": "sandbox/reports/summary.json",
+            },
+        ]
+
+        html = _workspace_tree_html(catalog, "/tmp/task/sandbox/reports/summary.json")
+
+        self.assertIn("report.md", html)
+        self.assertIn("hf-tree-folder", html)
+        self.assertIn("hf-tree-file", html)
+        self.assertIn("is-active", html)
 
     def test_session_store_lists_custom_display_title(self):
         task = self.system.create_task_session("task-custom")

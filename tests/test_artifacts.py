@@ -55,6 +55,34 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(preview_kinds["runtime/report.md"], "markdown")
         self.assertEqual(preview_kinds["sandbox/results.csv"], "table")
 
+    def test_collect_task_artifacts_keeps_hidden_uploaded_workspace_files_visible(self):
+        hidden_upload_path = self.task_root / "uploads" / "turn_001" / ".env"
+        hidden_upload_path.write_text("API_KEY=test\n", encoding="utf-8")
+        hidden_workspace_path = self.task_root / "sandbox" / ".env"
+        hidden_workspace_path.write_text("API_KEY=test\n", encoding="utf-8")
+
+        history = [
+            TaskTurnRecord(
+                turn_number=1,
+                user_message="Inspect the uploaded env file",
+                answer="Done",
+                status="success",
+                runtime_dir=str(self.task_root / "runtime" / "turns" / "turn_001"),
+                uploaded_files=[
+                    {
+                        "original_name": ".env",
+                        "upload_path": "uploads/turn_001/.env",
+                        "sandbox_path": "sandbox/.env",
+                    }
+                ],
+            )
+        ]
+
+        catalog = collect_task_artifacts(self.task_root, history)
+        origins = {item["task_relative_path"]: item["origin"] for item in catalog}
+
+        self.assertEqual(origins["sandbox/.env"], "uploaded")
+
     def test_read_structured_preview_handles_csv_and_json(self):
         csv_path = self.task_root / "sandbox" / "metrics.csv"
         csv_path.write_text("metric,value\nauroc,0.91\nauprc,0.73\n", encoding="utf-8")

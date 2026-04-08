@@ -30,6 +30,17 @@ _CODE_EXTENSIONS = {
 _DATA_EXTENSIONS = {".csv", ".tsv", ".json", ".jsonl", ".parquet", ".feather", ".xlsx", ".xls", ".arrow"}
 _TEXT_EXTENSIONS = _REPORT_EXTENSIONS | _CODE_EXTENSIONS | _DATA_EXTENSIONS | {".yaml", ".yml", ".toml"}
 _EXCLUDED_RUNTIME_FILES = {"report.md"}
+_EXCLUDED_WORKSPACE_PARTS = {
+    ".healthflow_pi_agent",
+    ".git",
+    ".hg",
+    ".svn",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "node_modules",
+}
 _COMMENT_PREFIXES = ("#", "//", "--", ";", "/*", "*")
 _WHITESPACE_RE = re.compile(r"\s+")
 _PREVIEW_LANGUAGE_BY_SUFFIX = {
@@ -492,11 +503,9 @@ def _format_timestamp(epoch_seconds: float) -> str:
 
 def _is_runtime_path(relative_path: str) -> bool:
     path = Path(relative_path)
-    if any(part.startswith(".") for part in path.parts):
+    if any(part in _EXCLUDED_WORKSPACE_PARTS for part in path.parts):
         return True
     if path.name in _EXCLUDED_RUNTIME_FILES:
-        return True
-    if path.parts and path.parts[0] == ".healthflow_pi_agent":
         return True
     return False
 

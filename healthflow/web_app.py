@@ -17,12 +17,40 @@ _TRACE_ASSISTANT_TEXT = "Advanced execution details for this task will appear he
 _EMPTY_WORKSPACE_TEXT = "No workspace files yet."
 _EMPTY_PREVIEW_TEXT = "Select a file to preview it."
 _UPLOAD_ONLY_USER_MESSAGE = "Please inspect the uploaded files and continue the current task."
+_DRAFT_BROWSER_TASK_ID = "__healthflow_draft__"
 _BRANDING_DIR = Path(__file__).resolve().parent.parent / "assets" / "branding"
 _WEB_APP_HEAD = """
 <script>
 (() => {
   const composerSelector = "#hf-prompt-input";
   const previewSelector = "#hf-composer-attachments";
+  const historyListSelector = "#hf-history-list";
+  const workspaceTreeSelector = "#hf-workspace-tree";
+
+  const setComponentValue = (selector, value) => {
+    const root = document.querySelector(selector);
+    const input = root?.querySelector("textarea, input");
+    if (!input) {
+      return false;
+    }
+    const nextValue = String(value ?? "");
+    const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value");
+    descriptor?.set?.call(input, nextValue);
+    input.value = nextValue;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  };
+
+  const clickComponentButton = (selector) => {
+    const root = document.querySelector(selector);
+    const button = root?.querySelector("button") || root;
+    if (!(button instanceof HTMLElement)) {
+      return false;
+    }
+    button.click();
+    return true;
+  };
 
   const escapeHtml = (value) =>
     String(value ?? "")
@@ -110,7 +138,71 @@ _WEB_APP_HEAD = """
     scheduleSync();
   };
 
-  const boot = () => bindComposerAttachments();
+  const bindHistoryInteractions = () => {
+    const historyList = document.querySelector(historyListSelector);
+    if (!historyList || historyList.dataset.hfBound === "1") {
+      return;
+    }
+    historyList.dataset.hfBound = "1";
+    historyList.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) {
+        return;
+      }
+      const card = target.closest("[data-task-id]");
+      if (!(card instanceof HTMLElement)) {
+        return;
+      }
+      const taskId = card.dataset.taskId || "";
+      const actionTarget = target.closest("[data-history-action]");
+      const action =
+        actionTarget instanceof HTMLElement && actionTarget.dataset.historyAction
+          ? actionTarget.dataset.historyAction
+          : "open";
+      if (!taskId) {
+        return;
+      }
+      if (!setComponentValue("#hf-history-target-task", taskId)) {
+        return;
+      }
+      if (action === "rename") {
+        clickComponentButton("#hf-history-rename-trigger");
+      } else if (action === "delete") {
+        clickComponentButton("#hf-history-delete-trigger");
+      } else {
+        clickComponentButton("#hf-history-open-trigger");
+      }
+    });
+  };
+
+  const bindWorkspaceInteractions = () => {
+    const tree = document.querySelector(workspaceTreeSelector);
+    if (!tree || tree.dataset.hfBound === "1") {
+      return;
+    }
+    tree.dataset.hfBound = "1";
+    tree.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const fileNode = target?.closest("[data-file-path]");
+      if (!(fileNode instanceof HTMLElement)) {
+        return;
+      }
+      const filePath = fileNode.dataset.filePath || "";
+      if (!filePath) {
+        return;
+      }
+      if (!setComponentValue("#hf-workspace-target-file", filePath)) {
+        return;
+      }
+      clickComponentButton("#hf-workspace-open-trigger");
+    });
+  };
+
+  const boot = () => {
+    bindComposerAttachments();
+    bindHistoryInteractions();
+    bindWorkspaceInteractions();
+  };
   document.addEventListener("DOMContentLoaded", boot);
   window.addEventListener("load", boot);
   new MutationObserver(() => window.requestAnimationFrame(boot)).observe(document.documentElement, {
@@ -493,9 +585,9 @@ aside > div {
 }
 
 .hf-browser-pane {
-    flex: 0 0 39%;
+    flex: 0 0 40%;
     min-width: 10.25rem;
-    overflow: auto;
+    overflow: hidden;
 }
 
 .hf-preview-pane {
@@ -511,6 +603,223 @@ aside > div {
 
 .hf-history-list {
     gap: 0.65rem;
+}
+
+#hf-history-list,
+#hf-workspace-tree {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: auto !important;
+    padding: 0 !important;
+}
+
+.hf-history-cards,
+.hf-tree-root {
+    display: flex;
+    flex-direction: column;
+}
+
+.hf-history-cards {
+    gap: 0.48rem;
+}
+
+.hf-history-card {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: none !important;
+    transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.hf-history-card:hover,
+.hf-tree-file:hover {
+    border-color: rgba(11, 132, 219, 0.22);
+    background: rgba(250, 252, 255, 0.98);
+}
+
+.hf-history-card.is-active,
+.hf-tree-file.is-active {
+    border-color: rgba(11, 132, 219, 0.34);
+    background: linear-gradient(180deg, rgba(239, 248, 255, 0.96) 0%, rgba(255, 255, 255, 0.99) 100%);
+}
+
+.hf-history-card-main {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    width: 100%;
+    padding: 0.72rem 0.76rem;
+    cursor: pointer;
+}
+
+.hf-history-card-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #0f172a;
+    white-space: nowrap;
+}
+
+.hf-history-card-actions {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.hf-history-card-btn {
+    height: 1.8rem;
+    padding: 0 0.52rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 10px;
+    background: rgba(248, 250, 252, 0.96);
+    color: #475569;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.hf-history-card-btn.is-danger {
+    border-color: rgba(239, 68, 68, 0.16);
+    background: rgba(254, 242, 242, 0.98);
+    color: #dc2626;
+}
+
+.hf-workspace-empty {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.hf-tree-root {
+    gap: 0.25rem;
+}
+
+.hf-tree-folder {
+    margin-top: 0.36rem;
+    padding: 0.16rem 0.45rem;
+    color: #64748b;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.hf-tree-file {
+    display: flex;
+    flex-direction: column;
+    gap: 0.16rem;
+    padding: 0.54rem 0.64rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.96);
+    cursor: pointer;
+}
+
+.hf-tree-file-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #0f172a;
+    word-break: break-word;
+}
+
+.hf-tree-file-meta {
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: #64748b;
+    word-break: break-word;
+}
+
+.hf-tree-depth-0 {
+    margin-left: 0;
+}
+
+.hf-tree-depth-1 {
+    margin-left: 0.85rem;
+}
+
+.hf-tree-depth-2 {
+    margin-left: 1.7rem;
+}
+
+.hf-tree-depth-3 {
+    margin-left: 2.55rem;
+}
+
+.hf-tree-depth-4 {
+    margin-left: 3.4rem;
+}
+
+.hf-tree-depth-5 {
+    margin-left: 4.25rem;
+}
+
+.hf-workspace-folder {
+    margin: 0;
+    padding: 0.16rem 0 0.08rem;
+    color: #526171;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+}
+
+.hf-workspace-entry {
+    gap: 0.2rem;
+}
+
+.hf-workspace-entry .gradio-button {
+    justify-content: flex-start;
+    width: 100%;
+    min-height: 2.55rem;
+    border-radius: 14px;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: none !important;
+    text-align: left;
+}
+
+.hf-workspace-entry .gradio-button.primary {
+    border-color: rgba(11, 132, 219, 0.26);
+    background: linear-gradient(180deg, rgba(239, 248, 255, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+    color: #0f172a !important;
+}
+
+.hf-workspace-entry-meta {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.75rem;
+    line-height: 1.35;
+}
+
+.hf-workspace-depth-0 {
+    margin-left: 0;
+}
+
+.hf-workspace-depth-1 {
+    margin-left: 0.7rem;
+}
+
+.hf-workspace-depth-2 {
+    margin-left: 1.4rem;
+}
+
+.hf-workspace-depth-3 {
+    margin-left: 2.1rem;
+}
+
+.hf-workspace-depth-4 {
+    margin-left: 2.8rem;
+}
+
+.hf-workspace-depth-5 {
+    margin-left: 3.5rem;
 }
 
 .hf-history-item {
@@ -592,7 +901,7 @@ aside > div {
     flex: 0 0 auto;
     position: relative;
     z-index: 3;
-    min-width: 0;
+    min-width: 0 !important;
     pointer-events: auto !important;
     padding: 0 0.55rem;
     height: 2rem;
@@ -637,7 +946,20 @@ aside > div {
     border: 1px solid rgba(16, 32, 51, 0.08);
     border-radius: 18px;
     background: rgba(255, 255, 255, 0.92);
-    box-shadow: var(--hf-shadow-soft);
+    box-shadow: none;
+}
+
+.hf-history-panel-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.hf-history-panel-subtitle {
+    margin-top: 0.18rem;
+    color: #526171;
+    font-size: 0.8rem;
+    line-height: 1.4;
 }
 
 .hf-chatbot > .wrap,
@@ -668,7 +990,7 @@ aside > div {
 
 .hf-chatbot :is(.message, .panel-full-width),
 .hf-trace-panel :is(.message, .panel-full-width) {
-    border-radius: 22px !important;
+    border-radius: 16px !important;
     box-shadow: none !important;
 }
 
@@ -681,17 +1003,22 @@ aside > div {
 .hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width),
 .hf-trace-panel :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) {
     border: 1px solid rgba(15, 23, 42, 0.07);
-    background: var(--hf-surface-muted) !important;
+    background: rgba(248, 250, 252, 0.98) !important;
 }
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
-    border: 1px solid rgba(15, 23, 42, 0.08);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(244, 247, 250, 0.98) 100%) !important;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    background: rgba(255, 255, 255, 0.99) !important;
     color: var(--hf-text) !important;
 }
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) :is(.prose, p, span, div, code, li, strong, em) {
     color: var(--hf-text) !important;
+}
+
+.hf-chat-shell button[aria-label="Clear"],
+.hf-chat-shell button[title="Clear"] {
+    display: none !important;
 }
 
 .hf-chat-attachments {
@@ -977,6 +1304,72 @@ def _build_history_entries(recent_tasks: Sequence[TaskSessionSummary]) -> list[d
     return [_history_entry_payload(item) for item in recent_tasks]
 
 
+def _history_selector_choices(recent_tasks: Sequence[TaskSessionSummary]) -> list[tuple[str, str]]:
+    return [(_truncate_text(item.title, max_chars=40), item.task_id) for item in recent_tasks]
+
+
+def _choice_value_or_none(
+    choices: Sequence[tuple[str, str]],
+    value: str | None,
+) -> str | None:
+    normalized_value = str(value or "").strip()
+    valid_values = {str(choice_value or "").strip() for _, choice_value in choices}
+    if normalized_value and normalized_value in valid_values:
+        return normalized_value
+    return None
+
+
+def _history_selected_title_html(
+    current_task_id: str | None,
+    recent_tasks: Sequence[TaskSessionSummary],
+) -> str:
+    normalized_task_id = str(current_task_id or "").strip()
+    if not normalized_task_id or _is_draft_browser_task_id(normalized_task_id):
+        title = "New Task"
+    else:
+        title = next(
+            (
+                str(item.title or "").strip() or "Untitled task"
+                for item in recent_tasks
+                if item.task_id == normalized_task_id
+            ),
+            "Untitled task",
+        )
+    return f'<div class="hf-history-toolbar-title">{html.escape(_truncate_text(title, max_chars=44))}</div>'
+
+
+def _history_list_html(
+    recent_tasks: Sequence[TaskSessionSummary],
+    current_task_id: str | None,
+) -> str:
+    normalized_current_task_id = str(current_task_id or "").strip()
+    if not recent_tasks:
+        return '<p class="hf-history-empty">No tasks yet.</p>'
+
+    cards: list[str] = []
+    for item in recent_tasks:
+        task_id = str(item.task_id or "").strip()
+        if not task_id:
+            continue
+        title = html.escape(_truncate_text(item.title, max_chars=48))
+        is_active = " is-active" if task_id == normalized_current_task_id else ""
+        escaped_task_id = html.escape(task_id, quote=True)
+        cards.append(
+            f"""
+            <div class="hf-history-card{is_active}" data-task-id="{escaped_task_id}">
+              <div class="hf-history-card-main" data-history-action="open">
+                <span class="hf-history-card-title">{title}</span>
+                <span class="hf-history-card-actions">
+                  <button type="button" class="hf-history-card-btn" data-history-action="rename" data-task-id="{escaped_task_id}">Rename</button>
+                  <button type="button" class="hf-history-card-btn is-danger" data-history-action="delete" data-task-id="{escaped_task_id}">Delete</button>
+                </span>
+              </div>
+            </div>
+            """
+        )
+    return '<div class="hf-history-cards">' + "".join(cards) + "</div>"
+
+
 def _history_render_token(
     history_entries: Sequence[dict[str, Any]] | None,
     current_task_id: str | None,
@@ -1017,6 +1410,41 @@ def _history_action_state(
         "draft_title": draft_title,
         "placeholder": placeholder,
     }
+
+
+def _draft_browser_task_id() -> str:
+    return _DRAFT_BROWSER_TASK_ID
+
+
+def _is_draft_browser_task_id(task_id: str | None) -> bool:
+    return str(task_id or "").strip() == _DRAFT_BROWSER_TASK_ID
+
+
+def _turn_task_id_for_submission(
+    active_task_id: str | None,
+    browser_task_id: str | None,
+) -> str | None:
+    normalized_active_task_id = str(active_task_id or "").strip()
+    normalized_browser_task_id = str(browser_task_id or "").strip()
+    if _is_draft_browser_task_id(normalized_browser_task_id):
+        return None
+    if normalized_active_task_id and not _is_draft_browser_task_id(normalized_active_task_id):
+        return normalized_active_task_id
+    if normalized_browser_task_id and not _is_draft_browser_task_id(normalized_browser_task_id):
+        return normalized_browser_task_id
+    return None
+
+
+def _draft_task_title(text: str | None, file_names: Sequence[str] | None = None) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    if cleaned:
+        return cleaned
+    normalized_file_names = [Path(str(name)).name for name in file_names or [] if str(name).strip()]
+    if len(normalized_file_names) == 1:
+        return f"Review {normalized_file_names[0]}"
+    if normalized_file_names:
+        return "Review uploaded files"
+    return ""
 
 
 def _resolved_recent_task_id(
@@ -1286,6 +1714,146 @@ def _workspace_tree_value(selected_file: str | None, *, task_root: Path | None) 
     return str(path)
 
 
+def _workspace_relative_path(item: dict[str, Any]) -> str:
+    task_relative_path = str(item.get("task_relative_path") or "").strip()
+    if task_relative_path.startswith("sandbox/"):
+        return task_relative_path[len("sandbox/") :]
+    return task_relative_path
+
+
+def _workspace_tree_rows(catalog: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    non_report_items = [item for item in catalog if item.get("origin") != "report"]
+    display_counts: dict[str, int] = {}
+    for item in non_report_items:
+        display_name = Path(str(item.get("display_name") or item.get("source_path") or "")).name.strip()
+        if not display_name:
+            continue
+        display_counts[display_name] = display_counts.get(display_name, 0) + 1
+
+    rows: list[dict[str, Any]] = []
+    seen_folders: set[tuple[str, ...]] = set()
+    sorted_items = sorted(
+        non_report_items,
+        key=lambda item: (_workspace_relative_path(item).lower(), str(item.get("display_name") or "").lower()),
+    )
+
+    for item in sorted_items:
+        workspace_relative_path = _workspace_relative_path(item)
+        if not workspace_relative_path:
+            continue
+        parts = list(Path(workspace_relative_path).parts)
+        if not parts:
+            continue
+        for depth, folder_name in enumerate(parts[:-1]):
+            folder_key = tuple(parts[: depth + 1])
+            if folder_key in seen_folders:
+                continue
+            seen_folders.add(folder_key)
+            rows.append(
+                {
+                    "kind": "folder",
+                    "depth": depth,
+                    "label": folder_name,
+                }
+            )
+
+        display_name = Path(str(item.get("display_name") or parts[-1])).name.strip() or parts[-1]
+        meta = workspace_relative_path if display_counts.get(display_name, 0) > 1 else ""
+        rows.append(
+            {
+                "kind": "file",
+                "depth": max(len(parts) - 1, 0),
+                "label": display_name,
+                "meta": meta,
+                "source_path": str(item.get("source_path") or ""),
+            }
+        )
+    return rows
+
+
+def _workspace_browser_choices(catalog: Sequence[dict[str, Any]]) -> list[tuple[str, str]]:
+    display_counts: dict[str, int] = {}
+    for item in catalog:
+        display_name = Path(str(item.get("display_name") or item.get("source_path") or "")).name.strip()
+        if not display_name:
+            continue
+        display_counts[display_name] = display_counts.get(display_name, 0) + 1
+
+    sorted_items = sorted(
+        catalog,
+        key=lambda item: (
+            0 if item.get("origin") == "report" else 1,
+            _workspace_relative_path(item).lower(),
+            str(item.get("display_name") or "").lower(),
+        ),
+    )
+    choices: list[tuple[str, str]] = []
+    for item in sorted_items:
+        source_path = str(item.get("source_path") or "").strip()
+        if not source_path:
+            continue
+        display_name = Path(
+            str(item.get("display_name") or item.get("task_relative_path") or source_path)
+        ).name.strip() or Path(source_path).name
+        if item.get("origin") == "report":
+            label = "report.md"
+        else:
+            workspace_relative_path = _workspace_relative_path(item)
+            label = workspace_relative_path or display_name
+            if display_counts.get(display_name, 0) > 1 and workspace_relative_path and workspace_relative_path != display_name:
+                label = f"{display_name} · {workspace_relative_path}"
+        choices.append((label, source_path))
+    return choices
+
+
+def _workspace_tree_html(
+    catalog: Sequence[dict[str, Any]],
+    selected_file: str | None,
+) -> str:
+    selected_file_value = str(selected_file or "").strip()
+    report_item = next((item for item in catalog if item.get("origin") == "report"), None)
+    rows: list[dict[str, Any]] = []
+    if report_item is not None:
+        rows.append(
+            {
+                "kind": "file",
+                "depth": 0,
+                "label": "report.md",
+                "meta": "runtime/report.md",
+                "source_path": str(report_item.get("source_path") or ""),
+            }
+        )
+    rows.extend(_workspace_tree_rows(catalog))
+    if not rows:
+        return f'<p class="hf-workspace-empty">{html.escape(_EMPTY_WORKSPACE_TEXT)}</p>'
+
+    html_rows: list[str] = []
+    for row in rows:
+        row_depth = min(int(row.get("depth") or 0), 5)
+        depth_class = f"hf-tree-depth-{row_depth}"
+        if row.get("kind") == "folder":
+            label = html.escape(str(row.get("label") or ""))
+            html_rows.append(f'<div class="hf-tree-folder {depth_class}">{label}</div>')
+            continue
+
+        source_path = str(row.get("source_path") or "").strip()
+        if not source_path:
+            continue
+        label = html.escape(str(row.get("label") or Path(source_path).name))
+        meta = html.escape(str(row.get("meta") or "").strip())
+        active_class = " is-active" if source_path == selected_file_value else ""
+        meta_html = f'<span class="hf-tree-file-meta">{meta}</span>' if meta else ""
+        html_rows.append(
+            f"""
+            <div class="hf-tree-file {depth_class}{active_class}" data-file-path="{html.escape(source_path, quote=True)}">
+              <span class="hf-tree-file-name">{label}</span>
+              {meta_html}
+            </div>
+            """
+        )
+    return '<div class="hf-tree-root">' + "".join(html_rows) + "</div>"
+
+
 def _artifact_preview_outputs(
     selected_file: str | None,
     *,
@@ -1470,9 +2038,15 @@ def launch_web_app(
         ) from None
 
     session_store = WebTaskSessionStore(system_factory)
+    listing_system = system_factory()
+    session_store._listing_system = listing_system
+    workspace_root = getattr(listing_system, "workspace_dir", None)
+    allowed_paths = [str(Path(workspace_root).resolve())] if workspace_root else None
 
     def _resolve_requested_task(task_id: str | None) -> tuple[TaskSessionClient, bool]:
         normalized_task_id = str(task_id or "").strip()
+        if _is_draft_browser_task_id(normalized_task_id):
+            return session_store.new_client(), False
         if normalized_task_id and session_store.has_task(normalized_task_id):
             return session_store.get_client(normalized_task_id), True
         recent_tasks = _visible_recent_tasks(session_store.list_recent_tasks(limit=50), current_task_id="")
@@ -1492,6 +2066,50 @@ def launch_web_app(
             current_status=client.latest_turn_status,
         )
 
+    def _history_panel_updates(
+        recent_tasks: Sequence[TaskSessionSummary],
+        current_task_id: str | None,
+        *,
+        action_mode: str = "",
+        action_title: str = "",
+        action_placeholder: str = "",
+    ) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+        selected_task_id = str(current_task_id or "").strip()
+        if _is_draft_browser_task_id(selected_task_id):
+            selected_task_id = ""
+        can_manage = bool(selected_task_id)
+        target_summary = next((item for item in recent_tasks if item.task_id == selected_task_id), None)
+        target_title = str(target_summary.title or "").strip() if target_summary is not None else ""
+        target_title = target_title or "Untitled task"
+        panel_visible = can_manage and action_mode in {"rename", "delete"}
+
+        heading_html = ""
+        if action_mode == "rename" and panel_visible:
+            heading_html = (
+                '<div class="hf-history-panel-title">Rename task</div>'
+                f'<div class="hf-history-panel-subtitle">{html.escape(target_title)}</div>'
+            )
+        elif action_mode == "delete" and panel_visible:
+            heading_html = (
+                '<div class="hf-history-panel-title">Delete task?</div>'
+                f'<div class="hf-history-panel-subtitle">{html.escape(target_title)}</div>'
+            )
+
+        rename_value = action_title if panel_visible and action_mode == "rename" else ""
+        rename_placeholder = action_placeholder or target_title
+        return (
+            gr.update(value=_history_list_html(recent_tasks, selected_task_id)),
+            gr.update(visible=panel_visible),
+            gr.update(value=heading_html, visible=panel_visible),
+            gr.update(value=rename_value, placeholder=rename_placeholder, visible=panel_visible and action_mode == "rename"),
+            gr.update(visible=panel_visible and action_mode == "rename"),
+            gr.update(visible=panel_visible and action_mode == "delete"),
+            gr.update(visible=panel_visible),
+        )
+
+    def _workspace_browser_updates(catalog: Sequence[dict[str, Any]], selected_file: str | None) -> Any:
+        return gr.update(value=_workspace_tree_html(catalog, selected_file))
+
     def _compose_outputs(
         client: TaskSessionClient,
         *,
@@ -1499,27 +2117,33 @@ def launch_web_app(
         trace_history: list[dict[str, str]],
         preferred_file: str | None,
         history_notice: str | None = None,
-        history_action: dict[str, Any] | None = None,
+        history_action_mode: str = "",
+        history_action_title: str = "",
+        history_action_placeholder: str = "",
     ) -> tuple[Any, ...]:
         visible_recent_tasks = _visible_recent_task_summaries(client)
-        history_entries = _build_history_entries(visible_recent_tasks)
-        resolved_history_action = dict(history_action or _history_action_state())
         catalog = _collect_artifact_catalog(client)
         selected_file = _default_selected_file(catalog, preferred_file=preferred_file)
         task_root = Path(client.task_root) if client.task_root else None
         preview_outputs = _artifact_preview_outputs(selected_file, task_root=task_root, gr=gr)
+        history_updates = _history_panel_updates(
+            visible_recent_tasks,
+            client.task_id,
+            action_mode=history_action_mode,
+            action_title=history_action_title,
+            action_placeholder=history_action_placeholder,
+        )
+        workspace_updates = _workspace_browser_updates(catalog, selected_file)
         return (
             main_history,
             trace_history,
             client.task_id,
             client.task_id,
             _build_task_header(client, visible_recent_tasks),
-            catalog,
-            selected_file,
-            json.dumps(history_entries, ensure_ascii=False),
-            json.dumps(resolved_history_action, ensure_ascii=False),
-            _history_render_token(history_entries, client.task_id, resolved_history_action),
+            *history_updates,
             _history_notice_update(history_notice, gr=gr),
+            workspace_updates,
+            selected_file,
             *preview_outputs,
             gr.update(value=""),
             gr.MultimodalTextbox(value=_empty_composer_value()),
@@ -1528,24 +2152,30 @@ def launch_web_app(
     def _compose_draft_outputs(
         *,
         history_notice: str | None = None,
-        history_action: dict[str, Any] | None = None,
+        history_action_mode: str = "",
+        history_action_title: str = "",
+        history_action_placeholder: str = "",
     ) -> tuple[Any, ...]:
         visible_recent_tasks = _visible_recent_tasks(session_store.list_recent_tasks(limit=50), current_task_id="")
-        history_entries = _build_history_entries(visible_recent_tasks)
-        resolved_history_action = dict(history_action or _history_action_state())
         preview_outputs = _artifact_preview_outputs(None, task_root=None, gr=gr)
+        history_updates = _history_panel_updates(
+            visible_recent_tasks,
+            None,
+            action_mode=history_action_mode,
+            action_title=history_action_title,
+            action_placeholder=history_action_placeholder,
+        )
+        workspace_updates = _workspace_browser_updates([], None)
         return (
             [],
             [{"role": "assistant", "content": _TRACE_ASSISTANT_TEXT}],
-            None,
+            _draft_browser_task_id(),
             None,
             _empty_task_header(),
-            [],
-            None,
-            json.dumps(history_entries, ensure_ascii=False),
-            json.dumps(resolved_history_action, ensure_ascii=False),
-            _history_render_token(history_entries, None, resolved_history_action),
+            *history_updates,
             _history_notice_update(history_notice, gr=gr),
+            workspace_updates,
+            None,
             *preview_outputs,
             gr.update(value=""),
             gr.MultimodalTextbox(value=_empty_composer_value()),
@@ -1558,7 +2188,9 @@ def launch_web_app(
         trace_history: list[dict[str, str]] | None = None,
         preferred_file: str | None = None,
         history_notice: str | None = None,
-        history_action: dict[str, Any] | None = None,
+        history_action_mode: str = "",
+        history_action_title: str = "",
+        history_action_placeholder: str = "",
         restored: bool | None = None,
     ):
         client, resolved_from_history = _resolve_requested_task(task_id)
@@ -1577,7 +2209,9 @@ def launch_web_app(
             trace_history=trace_history,
             preferred_file=preferred_file,
             history_notice=history_notice,
-            history_action=history_action,
+            history_action_mode=history_action_mode,
+            history_action_title=history_action_title,
+            history_action_placeholder=history_action_placeholder,
         )
 
     def _format_progress_event(event: HealthFlowProgressEvent) -> str:
@@ -1599,16 +2233,27 @@ def launch_web_app(
         *,
         preferred_file: str | None = None,
         history_notice: str | None = None,
-        history_action: dict[str, Any] | None = None,
+        history_action_mode: str = "",
+        history_action_title: str = "",
+        history_action_placeholder: str = "",
         fallback_to_recent: bool = False,
     ):
         normalized_task_id = str(task_id or "").strip()
+        if _is_draft_browser_task_id(normalized_task_id):
+            return _compose_draft_outputs(
+                history_notice=history_notice,
+                history_action_mode=history_action_mode,
+                history_action_title=history_action_title,
+                history_action_placeholder=history_action_placeholder,
+            )
         if normalized_task_id and session_store.has_task(normalized_task_id):
             return _compose_for_task_id(
                 normalized_task_id,
                 preferred_file=preferred_file,
                 history_notice=history_notice,
-                history_action=history_action,
+                history_action_mode=history_action_mode,
+                history_action_title=history_action_title,
+                history_action_placeholder=history_action_placeholder,
             )
         if fallback_to_recent:
             recent_tasks = _visible_recent_tasks(session_store.list_recent_tasks(limit=50), current_task_id="")
@@ -1618,11 +2263,15 @@ def launch_web_app(
                     fallback_task_id,
                     preferred_file=None,
                     history_notice=history_notice,
-                    history_action=history_action,
+                    history_action_mode=history_action_mode,
+                    history_action_title=history_action_title,
+                    history_action_placeholder=history_action_placeholder,
                 )
         return _compose_draft_outputs(
             history_notice=history_notice,
-            history_action=history_action,
+            history_action_mode=history_action_mode,
+            history_action_title=history_action_title,
+            history_action_placeholder=history_action_placeholder,
         )
 
     def _load_session(task_id: str | None):
@@ -1648,9 +2297,6 @@ def launch_web_app(
 
     def _on_workspace_file_selected(selected_file: str | None, task_id: str | None):
         return selected_file, *_preview_outputs_for_task(selected_file, task_id)
-
-    def _open_report_file(report_path: str | None, task_id: str | None):
-        return report_path, *_preview_outputs_for_task(report_path, task_id)
 
     def _detail_panel_updates(mode: str) -> tuple[Any, Any, Any, Any]:
         resolved_mode = "advanced" if mode == "advanced" else "workspace"
@@ -1678,12 +2324,9 @@ def launch_web_app(
         return _compose_for_existing_task_or_draft(
             resolved_active_task_id,
             preferred_file=selected_file,
-            history_action=_history_action_state(
-                mode="rename",
-                task_id=target_task_id,
-                draft_title=client.display_title,
-                placeholder=_task_title_text(client, visible_recent_tasks),
-            ),
+            history_action_mode="rename",
+            history_action_title=client.display_title,
+            history_action_placeholder=_task_title_text(client, visible_recent_tasks),
         )
 
     def _start_history_delete(
@@ -1701,7 +2344,7 @@ def launch_web_app(
         return _compose_for_existing_task_or_draft(
             resolved_active_task_id,
             preferred_file=selected_file,
-            history_action=_history_action_state(mode="delete", task_id=target_task_id),
+            history_action_mode="delete",
         )
 
     def _cancel_history_action(
@@ -1758,7 +2401,10 @@ def launch_web_app(
             return _compose_draft_outputs(
                 history_notice="Task deleted.",
             )
-
+        remaining_tasks = _visible_recent_tasks(session_store.list_recent_tasks(limit=50), current_task_id="")
+        next_task_id = _task_id_after_deletion(resolved_active_task_id, target_task_id, remaining_tasks)
+        if next_task_id:
+            return _compose_for_task_id(next_task_id, preferred_file=None, history_notice="Task deleted.")
         return _compose_for_existing_task_or_draft(
             resolved_active_task_id,
             preferred_file=selected_file,
@@ -1769,13 +2415,11 @@ def launch_web_app(
         prompt_input: dict[str, Any] | None,
         main_history: list[dict[str, str]] | None,
         trace_history: list[dict[str, str]] | None,
+        browser_task_id: str | None,
         task_id: str | None,
         report_requested: bool,
         selected_file: str | None,
     ):
-        client, _ = _resolve_requested_task(task_id)
-        main_history = list(main_history or _restore_main_history(client))
-        trace_history = list(trace_history or _restore_trace_history(client, restored=client.turn_count > 0))
         prompt_input = prompt_input or {}
         text = str(prompt_input.get("text") or "")
         files = list(prompt_input.get("files") or [])
@@ -1786,6 +2430,19 @@ def launch_web_app(
             if not file_path.exists():
                 continue
             upload_payloads[_resolved_upload_name(raw_file)] = file_path.read_bytes()
+
+        resolved_turn_task_id = _turn_task_id_for_submission(task_id, browser_task_id)
+        draft_submission = resolved_turn_task_id is None
+        if draft_submission:
+            client = session_store.new_client()
+            resolved_draft_title = _draft_task_title(text, list(upload_payloads.keys()))
+            if resolved_draft_title:
+                client.rename(resolved_draft_title)
+        else:
+            client, _ = _resolve_requested_task(resolved_turn_task_id)
+
+        main_history = list(main_history or _restore_main_history(client))
+        trace_history = list(trace_history or _restore_trace_history(client, restored=client.turn_count > 0))
 
         if not text.strip() and not upload_payloads:
             yield _compose_outputs(
@@ -1859,191 +2516,28 @@ def launch_web_app(
     with gr.Blocks(title="HealthFlow Web", fill_width=True, fill_height=True, css=_WEB_APP_CSS, head=_WEB_APP_HEAD) as demo:
         browser_task_id = gr.BrowserState(None, storage_key="healthflow-active-task")
         active_task_state = gr.State(None)
-        workspace_catalog_state = gr.State([])
         selected_file_state = gr.State(None)
-        history_entries_state = gr.Textbox(value="[]", visible="hidden", container=False)
-        history_action_state = gr.Textbox(
-            value=json.dumps(_history_action_state(), ensure_ascii=False),
-            visible="hidden",
-            container=False,
-        )
-        history_render_token = gr.Textbox(value="", visible="hidden", container=False)
 
         with gr.Sidebar(label="History", open=True, width=336):
             gr.HTML(_sidebar_brand_html())
             new_task_button = gr.Button("New Task", variant="primary")
             history_notice = gr.Markdown(visible=False)
-
-            @gr.render(
-                inputs=[history_render_token, history_entries_state, history_action_state],
-                triggers=[
-                    history_render_token.change,
-                    history_entries_state.change,
-                    history_action_state.change,
-                    active_task_state.change,
-                ],
-                queue=False,
-                show_progress="hidden",
-            )
-            def _render_history_action_panel(
-                _refresh_token: str,
-                history_entries: list[dict[str, Any]] | None,
-                action_state: dict[str, Any] | None,
-            ):
-                entries = _history_json_value(history_entries, default=[])
-                if not isinstance(entries, list):
-                    entries = []
-                entries = [entry for entry in entries if isinstance(entry, dict)]
-                action_state = _history_json_value(action_state, default=_history_action_state())
-                if not isinstance(action_state, dict):
-                    action_state = _history_action_state()
-                action_mode = str(action_state.get("mode") or "")
-                action_task_id = str(action_state.get("task_id") or "")
-                selected_entry = next((entry for entry in entries if str(entry.get("task_id") or "") == action_task_id), None)
-                if not selected_entry:
-                    return
-
-                task_id_state = gr.State(action_task_id)
-                task_title = str(selected_entry.get("title") or "Untitled task")
-                with gr.Column(elem_classes=["hf-history-panel"]):
-                    if action_mode == "rename":
-                        gr.Markdown(f"### Rename Task\n\n`{task_title}`")
-                        rename_input = gr.Textbox(
-                            label="Task Title",
-                            value=str(action_state.get("draft_title") or ""),
-                            placeholder=str(action_state.get("placeholder") or task_title),
-                            lines=1,
-                        )
-                        with gr.Row(elem_classes=["hf-history-inline"]):
-                            save_title_button = gr.Button("Save", variant="primary", size="sm")
-                            cancel_rename_button = gr.Button("Cancel", size="sm")
-                        save_title_button.click(
-                            _rename_task_from_history,
-                            [
-                                rename_input,
-                                task_id_state,
-                                active_task_state,
-                                selected_file_state,
-                            ],
-                            app_outputs,
-                            queue=False,
-                            show_progress="hidden",
-                        )
-                        cancel_rename_button.click(
-                            _cancel_history_action,
-                            [active_task_state, selected_file_state],
-                            app_outputs,
-                            queue=False,
-                            show_progress="hidden",
-                        )
-                    elif action_mode == "delete":
-                        gr.Markdown(f"### Delete Task\n\nRemove **{task_title}** and its workspace files?")
-                        with gr.Row(elem_classes=["hf-history-inline"]):
-                            confirm_delete_button = gr.Button("Confirm Delete", variant="stop", size="sm")
-                            cancel_delete_button = gr.Button("Cancel", size="sm")
-                        confirm_delete_button.click(
-                            _delete_task_from_history,
-                            [
-                                task_id_state,
-                                active_task_state,
-                                selected_file_state,
-                            ],
-                            app_outputs,
-                            queue=False,
-                            show_progress="hidden",
-                        )
-                        cancel_delete_button.click(
-                            _cancel_history_action,
-                            [active_task_state, selected_file_state],
-                            app_outputs,
-                            queue=False,
-                            show_progress="hidden",
-                        )
-
-            @gr.render(
-                inputs=[history_render_token, history_entries_state, active_task_state],
-                triggers=[
-                    history_render_token.change,
-                    history_entries_state.change,
-                    active_task_state.change,
-                ],
-                queue=False,
-                show_progress="hidden",
-            )
-            def _render_history_list(
-                _refresh_token: str,
-                history_entries: list[dict[str, Any]] | None,
-                current_task_id: str | None,
-            ):
-                entries = _history_json_value(history_entries, default=[])
-                if not isinstance(entries, list):
-                    entries = []
-                entries = [entry for entry in entries if isinstance(entry, dict)]
-                current_task_id = str(current_task_id or "")
-
-                with gr.Column(elem_classes=["hf-history-list"]):
-                    if not entries:
-                        gr.Markdown("No tasks yet.", elem_classes=["hf-history-empty"])
-                        return
-
-                    for entry in entries:
-                        task_id = str(entry.get("task_id") or "")
-                        task_title = str(entry.get("title") or "Untitled task")
-                        title_html = f'<div class="hf-history-title-text">{html.escape(task_title)}</div>'
-                        row_classes = ["hf-history-item"]
-                        if task_id == current_task_id:
-                            row_classes.append("is-active")
-
-                        task_id_state = gr.State(task_id)
-                        with gr.Column(elem_classes=row_classes):
-                            open_task_button = gr.Button(
-                                f"Open {task_title}",
-                                variant="secondary",
-                                elem_classes=["hf-history-hitbox"],
-                            )
-                            with gr.Row(elem_classes=["hf-history-row", "hf-history-content"]):
-                                gr.HTML(title_html, elem_classes=["hf-history-title"])
-                                rename_task_button = gr.Button(
-                                    "Edit",
-                                    size="sm",
-                                    elem_classes=["hf-history-action"],
-                                )
-                                delete_task_button = gr.Button(
-                                    "Del",
-                                    variant="stop",
-                                    size="sm",
-                                    elem_classes=["hf-history-action", "hf-history-action-danger"],
-                                )
-
-                            open_task_button.click(
-                                _switch_task,
-                                [task_id_state],
-                                app_outputs,
-                                queue=False,
-                                show_progress="hidden",
-                            )
-                            rename_task_button.click(
-                                _start_history_rename,
-                                [
-                                    task_id_state,
-                                    active_task_state,
-                                    selected_file_state,
-                                ],
-                                app_outputs,
-                                queue=False,
-                                show_progress="hidden",
-                            )
-                            delete_task_button.click(
-                                _start_history_delete,
-                                [
-                                    task_id_state,
-                                    active_task_state,
-                                    selected_file_state,
-                                ],
-                                app_outputs,
-                                queue=False,
-                                show_progress="hidden",
-                            )
+            history_list = gr.HTML(value=_history_list_html([], None), elem_id="hf-history-list")
+            history_target_task = gr.Textbox(value="", visible="hidden", container=False, elem_id="hf-history-target-task")
+            history_open_trigger = gr.Button("Open task", visible="hidden", elem_id="hf-history-open-trigger")
+            history_rename_trigger = gr.Button("Rename task", visible="hidden", elem_id="hf-history-rename-trigger")
+            history_delete_trigger = gr.Button("Delete task", visible="hidden", elem_id="hf-history-delete-trigger")
+            with gr.Column(visible=False, elem_classes=["hf-history-panel"]) as history_action_panel:
+                history_action_heading = gr.HTML(value="", visible=False)
+                rename_input = gr.Textbox(
+                    label="Task title",
+                    lines=1,
+                    visible=False,
+                )
+                with gr.Row(elem_classes=["hf-history-inline"]):
+                    save_title_button = gr.Button("Save", variant="primary", size="sm", visible=False)
+                    confirm_delete_button = gr.Button("Delete task", variant="stop", size="sm", visible=False)
+                    cancel_action_button = gr.Button("Cancel", size="sm", visible=False)
 
         with gr.Column(elem_classes=["hf-content-shell"]):
             with gr.Row(elem_classes=["hf-main"]):
@@ -2093,94 +2587,21 @@ def launch_web_app(
                             with gr.Row(elem_classes=["hf-workspace-row"]):
                                 with gr.Column(scale=4, min_width=0, elem_classes=["hf-browser-pane"]):
                                     gr.Markdown("### Workspace", container=False)
-
-                                    @gr.render(
-                                        inputs=[active_task_state, workspace_catalog_state, selected_file_state],
-                                        queue=False,
-                                        show_progress="hidden",
+                                    workspace_browser = gr.HTML(
+                                        value=_workspace_tree_html([], None),
+                                        elem_id="hf-workspace-tree",
                                     )
-                                    def _render_workspace_browser(
-                                        current_task_id: str | None,
-                                        workspace_catalog: list[dict[str, Any]] | None,
-                                        current_selected_file: str | None,
-                                    ):
-                                        if not current_task_id:
-                                            gr.Markdown(_EMPTY_WORKSPACE_TEXT, container=False)
-                                            return
-
-                                        task_root = _task_root_path(current_task_id, session_store)
-                                        if task_root is None:
-                                            gr.Markdown(_EMPTY_WORKSPACE_TEXT, container=False)
-                                            return
-
-                                        catalog = list(workspace_catalog or [])
-                                        report_path = next(
-                                            (
-                                                str(item.get("source_path"))
-                                                for item in catalog
-                                                if item.get("origin") == "report"
-                                            ),
-                                            None,
-                                        )
-                                        visible_files = [item for item in catalog if item.get("origin") != "report"]
-                                        report_path_state = gr.State(report_path)
-
-                                        if report_path:
-                                            open_report_button = gr.Button(
-                                                "report.md",
-                                                variant="primary" if current_selected_file == report_path else "secondary",
-                                            )
-                                            open_report_button.click(
-                                                _open_report_file,
-                                                [report_path_state, active_task_state],
-                                                [
-                                                    selected_file_state,
-                                                    preview_header,
-                                                    preview_markdown,
-                                                    preview_image,
-                                                    preview_table,
-                                                    preview_code,
-                                                    preview_empty,
-                                                    download_button,
-                                                ],
-                                                queue=False,
-                                                show_progress="hidden",
-                                            )
-
-                                        sandbox_root = task_root / "sandbox"
-                                        if visible_files:
-                                            workspace_browser = gr.FileExplorer(
-                                                root_dir=str(sandbox_root),
-                                                file_count="single",
-                                                label="Files",
-                                                height=520,
-                                                interactive=True,
-                                                value=_workspace_tree_value(
-                                                    current_selected_file,
-                                                    task_root=task_root,
-                                                ),
-                                                key=("workspace-browser", current_task_id),
-                                                preserved_by_key=[],
-                                                container=False,
-                                            )
-                                            workspace_browser.change(
-                                                _on_workspace_file_selected,
-                                                [workspace_browser, active_task_state],
-                                                [
-                                                    selected_file_state,
-                                                    preview_header,
-                                                    preview_markdown,
-                                                    preview_image,
-                                                    preview_table,
-                                                    preview_code,
-                                                    preview_empty,
-                                                    download_button,
-                                                ],
-                                                queue=False,
-                                                show_progress="hidden",
-                                            )
-                                        elif not report_path:
-                                            gr.Markdown(_EMPTY_WORKSPACE_TEXT, container=False)
+                                    workspace_target_file = gr.Textbox(
+                                        value="",
+                                        visible="hidden",
+                                        container=False,
+                                        elem_id="hf-workspace-target-file",
+                                    )
+                                    workspace_open_trigger = gr.Button(
+                                        "Open workspace file",
+                                        visible="hidden",
+                                        elem_id="hf-workspace-open-trigger",
+                                    )
 
                                 with gr.Column(scale=6, min_width=0, elem_classes=["hf-preview-pane"]):
                                     preview_header = gr.Markdown(value="### Preview", container=False)
@@ -2252,12 +2673,16 @@ def launch_web_app(
             browser_task_id,
             active_task_state,
             task_header,
-            workspace_catalog_state,
-            selected_file_state,
-            history_entries_state,
-            history_action_state,
-            history_render_token,
+            history_list,
+            history_action_panel,
+            history_action_heading,
+            rename_input,
+            save_title_button,
+            confirm_delete_button,
+            cancel_action_button,
             history_notice,
+            workspace_browser,
+            selected_file_state,
             preview_header,
             preview_markdown,
             preview_image,
@@ -2283,6 +2708,12 @@ def launch_web_app(
             app_outputs,
             queue=False,
             show_progress="hidden",
+        ).then(
+            lambda: _detail_panel_updates("workspace"),
+            None,
+            [workspace_panel_button, advanced_panel_button, workspace_panel, advanced_panel],
+            queue=False,
+            show_progress="hidden",
         )
 
         prompt_input.submit(
@@ -2291,11 +2722,91 @@ def launch_web_app(
                 prompt_input,
                 main_chatbot,
                 trace_chatbot,
+                browser_task_id,
                 active_task_state,
                 report_requested,
                 selected_file_state,
             ],
             app_outputs,
         )
+
+        history_open_trigger.click(
+            _switch_task,
+            [history_target_task],
+            app_outputs,
+            queue=False,
+            show_progress="hidden",
+        )
+        history_rename_trigger.click(
+            _start_history_rename,
+            [
+                history_target_task,
+                active_task_state,
+                selected_file_state,
+            ],
+            app_outputs,
+            queue=False,
+            show_progress="hidden",
+        )
+        history_delete_trigger.click(
+            _start_history_delete,
+            [
+                history_target_task,
+                active_task_state,
+                selected_file_state,
+            ],
+            app_outputs,
+            queue=False,
+            show_progress="hidden",
+        )
+        save_title_button.click(
+            _rename_task_from_history,
+            [
+                rename_input,
+                history_target_task,
+                active_task_state,
+                selected_file_state,
+            ],
+            app_outputs,
+            queue=False,
+            show_progress="hidden",
+        )
+        confirm_delete_button.click(
+            _delete_task_from_history,
+            [
+                history_target_task,
+                active_task_state,
+                selected_file_state,
+            ],
+            app_outputs,
+            queue=False,
+            show_progress="hidden",
+        )
+        cancel_action_button.click(
+            _cancel_history_action,
+            [
+                active_task_state,
+                selected_file_state,
+            ],
+            app_outputs,
+            queue=False,
+            show_progress="hidden",
+        )
+        workspace_open_trigger.click(
+            _on_workspace_file_selected,
+            [workspace_target_file, active_task_state],
+            [
+                selected_file_state,
+                preview_header,
+                preview_markdown,
+                preview_image,
+                preview_table,
+                preview_code,
+                preview_empty,
+                download_button,
+            ],
+            queue=False,
+            show_progress="hidden",
+        )
     demo.queue()
-    demo.launch(server_name=server_name, server_port=server_port, share=share)
+    demo.launch(server_name=server_name, server_port=server_port, share=share, allowed_paths=allowed_paths)
