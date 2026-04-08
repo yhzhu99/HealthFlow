@@ -54,8 +54,6 @@ const activeBenchmarkId = computed<BenchmarkId | null>(() => {
   return (benchmarks.value[0]?.id as BenchmarkId | undefined) ?? null
 })
 
-const activeBenchmark = computed(() => benchmarks.value.find((benchmark) => benchmark.id === activeBenchmarkId.value) ?? null)
-
 const benchmarkQuestions = computed(() => {
   if (!snapshot.value || !activeBenchmarkId.value) return []
   return snapshot.value.questions.filter((question) => question.datasetId === activeBenchmarkId.value)
@@ -412,11 +410,11 @@ npm run dev</code></pre>
       </AppCard>
     </div>
 
-    <div v-else class="space-y-4 pt-4 sm:pt-5">
-      <AppCard class="!p-4 border-slate-200/80 bg-white/86">
-        <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+    <div v-else class="space-y-3 pt-3 sm:pt-4">
+      <AppCard class="!p-3 border-slate-200/80 bg-white/88">
+        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div class="flex flex-wrap items-center gap-2">
-            <div class="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold tracking-[0.18em] text-sky-700 uppercase">
+            <div class="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[10px] font-semibold tracking-[0.18em] text-sky-700 uppercase">
               Human Evaluation
             </div>
 
@@ -424,7 +422,7 @@ npm run dev</code></pre>
               v-for="benchmark in benchmarks"
               :key="benchmark.id"
               type="button"
-              class="rounded-full px-4 py-2 text-sm font-semibold transition"
+              class="rounded-full px-3 py-1.5 text-sm font-semibold transition"
               :class="
                 activeBenchmarkId === benchmark.id
                   ? 'border border-slate-900 bg-slate-950 text-white shadow-sm'
@@ -442,22 +440,18 @@ npm run dev</code></pre>
               v-model="reviewerDraft"
               type="text"
               placeholder="reviewer_id"
-              class="min-w-[176px] rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-950"
+              class="min-w-[168px] rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-950"
             />
             <AppButton variant="secondary" @click="activateReviewer()">Switch Reviewer</AppButton>
             <AppButton @click="exportResponses">Export JSON</AppButton>
           </div>
         </div>
-
-        <p v-if="activeBenchmark" class="mt-3 text-xs leading-6 text-slate-500">
-          {{ activeBenchmark.description }}
-        </p>
       </AppCard>
 
       <template v-if="reviewerState && currentQuestion">
-        <div class="grid gap-4 xl:grid-cols-[176px_minmax(0,1fr)_300px] 2xl:grid-cols-[188px_minmax(0,1fr)_320px]">
-          <AppCard class="!p-4 border-slate-200/80 bg-white/86 xl:sticky xl:top-20 xl:self-start">
-            <div class="space-y-4">
+        <div class="grid gap-3 xl:grid-cols-[136px_minmax(0,1fr)_280px] 2xl:grid-cols-[144px_minmax(0,1fr)_292px]">
+          <AppCard class="!p-3 border-slate-200/80 bg-white/88 xl:sticky xl:top-20 xl:self-start">
+            <div class="space-y-3">
               <div class="space-y-2">
                 <div class="flex items-center justify-between text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
                   <span>Progress</span>
@@ -474,12 +468,12 @@ npm run dev</code></pre>
                   <span>{{ currentQuestionIndex + 1 }}/{{ benchmarkQuestions.length }}</span>
                 </div>
 
-                <div class="grid grid-cols-4 gap-2">
+                <div class="grid grid-cols-3 gap-1.5">
                   <button
                     v-for="(question, index) in benchmarkQuestions"
                     :key="question.id"
                     type="button"
-                    class="rounded-xl px-0 py-2.5 text-sm font-semibold transition"
+                    class="rounded-xl px-0 py-2 text-sm font-semibold transition"
                     :class="
                       question.id === currentQuestion.id
                         ? 'bg-slate-950 text-white'
@@ -496,8 +490,8 @@ npm run dev</code></pre>
             </div>
           </AppCard>
 
-          <AppCard class="!p-4 border-slate-200/80 bg-white/86">
-            <div class="space-y-4">
+          <AppCard class="!p-3 border-slate-200/80 bg-white/88">
+            <div class="space-y-3">
               <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                 <span class="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-900">
                   {{ currentQuestion.datasetLabel }} · Q{{ currentQuestion.qid }}
@@ -507,11 +501,11 @@ npm run dev</code></pre>
                 <span v-if="currentQuestion.paperTitle">{{ currentQuestion.paperTitle }}</span>
               </div>
 
-              <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_272px]">
+              <div class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_240px] 2xl:grid-cols-[minmax(0,1fr)_256px]">
                 <div class="prose prose-slate max-w-none" v-html="renderedTask" />
 
-                <div class="space-y-3">
-                  <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
+                <div class="space-y-2.5">
+                  <div class="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-3">
                     <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Expected Outputs</div>
                     <div class="mt-3 flex flex-wrap gap-2">
                       <template v-if="currentQuestion.expectedOutputs.length">
@@ -535,7 +529,7 @@ npm run dev</code></pre>
 
                   <div
                     v-if="currentQuestion.reportRequirements.length"
-                    class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4"
+                    class="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-3"
                   >
                     <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Report Requirements</div>
                     <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
@@ -548,19 +542,19 @@ npm run dev</code></pre>
                 </div>
               </div>
 
-              <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Compare</div>
-                <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-600">
                   {{ frameworkCandidates.length }} frameworks + reference
                 </div>
               </div>
 
-              <div class="flex flex-wrap gap-2">
+              <div class="flex flex-wrap gap-1.5">
                 <button
                   v-for="tab in compareTabs"
                   :key="tab.key"
                   type="button"
-                  class="rounded-full border px-3 py-2 text-sm font-semibold transition"
+                  class="rounded-full border px-3 py-1.5 text-sm font-semibold transition"
                   :class="
                     activeCompareKey === tab.key
                       ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
@@ -575,7 +569,7 @@ npm run dev</code></pre>
               <template v-if="activeCompareTab">
                 <div
                   v-if="activeCompareTab.kind === 'framework' && activeFrameworkCandidate"
-                  class="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4"
+                  class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3"
                 >
                   <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                     <span class="rounded-full bg-white px-3 py-1 font-semibold text-slate-900">
@@ -598,7 +592,7 @@ npm run dev</code></pre>
 
                 <div
                   v-else
-                  class="rounded-[1.4rem] border border-slate-200 bg-slate-50/80 p-4"
+                  class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3"
                 >
                   <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                     <span class="rounded-full bg-white px-3 py-1 font-semibold text-slate-900">Reference</span>
@@ -612,7 +606,7 @@ npm run dev</code></pre>
                 </div>
 
                 <div v-if="activeCompareTab.kind === 'framework' && activeFrameworkCandidate" class="space-y-4">
-                  <div class="prose prose-slate max-w-none rounded-[1.4rem] border border-slate-200 bg-white px-5 py-4" v-html="renderedActiveAnswer" />
+                  <div class="prose prose-slate max-w-none rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3" v-html="renderedActiveAnswer" />
 
                   <ArtifactViewer
                     :artifacts="activeFrameworkCandidate.artifacts"
@@ -623,13 +617,13 @@ npm run dev</code></pre>
                 <div v-else class="space-y-4">
                   <div
                     v-if="currentQuestion.reference.text"
-                    class="prose prose-slate max-w-none rounded-[1.4rem] border border-slate-200 bg-white px-5 py-4"
+                    class="prose prose-slate max-w-none rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3"
                     v-html="renderedReferenceText"
                   />
 
                   <div
                     v-if="currentQuestion.reference.requiredOutputs.length"
-                    class="rounded-[1.4rem] border border-slate-200 bg-slate-50 p-4"
+                    class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-3"
                   >
                     <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Reference Deliverables</div>
                     <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
@@ -654,18 +648,18 @@ npm run dev</code></pre>
             </div>
           </AppCard>
 
-          <AppCard class="!p-4 border-slate-200/80 bg-white/86 xl:sticky xl:top-20 xl:self-start">
-            <div class="space-y-4">
+          <AppCard class="!p-3 border-slate-200/80 bg-white/88 xl:sticky xl:top-20 xl:self-start">
+            <div class="space-y-3">
               <div class="flex items-center justify-between gap-3">
                 <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Decision</div>
                 <div class="text-xs font-semibold text-slate-900">{{ currentSelectionLabel }}</div>
               </div>
 
-              <div class="grid gap-2">
-                <div class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-600">
+              <div class="flex flex-wrap gap-2">
+                <div class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-6 text-slate-600">
                   Reviewer <span class="font-semibold text-slate-900">{{ reviewerState.reviewerId }}</span>
                 </div>
-                <div class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-600">
+                <div class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-6 text-slate-600">
                   Progress <span class="font-semibold text-slate-900">{{ answeredIds.size }}/{{ benchmarkQuestions.length }}</span>
                 </div>
               </div>
@@ -675,7 +669,7 @@ npm run dev</code></pre>
                   v-for="item in frameworkCandidates"
                   :key="item.candidate.runId"
                   type="button"
-                  class="w-full rounded-[1rem] border px-3 py-2.5 text-left transition"
+                  class="w-full rounded-[1rem] border px-3 py-2 text-left transition"
                   :class="
                     draftChoice === item.candidate.runId
                       ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
@@ -691,7 +685,7 @@ npm run dev</code></pre>
 
                 <button
                   type="button"
-                  class="w-full rounded-[1rem] border px-3 py-2.5 text-left text-sm font-semibold transition"
+                  class="w-full rounded-[1rem] border px-3 py-2 text-left text-sm font-semibold transition"
                   :class="
                     draftChoice === 'none'
                       ? 'border-rose-600 bg-rose-600 text-white shadow-sm'
@@ -705,8 +699,8 @@ npm run dev</code></pre>
 
               <textarea
                 v-model="draftNote"
-                rows="6"
-                placeholder="Optional note"
+                rows="5"
+                placeholder="Quick note"
                 class="w-full rounded-[1rem] border border-slate-200 bg-white px-3 py-3 text-sm leading-7 text-slate-900 outline-none transition focus:border-slate-950"
               />
 
