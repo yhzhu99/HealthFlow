@@ -3,9 +3,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from loguru import logger
 from pydantic import ValidationError
 
 from healthflow.core.config import get_config
+from healthflow.core.config import setup_logging
 from healthflow.core.config import SystemConfig
 from healthflow.execution.cli_adapters import CLISubprocessExecutor, ClaudeCodeExecutor, CodexExecutor, PiExecutor
 from healthflow.execution.factory import create_executor_adapter
@@ -54,6 +56,41 @@ model_name = "model"
             self.assertEqual(config.environment.python_version, "3.12")
             self.assertEqual(config.environment.package_manager, "uv")
             self.assertEqual(config.memory.write_policy, "append")
+
+    def test_setup_logging_resolves_relative_log_file_under_workspace_root(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_root = Path(tmpdir) / "workspace"
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                f"""
+[llm.test]
+api_key = "key"
+base_url = "https://example.com/v1"
+model_name = "model"
+
+[runtime]
+planner_llm = "test"
+evaluator_llm = "test"
+reflector_llm = "test"
+executor_llm = "test"
+
+[system]
+workspace_dir = "{workspace_root / 'tasks'}"
+
+[logging]
+log_file = "healthflow.log"
+""".strip(),
+                encoding="utf-8",
+            )
+            config = self._get_config(config_path)
+
+            setup_logging(config)
+            logger.info("workspace scoped log line")
+            logger.complete()
+            logger.remove()
+
+            self.assertTrue((workspace_root / "healthflow.log").exists())
+            self.assertFalse((Path(tmpdir) / "healthflow.log").exists())
 
     def test_default_backend_uses_opencode_executor(self):
         with tempfile.TemporaryDirectory() as tmpdir:

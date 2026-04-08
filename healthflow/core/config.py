@@ -300,6 +300,17 @@ class HealthFlowConfig(BaseModel):
             raise ValueError(f"Unsupported LLM role '{role}'. Expected one of: {', '.join(mapping)}.")
         return self.llm_registry[mapping[role]]
 
+    @property
+    def workspace_root(self) -> Path:
+        return Path(self.system.workspace_dir).parent
+
+    @property
+    def resolved_log_file(self) -> Path:
+        log_path = Path(self.logging.log_file)
+        if log_path.is_absolute():
+            return log_path
+        return self.workspace_root / log_path
+
 
 def _resolve_llm_provider_config(provider_name: str, provider_config: dict) -> LLMProviderConfig:
     resolved_config = dict(provider_config)
@@ -474,10 +485,12 @@ def get_config(
 
 def setup_logging(config: HealthFlowConfig, console_log_level: str | None = None):
     """Configures the Loguru logger based on the loaded configuration."""
+    log_path = config.resolved_log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     logger.remove()
     logger.add(sys.stderr, level=(console_log_level or "WARNING").upper())
     logger.add(
-        config.logging.log_file,
+        log_path,
         level=config.logging.log_level.upper(),
         rotation="10 MB",
         retention="7 days",
