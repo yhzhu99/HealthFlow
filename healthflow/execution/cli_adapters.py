@@ -28,7 +28,7 @@ class CLISubprocessExecutor(ExecutorAdapter):
         prompt_text = context.render_prompt()
         artifact_dir = context.executor_artifact_dir
         prompt_file_path = self._write_prompt_file(working_dir, prompt_text, artifact_dir=artifact_dir)
-        environment = self._build_environment(working_dir)
+        environment = self._materialize_environment(self._build_environment(working_dir), working_dir)
         command_args = self._build_command(prompt_text)
         redacted_command_args = self._redacted_command(command_args, prompt_text)
         backend_version = await self._capture_backend_version(environment)
@@ -283,6 +283,9 @@ class CLISubprocessExecutor(ExecutorAdapter):
     def _prepare_environment(self, environment: dict[str, str], working_dir: Path) -> dict[str, str]:
         return environment
 
+    def _materialize_environment(self, environment: dict[str, str], working_dir: Path) -> dict[str, str]:
+        return environment
+
     def _default_usage(
         self,
         prompt_text: str,
@@ -465,7 +468,7 @@ class OpenCodeExecutor(CLISubprocessExecutor):
         prompt_text = context.render_prompt()
         artifact_dir = context.executor_artifact_dir
         prompt_file_path = self._write_prompt_file(working_dir, prompt_text, artifact_dir=artifact_dir)
-        environment = self._build_environment(working_dir)
+        environment = self._materialize_environment(self._build_environment(working_dir), working_dir)
         command_args = self._build_command(prompt_text)
         redacted_command_args = self._redacted_command(command_args, prompt_text)
         backend_version = await self._capture_backend_version(environment)
@@ -689,15 +692,33 @@ class OpenCodeExecutor(CLISubprocessExecutor):
 
 class PiExecutor(CLISubprocessExecutor):
     def _prepare_environment(self, environment: dict[str, str], working_dir: Path) -> dict[str, str]:
-        provider_name = self._resolved_provider() or "zenmux"
         model_name = self._resolved_model_name()
         if not model_name:
             raise ValueError(f"Backend '{self.backend_name}' requires a resolved model name.")
 
-        agent_dir = working_dir / ".healthflow_pi_agent"
+        environment = dict(environment)
+        environment["PI_CODING_AGENT_DIR"] = str(self._agent_dir(working_dir))
+        return environment
+
+    def _materialize_environment(self, environment: dict[str, str], working_dir: Path) -> dict[str, str]:
+        agent_dir = Path(environment.get("PI_CODING_AGENT_DIR") or self._agent_dir(working_dir))
         agent_dir.mkdir(parents=True, exist_ok=True)
         models_path = agent_dir / "models.json"
-        models_config = {
+        models_path.write_text(json.dumps(self._models_config(), indent=2), encoding="utf-8")
+
+        environment = dict(environment)
+        environment["PI_CODING_AGENT_DIR"] = str(agent_dir)
+        return environment
+
+    def _agent_dir(self, working_dir: Path) -> Path:
+        return working_dir / ".healthflow_pi_agent"
+
+    def _models_config(self) -> dict[str, Any]:
+        provider_name = self._resolved_provider() or "zenmux"
+        model_name = self._resolved_model_name()
+        if not model_name:
+            raise ValueError(f"Backend '{self.backend_name}' requires a resolved model name.")
+        return {
             "providers": {
                 provider_name: {
                     "baseUrl": self.backend_config.provider_base_url or "https://zenmux.ai/api/v1",
@@ -726,8 +747,3 @@ class PiExecutor(CLISubprocessExecutor):
                 }
             }
         }
-        models_path.write_text(json.dumps(models_config, indent=2), encoding="utf-8")
-
-        environment = dict(environment)
-        environment["PI_CODING_AGENT_DIR"] = str(agent_dir)
-        return environment
