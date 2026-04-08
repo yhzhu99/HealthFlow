@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { evaluationSnapshotUrl, loadEvaluationSnapshot } from '../src/lib/snapshot'
+import { embeddedEvaluationSnapshot, evaluationSnapshotUrl, loadEvaluationSnapshot } from '../src/lib/snapshot'
 
 const originalFetch = globalThis.fetch
 
@@ -67,6 +67,20 @@ describe('snapshot loader', () => {
 
     expect(snapshot).toBeNull()
     expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('can fall back to the embedded dev snapshot immediately when forced', async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error('Network should not block local bootstrap')
+    }) as typeof fetch
+
+    const snapshot = await loadEvaluationSnapshot({
+      embeddedFallbackDelayMs: 0,
+      forceEmbeddedFallback: true,
+      retries: 0,
+    })
+
+    expect(snapshot?.snapshotVersion).toBe(embeddedEvaluationSnapshot.snapshotVersion)
   })
 
   it('surfaces a timeout instead of hanging forever', async () => {

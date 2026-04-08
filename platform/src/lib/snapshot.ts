@@ -1,14 +1,20 @@
 import type { EvaluationSnapshot } from '../domain/evaluation'
+import embeddedEvaluationSnapshotJson from '../content/demo-evaluation.snapshot.json'
 import { toBasePath } from './assets'
 
 const DEFAULT_TIMEOUT_MS = 8000
 const DEFAULT_RETRIES = 1
 const DEFAULT_RETRY_DELAY_MS = 350
+const DEFAULT_EMBEDDED_FALLBACK_DELAY_MS = 1500
+
+export const embeddedEvaluationSnapshot = embeddedEvaluationSnapshotJson as EvaluationSnapshot
 
 export interface LoadEvaluationSnapshotOptions {
   timeoutMs?: number
   retries?: number
   retryDelayMs?: number
+  embeddedFallbackDelayMs?: number
+  forceEmbeddedFallback?: boolean
 }
 
 export const evaluationSnapshotUrl = () => toBasePath('data/evaluation.snapshot.json')
@@ -19,6 +25,16 @@ export const toPublicAssetUrl = (relativePath: string) => {
 }
 
 const delay = async (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+export const isEmbeddedSnapshotPreferred = (forceEmbeddedFallback = false) => {
+  if (forceEmbeddedFallback) return true
+  const runtimeLocation =
+    typeof globalThis === 'object' && 'location' in globalThis
+      ? (globalThis as typeof globalThis & { location?: { hostname?: string } }).location
+      : undefined
+
+  return ['localhost', '127.0.0.1'].includes(runtimeLocation?.hostname ?? '')
+}
 
 const fetchSnapshotResponse = async (url: string, timeoutMs: number) => {
   const controller = new AbortController()
@@ -40,7 +56,7 @@ const fetchSnapshotResponse = async (url: string, timeoutMs: number) => {
   }
 }
 
-export const loadEvaluationSnapshot = async (
+export const loadLiveEvaluationSnapshot = async (
   options: LoadEvaluationSnapshotOptions = {},
 ): Promise<EvaluationSnapshot | null> => {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -76,4 +92,34 @@ export const loadEvaluationSnapshot = async (
   }
 
   throw lastError ?? new Error(`Failed to load evaluation snapshot (${url})`)
+}
+
+export const loadEvaluationSnapshot = async (
+  options: LoadEvaluationSnapshotOptions = {},
+): Promise<EvaluationSnapshot | null> => {
+  const embeddedFallbackDelayMs = options.embeddedFallbackDelayMs ?? DEFAULT_EMBEDDED_FALLBACK_DELAY_MS
+  const allowEmbeddedFallback = isEmbeddedSnapshotPreferred(options.forceEmbeddedFallback)
+
+  if (!allowEmbeddedFallback) {
+    return await loadLiveEvaluationSnapshot(options)
+  }
+
+  const liveResultPromise = loadLiveEvaluationSnapshot(options)
+    .then((snapshot) => ({ kind: 'live' as const, snapshot }))
+    .catch((error) => ({ kind: 'error' as const, error }))
+
+  const racedResult = await Promise.race([
+    liveResultPromise,
+    delay(embeddedFallbackDelayMs).then(() => ({ kind: 'embedded' as const })),
+  ])
+
+  if (racedResult.kind === 'live') {
+    return racedResult.snapshot
+  }
+
+  if (racedResult.kind === 'embedded') {
+    return embeddedEvaluationSnapshot
+  }
+
+  return embeddedEvaluationSnapshot
 }

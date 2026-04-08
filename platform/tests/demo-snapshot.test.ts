@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 describe('demo snapshot', () => {
   it('ships a committed mock snapshot with two demo questions and six framework baselines per benchmark', () => {
-    const snapshotPath = path.resolve(process.cwd(), 'public/data/evaluation.snapshot.json')
+    const snapshotPath = path.resolve(process.cwd(), 'src/content/demo-evaluation.snapshot.json')
     const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8'))
 
     expect(snapshot.snapshotVersion).toBe('healthflow-demo-v3')

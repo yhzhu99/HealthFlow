@@ -9,7 +9,7 @@ The home page is the single paper-facing surface. It now includes the full proje
 
 ## Demo Evaluation
 
-The repo now ships a committed mock snapshot at `public/data/evaluation.snapshot.json`, so the Evaluation page works immediately without any local benchmark outputs.
+The repo now ships a committed mock snapshot at `src/content/demo-evaluation.snapshot.json`, so the Evaluation page boots immediately in local development without requiring any generated public snapshot.
 
 Current demo payload:
 
@@ -30,7 +30,7 @@ npm run snapshot
 npm run dev
 ```
 
-The snapshot builder reads local processed benchmark files plus `benchmark_results/**/<qid>/` and writes frontend-ready assets under `public/data/` and `public/evaluation-assets/`.
+The snapshot builder reads local processed benchmark files plus `benchmark_results/**/<qid>/` and writes a live override snapshot under `public/data/` together with frontend-ready files under `public/evaluation-assets/`.
 
 ## Verification
 

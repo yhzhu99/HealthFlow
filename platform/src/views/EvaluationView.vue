@@ -19,7 +19,13 @@ import {
 } from '../domain/evaluation'
 import { downloadJson } from '../lib/download'
 import { renderMarkdown } from '../lib/markdown'
-import { evaluationSnapshotUrl, loadEvaluationSnapshot } from '../lib/snapshot'
+import {
+  embeddedEvaluationSnapshot,
+  evaluationSnapshotUrl,
+  isEmbeddedSnapshotPreferred,
+  loadEvaluationSnapshot,
+  loadLiveEvaluationSnapshot,
+} from '../lib/snapshot'
 import { readJson, writeJson } from '../lib/storage'
 
 const LAST_REVIEWER_KEY = 'healthflow:evaluation:last-reviewer'
@@ -371,23 +377,39 @@ const reloadPage = () => {
   window.location.reload()
 }
 
+const applySnapshot = (loadedSnapshot: EvaluationSnapshot | null) => {
+  snapshot.value = loadedSnapshot
+  if (loadedSnapshot) {
+    activateReviewer(reviewerDraft.value)
+  }
+}
+
 const loadSnapshot = async () => {
   const requestId = ++loadRequestId
   loading.value = true
   loadError.value = null
   loadAttemptCount.value += 1
+  const shouldBootstrapEmbedded = isEmbeddedSnapshotPreferred()
+
+  if (shouldBootstrapEmbedded) {
+    applySnapshot(embeddedEvaluationSnapshot)
+    loading.value = false
+  }
 
   try {
-    const loadedSnapshot = await loadEvaluationSnapshot()
+    const loadedSnapshot = shouldBootstrapEmbedded ? await loadLiveEvaluationSnapshot() : await loadEvaluationSnapshot()
     if (requestId !== loadRequestId) return
 
-    snapshot.value = loadedSnapshot
     if (loadedSnapshot) {
-      activateReviewer(reviewerDraft.value)
+      applySnapshot(loadedSnapshot)
+    } else if (!snapshot.value) {
+      applySnapshot(null)
     }
   } catch (caughtError) {
     if (requestId !== loadRequestId) return
-    loadError.value = caughtError instanceof Error ? caughtError.message : String(caughtError)
+    if (!shouldBootstrapEmbedded) {
+      loadError.value = caughtError instanceof Error ? caughtError.message : String(caughtError)
+    }
   } finally {
     if (requestId !== loadRequestId) return
     loading.value = false
