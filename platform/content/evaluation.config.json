@@ -1,0 +1,57 @@
+{
+  "snapshotVersion": "healthflow-eval-v1",
+  "site": {
+    "title": "HealthFlow Platform",
+    "reviewerExportKeyPrefix": "healthflow:evaluation"
+  },
+  "datasets": [
+    {
+      "id": "medagentboard",
+      "label": "MedAgentBoard",
+      "description": "Workflow-grounded EHR benchmark with artifact-heavy outputs such as figures, tables, and structured files.",
+      "taskSource": "../data/medagentboard/processed/test.jsonl",
+      "referenceRoot": "../data/medagentboard/processed",
+      "split": "test",
+      "selectedQids": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      "artifactPreferences": ["report.md", "answer.json", "metrics.json", "figures", "images", "plot", ".png", ".csv"],
+      "runs": [
+        {
+          "id": "healthflow-opencode",
+          "label": "HealthFlow / OpenCode",
+          "modelId": "healthflow-opencode",
+          "sourceResultsDir": "../benchmark_results/medagentboard/opencode/openai__gpt-5.4"
+        },
+        {
+          "id": "healthflow-codex",
+          "label": "HealthFlow / Codex",
+          "modelId": "healthflow-codex",
+          "sourceResultsDir": "../benchmark_results/medagentboard/codex/openai__gpt-5.4"
+        }
+      ]
+    },
+    {
+      "id": "ehrflowbench",
+      "label": "EHRFlowBench",
+      "description": "Paper-inspired report-generation benchmark that culminates in markdown or PDF reports plus analytical evidence.",
+      "taskSource": "../data/ehrflowbench/processed/test.jsonl",
+      "referenceRoot": "../data/ehrflowbench/processed",
+      "split": "test",
+      "selectedQids": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      "artifactPreferences": ["runtime/report.md", "report.md", ".pdf", "figures", "tables", "metrics.json"],
+      "runs": [
+        {
+          "id": "healthflow-opencode",
+          "label": "HealthFlow / OpenCode",
+          "modelId": "healthflow-opencode",
+          "sourceResultsDir": "../benchmark_results/ehrflowbench/opencode/openai__gpt-5.4"
+        },
+        {
+          "id": "healthflow-codex",
+          "label": "HealthFlow / Codex",
+          "modelId": "healthflow-codex",
+          "sourceResultsDir": "../benchmark_results/ehrflowbench/codex/openai__gpt-5.4"
+        }
+      ]
+    }
+  ]
+}
