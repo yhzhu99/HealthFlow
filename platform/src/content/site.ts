@@ -1,8 +1,12 @@
 export const projectMeta = {
   name: 'HealthFlow',
   title: 'HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research',
-  subtitle:
-    'A unified project page and evaluation surface for artifact-centric healthcare agent research across MedAgentBoard and EHRFlowBench.',
+  eyebrow: 'Paper + Platform',
+  abstract: [
+    'HealthFlow is a research framework for self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop.',
+    'The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task runtime artifacts, and long-term reflective memory.',
+    'Dataset preparation and benchmark evaluation workflows can still live in the repository under data/, but they are intentionally decoupled from the healthflow/ runtime package.',
+  ],
   authors: [
     'Yinghao Zhu',
     'Yifan Qi',
@@ -19,51 +23,37 @@ export const projectMeta = {
   affiliations: ['Peking University', 'Zhejiang University', 'Tongji Medical College', 'Zhongnan Hospital of Wuhan University'],
   links: [
     {
-      label: 'Read Paper',
+      label: 'Paper',
       href: 'https://arxiv.org/abs/2508.02621',
       kind: 'primary' as const,
     },
     {
-      label: 'View Code',
+      label: 'Code',
       href: 'https://github.com/yhzhu99/HealthFlow',
       kind: 'secondary' as const,
     },
     {
-      label: 'Open Evaluation',
+      label: 'Evaluation',
       href: '/evaluation',
+      kind: 'ghost' as const,
+    },
+    {
+      label: 'Citation',
+      href: '#citation',
       kind: 'ghost' as const,
     },
   ],
   facts: [
     { label: 'Paper', value: 'arXiv 2508.02621' },
     { label: 'Runtime', value: 'Meta -> Executor -> Evaluator -> Reflector' },
-    { label: 'Benchmarks', value: 'MedAgentBoard + EHRFlowBench' },
+    { label: 'Benchmarks', value: '5 benchmark suites' },
+    { label: 'Demo Surface', value: 'MedAgentBoard + EHRFlowBench' },
   ],
 }
 
-export const heroSignals = [
-  {
-    title: 'Artifact-native review',
-    body: 'Plots, reports, CSVs, PDFs, and runtime deliverables remain visible after the run, so reviewers inspect evidence rather than only summaries.',
-  },
-  {
-    title: 'Two benchmark families',
-    body: 'MedAgentBoard emphasizes generated visual and structured artifacts, while EHRFlowBench emphasizes report-centric clinical analysis.',
-  },
-  {
-    title: 'One calm interface',
-    body: 'The platform stays intentionally small: one paper-facing project page and one evaluation workspace with dataset and framework tabs.',
-  },
-]
-
-export const abstractParagraphs = [
-  'HealthFlow is a self-evolving AI agent framework for autonomous healthcare research. Instead of treating execution as a one-shot chain, it keeps a narrow loop around planning, workspace execution, evaluation, and reflection so later tasks can benefit from earlier trajectories.',
-  'The platform here is designed as the paper-facing surface for the project. It brings together the framework narrative, benchmark setup, code and paper links, citation metadata, and a direct path into artifact review without splitting the story across several disconnected mini-sites.',
-]
-
 export const frameworkStages = [
   {
-    title: 'Meta agent',
+    title: 'Meta',
     description:
       'Retrieves safeguards, workflows, and dataset anchors, then emits a structured execution plan aligned with the current healthcare task family.',
   },
@@ -84,54 +74,68 @@ export const frameworkStages = [
   },
 ]
 
-export const benchmarkCards = [
+export const benchmarkSuites = [
   {
     title: 'MedAgentBoard',
-    eyebrow: 'Artifact-heavy workflow benchmark',
-    body: 'Task quality is tied to the produced image, table, and structured outputs. Reviewers should be able to render figures directly and inspect lightweight tabular evidence without leaving the page.',
-    bullets: ['Image rendering matters', 'CSV / JSON / markdown outputs matter', 'Frameworks can be compared side by side through fast tabs'],
+    category: 'Artifact-centric workflow benchmark',
+    body: 'Deterministic healthcare workflows with visible figures, tables, and structured artifacts.',
   },
   {
     title: 'EHRFlowBench',
-    eyebrow: 'Report-centric benchmark',
-    body: 'Paper-derived EHR projects are rebuilt into report-generation tasks. The key deliverable is a readable markdown report, with PDF preview when the export exists in the run artifacts.',
-    bullets: ['Markdown reports are first-class', 'PDF rendering is supported in the workspace', 'Manifest-style expectations are supported when no gold report is committed'],
+    category: 'Report-generation benchmark',
+    body: 'Paper-inspired EHR studies rebuilt into local report-generation tasks for TJH and MIMIC-IV-demo.',
+  },
+  {
+    title: 'MedAgentsBench',
+    category: 'Multi-choice benchmark',
+    body: '110 sampled questions spanning 10 medical QA sub-datasets.',
+  },
+  {
+    title: 'HLE',
+    category: 'Multi-choice benchmark',
+    body: '110 Biology/Medicine multiple-choice questions rebuilt from the HLE test set.',
+  },
+  {
+    title: 'CureBench',
+    category: 'Multi-choice benchmark',
+    body: '110 sampled multiple-choice questions filtered from the CureBench validation pool.',
   },
 ]
 
-export const resultHighlights = [
+export const featuredBenchmarks = [
   {
-    title: 'Lean runtime boundary',
-    body: 'Dataset preparation and benchmark-side evaluation stay separate from the core runtime, which keeps HealthFlow easier to reason about and audit.',
+    title: 'MedAgentBoard',
+    eyebrow: 'Artifact-heavy review surface',
+    body: 'MedAgentBoard focuses on outputs that need to be inspected directly: figures, tables, markdown summaries, and structured files. The platform keeps those artifacts visible so reviewers can judge the work itself instead of relying on a short final sentence.',
+    bullets: [
+      'Visualization, extraction, and structured-output tasks stay attached to their artifacts.',
+      'Reviewers can inspect image and CSV evidence without leaving the page.',
+      'Framework tabs make side-by-side baseline comparison a one-click action.',
+    ],
   },
   {
-    title: 'Inspectable evidence',
-    body: 'Each task leaves behind a short-paper-style report plus the concrete artifacts needed for rebuttal, benchmarking, and human review.',
-  },
-  {
-    title: 'Framework comparison',
-    body: 'The evaluation workspace can group multiple framework outputs under each benchmark so switching between baselines is a single click rather than a hidden config change.',
+    title: 'EHRFlowBench',
+    eyebrow: 'Paper-derived local rebuild',
+    body: 'EHRFlowBench turns paper-inspired EHR projects into repository-local report_generation tasks. The platform needs to explain both the benchmark intent and the rebuild process clearly, because the reference surface is a manifest-style local proxy rather than a copied paper leaderboard.',
+    bullets: [
+      'Generate intermediate task bundles from paper-derived prompts.',
+      'Infer dataset requirements, then sample a balanced 55 TJH + 55 MIMIC-IV-demo subset with seed 42.',
+      'Split the subset into 10 train tasks and 100 test tasks.',
+      'Write processed JSONL files plus manifest-only reference answers for expected deliverables.',
+    ],
   },
 ]
 
-export const resourceLinks = [
+export const citationLinks = [
   {
-    title: 'Paper',
+    label: 'Paper',
     href: 'https://arxiv.org/abs/2508.02621',
-    label: 'HealthFlow on arXiv',
-    body: 'Full paper abstract, metadata, citation record, and the latest public manuscript.',
+    body: 'Open the latest public manuscript on arXiv.',
   },
   {
-    title: 'Code',
+    label: 'Code',
     href: 'https://github.com/yhzhu99/HealthFlow',
-    label: 'GitHub Repository',
-    body: 'Runtime code, data workflows, benchmark assets, and the platform implementation live in the same repository.',
-  },
-  {
-    title: 'Evaluation',
-    href: '/evaluation',
-    label: 'Artifact Review Workspace',
-    body: 'Jump directly into the evaluation UI with simulated benchmark data and fast framework switching.',
+    body: 'Inspect the runtime, benchmark workflows, and this platform in one repository.',
   },
 ]
 
