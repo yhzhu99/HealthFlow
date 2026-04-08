@@ -10,6 +10,7 @@ from healthflow.session import HealthFlowProgressEvent, TaskSessionSummary, Task
 from healthflow.web_app import (
     WebTaskSessionStore,
     _artifact_preview_outputs,
+    _branding_header_html,
     _build_task_choices,
     _build_task_header,
     _default_selected_file,
@@ -203,6 +204,14 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("Last run: **success**", header)
         self.assertNotIn(task_id, header)
         self.assertNotIn("workspace/tasks", header)
+
+    def test_branding_header_html_is_user_facing(self):
+        header_html = _branding_header_html()
+
+        self.assertIn("Continue a task, switch across task history", header_html)
+        self.assertIn("Workspace-first AI", header_html)
+        self.assertNotIn("Mode:", header_html)
+        self.assertNotIn("task_id", header_html)
 
     def test_session_store_lists_custom_display_title(self):
         task = self.system.create_task_session("task-custom")

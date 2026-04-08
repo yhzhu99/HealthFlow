@@ -18,13 +18,77 @@ _MAIN_ASSISTANT_TEXT = (
 _TRACE_ASSISTANT_TEXT = "Advanced execution details for this task will appear here."
 _EMPTY_WORKSPACE_TEXT = "No workspace files yet."
 _EMPTY_PREVIEW_TEXT = "Select a file to preview it."
+_BRANDING_DIR = Path(__file__).resolve().parent.parent / "assets" / "branding"
 _WEB_APP_CSS = """
 .gradio-container {
     max-width: 100% !important;
+    padding: 0 1.25rem 1.25rem !important;
 }
 
 .hf-main {
-    min-height: calc(100vh - 7rem);
+    min-height: calc(100vh - 9rem);
+    gap: 1rem;
+}
+
+.hf-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    margin: 0 0 1rem;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid rgba(28, 168, 255, 0.14);
+    border-radius: 28px;
+    background: linear-gradient(135deg, #f4fbff 0%, #ecf8ff 54%, #ffffff 100%);
+}
+
+.hf-hero__brand {
+    flex: 0 0 auto;
+}
+
+.hf-hero__brand svg {
+    display: block;
+    width: min(100%, 320px);
+    height: auto;
+}
+
+.hf-hero__fallback {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    color: #102033;
+}
+
+.hf-hero__copy {
+    max-width: 38rem;
+}
+
+.hf-hero__eyebrow {
+    margin: 0 0 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #0b84db;
+}
+
+.hf-hero__summary {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.6;
+    color: #415166;
+}
+
+@media (max-width: 900px) {
+    .hf-hero {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .hf-main {
+        min-height: calc(100vh - 10rem);
+    }
 }
 """
 
@@ -145,6 +209,32 @@ def _task_title_text(client: TaskSessionClient, recent_tasks: Sequence[TaskSessi
 
 def _task_title(client: TaskSessionClient, recent_tasks: Sequence[TaskSessionSummary]) -> str:
     return _truncate_text(_task_title_text(client, recent_tasks))
+
+
+def _load_branding_svg(filename: str) -> str:
+    try:
+        return (_BRANDING_DIR / filename).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _branding_header_html() -> str:
+    logo_svg = _load_branding_svg("healthflow-logo.svg")
+    if logo_svg:
+        brand_markup = f'<div class="hf-hero__brand" aria-hidden="true">{logo_svg}</div>'
+    else:
+        brand_markup = '<p class="hf-hero__fallback">HealthFlow</p>'
+
+    return (
+        '<section class="hf-hero">'
+        f"{brand_markup}"
+        '<div class="hf-hero__copy">'
+        '<p class="hf-hero__eyebrow">Workspace-first AI</p>'
+        "<p class=\"hf-hero__summary\">Continue a task, switch across task history, and preview workspace files "
+        "without leaving the page.</p>"
+        "</div>"
+        "</section>"
+    )
 
 
 def _build_task_choices(recent_tasks: Sequence[TaskSessionSummary]) -> list[tuple[str, str]]:
@@ -780,13 +870,7 @@ def launch_web_app(
         workspace_catalog_state = gr.State([])
         selected_file_state = gr.State(None)
 
-        gr.Markdown(
-            """
-            # HealthFlow
-
-            Continue a task, review earlier work, and inspect files in the task workspace without leaving the page.
-            """
-        )
+        gr.HTML(_branding_header_html())
 
         with gr.Sidebar(label="History", open=True, width=360):
             recent_tasks = gr.Radio(
@@ -810,7 +894,7 @@ def launch_web_app(
             history_notice = gr.Markdown(visible=False)
 
         with gr.Row(elem_classes=["hf-main"]):
-            with gr.Column(scale=7, min_width=760):
+            with gr.Column(scale=7, min_width=620):
                 task_header = gr.Markdown()
                 main_chatbot = gr.Chatbot(
                     label="Conversation",
@@ -825,7 +909,7 @@ def launch_web_app(
                     placeholder="Describe the task or provide follow-up feedback. Upload files if needed.",
                     show_label=False,
                 )
-            with gr.Column(scale=5, min_width=760):
+            with gr.Column(scale=5, min_width=420):
                 with gr.Tabs():
                     with gr.Tab("Workspace"):
                         with gr.Row():
