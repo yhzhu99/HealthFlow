@@ -35,10 +35,10 @@ _DEMO_DIR = Path(__file__).resolve().parent.parent / "assets" / "demo"
 _RUN_STAGE_ORDER = ["memory", "planner", "executor", "evaluator", "reflection"]
 _RUN_STAGE_LABELS = {
     "memory": "Memory",
-    "planner": "Planner",
-    "executor": "Executor",
-    "evaluator": "Evaluator",
-    "reflection": "Reflection",
+    "planner": "Plan",
+    "executor": "Execute",
+    "evaluator": "Evaluate",
+    "reflection": "Reflect",
 }
 _DEMO_CASE = {
     "id": SHOWCASE_TASK_ID,
@@ -263,10 +263,10 @@ _WEB_APP_CSS = """
     --hf-danger-soft: rgba(185, 28, 28, 0.08);
     --hf-shadow-shell: none;
     --hf-shadow-soft: none;
-    --hf-radius-shell: 8px;
-    --hf-radius-panel: 6px;
-    --hf-radius-control: 4px;
-    --hf-radius-chip: 3px;
+    --hf-radius-shell: 6px;
+    --hf-radius-panel: 4px;
+    --hf-radius-control: 3px;
+    --hf-radius-chip: 2px;
 }
 
 html,
@@ -408,7 +408,7 @@ aside > div {
 
 .hf-task-header h2 {
     margin: 0;
-    font-size: 1.7rem;
+    font-size: 1.86rem;
     font-weight: 700;
     letter-spacing: -0.045em;
     color: var(--hf-text);
@@ -444,16 +444,16 @@ aside > div {
     align-items: center;
     justify-content: space-between;
     gap: 0.9rem;
-    padding: 0.78rem 0.85rem;
+    padding: 0.88rem 0.95rem;
     list-style: none;
     cursor: pointer;
     background: linear-gradient(180deg, rgba(230, 237, 243, 0.82) 0%, rgba(255, 255, 255, 0.22) 100%);
 }
 
 .hf-run-overview-eyebrow {
-    margin-bottom: 0.2rem;
+    margin-bottom: 0.24rem;
     color: var(--hf-text-muted);
-    font-size: 0.68rem;
+    font-size: 0.74rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -473,19 +473,19 @@ aside > div {
 
 .hf-run-overview-summary-line h3 {
     margin: 0;
-    font-size: 0.96rem;
+    font-size: 1.16rem;
     font-weight: 700;
     letter-spacing: -0.02em;
 }
 
 .hf-run-overview-status {
     flex: 0 0 auto;
-    padding: 0.18rem 0.42rem;
+    padding: 0.22rem 0.5rem;
     border: 1px solid var(--hf-border);
     border-radius: var(--hf-radius-chip);
     background: var(--hf-surface-contrast);
     color: var(--hf-text);
-    font-size: 0.64rem;
+    font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -494,41 +494,41 @@ aside > div {
 .hf-run-overview-stage,
 .hf-run-overview-toggle {
     flex: 0 0 auto;
-    padding: 0.18rem 0.42rem;
+    padding: 0.22rem 0.5rem;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: var(--hf-radius-chip);
     background: rgba(255, 255, 255, 0.86);
     color: var(--hf-text-muted);
-    font-size: 0.64rem;
+    font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
 }
 
 .hf-run-overview-detail {
-    padding: 0 0.85rem 0.85rem;
+    padding: 0 0.95rem 0.95rem;
     border-top: 1px solid var(--hf-border);
 }
 
 .hf-run-overview-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.55rem;
-    padding-top: 0.7rem;
+    gap: 0.62rem;
+    padding-top: 0.82rem;
 }
 
 .hf-run-overview-panel {
     min-width: 0;
-    padding: 0.7rem 0.72rem;
+    padding: 0.8rem 0.84rem;
     border: 1px solid var(--hf-border);
     border-radius: var(--hf-radius-control);
     background: rgba(244, 248, 251, 0.92);
 }
 
 .hf-run-overview-label {
-    margin-bottom: 0.32rem;
+    margin-bottom: 0.42rem;
     color: var(--hf-text-muted);
-    font-size: 0.66rem;
+    font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -536,23 +536,23 @@ aside > div {
 
 .hf-run-overview-objective {
     color: var(--hf-text);
-    font-size: 0.84rem;
+    font-size: 1.04rem;
     font-weight: 600;
     line-height: 1.5;
 }
 
 .hf-run-overview-note {
-    margin-top: 0.22rem;
+    margin-top: 0.3rem;
     color: var(--hf-text-muted);
-    font-size: 0.72rem;
-    line-height: 1.45;
+    font-size: 0.98rem;
+    line-height: 1.52;
 }
 
 .hf-stage-chip-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    padding-top: 0.72rem;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.42rem;
+    padding-top: 0.82rem;
 }
 
 .hf-stage-chip {
@@ -561,21 +561,22 @@ aside > div {
     justify-content: space-between;
     gap: 0.5rem;
     min-width: 0;
-    width: calc(20% - 0.28rem);
-    padding: 0.34rem 0.4rem;
+    width: auto;
+    min-height: 2.55rem;
+    padding: 0.48rem 0.56rem;
     border: 1px solid var(--hf-border);
     border-radius: var(--hf-radius-chip);
     background: #ffffff;
 }
 
 .hf-stage-chip-label {
-    font-size: 0.7rem;
+    font-size: 0.88rem;
     font-weight: 700;
 }
 
 .hf-stage-chip-state {
     color: var(--hf-text-muted);
-    font-size: 0.62rem;
+    font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -626,10 +627,10 @@ aside > div {
     display: flex;
     gap: 0.65rem;
     align-items: flex-start;
-    padding: 0.26rem 0;
+    padding: 0.32rem 0;
     color: var(--hf-text);
-    font-size: 0.76rem;
-    line-height: 1.45;
+    font-size: 0.9rem;
+    line-height: 1.5;
 }
 
 .hf-run-overview-list li + li,
@@ -641,7 +642,7 @@ aside > div {
     flex: 0 0 auto;
     min-width: 1.65rem;
     color: var(--hf-accent);
-    font-size: 0.64rem;
+    font-size: 0.76rem;
     font-weight: 700;
     letter-spacing: 0.06em;
 }
@@ -658,7 +659,7 @@ aside > div {
 
 .hf-starter-card h3 {
     margin: 0;
-    font-size: 1rem;
+    font-size: 1.14rem;
     font-weight: 700;
     letter-spacing: -0.025em;
 }
@@ -666,14 +667,14 @@ aside > div {
 .hf-starter-card p {
     margin: 0.28rem 0 0;
     color: var(--hf-text-muted);
-    font-size: 0.8rem;
-    line-height: 1.48;
+    font-size: 0.92rem;
+    line-height: 1.56;
 }
 
 .hf-starter-eyebrow {
     margin-bottom: 0.32rem;
     color: var(--hf-accent);
-    font-size: 0.68rem;
+    font-size: 0.74rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -684,8 +685,8 @@ aside > div {
     margin: 0.7rem 0 0;
     padding-left: 1rem;
     color: var(--hf-text);
-    font-size: 0.76rem;
-    line-height: 1.45;
+    font-size: 0.84rem;
+    line-height: 1.5;
 }
 
 .hf-starter-signals {
@@ -708,12 +709,12 @@ aside > div {
     display: inline-flex;
     align-items: center;
     min-width: 0;
-    padding: 0.26rem 0.46rem;
+    padding: 0.32rem 0.54rem;
     border: 1px solid var(--hf-border);
     border-radius: var(--hf-radius-chip);
     background: rgba(255, 255, 255, 0.92);
     color: var(--hf-text);
-    font-size: 0.7rem;
+    font-size: 0.78rem;
     line-height: 1.2;
 }
 
@@ -727,8 +728,9 @@ aside > div {
 }
 
 .hf-starter-button {
-    min-height: 2.8rem;
+    min-height: 2.95rem;
     border-radius: var(--hf-radius-control) !important;
+    font-size: 0.92rem;
     font-weight: 700;
     letter-spacing: -0.01em;
 }
@@ -939,8 +941,8 @@ aside > div {
 }
 
 .hf-browser-pane {
-    flex: 0 0 40%;
-    min-width: 10.25rem;
+    flex: 0 0 44%;
+    min-width: 12.75rem;
     overflow: hidden;
 }
 
@@ -1051,43 +1053,129 @@ aside > div {
 }
 
 .hf-tree-root {
-    gap: 0.25rem;
+    gap: 0.16rem;
+    padding: 0.08rem 0;
+}
+
+.hf-tree-folder,
+.hf-tree-file {
+    position: relative;
+    min-width: 0;
+}
+
+.hf-tree-folder::before,
+.hf-tree-file::before {
+    content: "";
+    position: absolute;
+    left: -0.42rem;
+    top: 0.38rem;
+    bottom: 0.38rem;
+    width: 1px;
+    background: rgba(15, 23, 42, 0.08);
+}
+
+.hf-tree-depth-0.hf-tree-folder::before,
+.hf-tree-depth-0.hf-tree-file::before {
+    display: none;
 }
 
 .hf-tree-folder {
-    margin-top: 0.36rem;
-    padding: 0.16rem 0.45rem;
-    color: #64748b;
-    font-size: 0.76rem;
+    display: flex;
+    align-items: center;
+    gap: 0.48rem;
+    min-height: 2rem;
+    padding: 0.34rem 0.1rem 0.18rem;
+    color: #334155;
+    font-size: 0.98rem;
     font-weight: 700;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
+    letter-spacing: -0.01em;
+    text-transform: none;
 }
 
 .hf-tree-file {
     display: flex;
-    flex-direction: column;
-    gap: 0.16rem;
-    padding: 0.54rem 0.64rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.55rem;
+    min-height: 2.28rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: var(--hf-radius-control);
+    background: rgba(255, 255, 255, 0);
+    cursor: pointer;
+    transition: border-color 140ms ease, background 140ms ease;
+}
+
+.hf-tree-file-main {
+    display: flex;
+    align-items: center;
+    gap: 0.48rem;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.hf-tree-node-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-width: 2.16rem;
+    height: 1.22rem;
+    padding: 0 0.3rem;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: var(--hf-radius-chip);
-    background: rgba(255, 255, 255, 0.96);
-    cursor: pointer;
+    background: rgba(248, 250, 252, 0.98);
+    color: #526171;
+    font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.hf-tree-node-badge.is-folder {
+    border-color: rgba(21, 90, 138, 0.14);
+    background: rgba(224, 238, 248, 0.9);
+    color: var(--hf-accent);
+}
+
+.hf-tree-node-badge.is-image {
+    border-color: rgba(37, 99, 235, 0.16);
+    background: rgba(239, 246, 255, 0.96);
+    color: #1d4ed8;
+}
+
+.hf-tree-node-badge.is-table {
+    border-color: rgba(5, 150, 105, 0.16);
+    background: rgba(236, 253, 245, 0.98);
+    color: #047857;
+}
+
+.hf-tree-node-badge.is-report,
+.hf-tree-node-badge.is-text {
+    border-color: rgba(100, 116, 139, 0.16);
+    background: rgba(248, 250, 252, 0.98);
+    color: #475569;
 }
 
 .hf-tree-file-name {
-    font-size: 0.82rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.96rem;
     font-weight: 600;
     line-height: 1.35;
     color: #0f172a;
-    word-break: break-word;
 }
 
 .hf-tree-file-meta {
-    font-size: 0.72rem;
-    line-height: 1.35;
+    flex: 0 0 auto;
     color: #64748b;
-    word-break: break-word;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: none;
 }
 
 .hf-tree-depth-0 {
@@ -1095,23 +1183,23 @@ aside > div {
 }
 
 .hf-tree-depth-1 {
-    margin-left: 0.85rem;
+    margin-left: 1.15rem;
 }
 
 .hf-tree-depth-2 {
-    margin-left: 1.7rem;
+    margin-left: 2.3rem;
 }
 
 .hf-tree-depth-3 {
-    margin-left: 2.55rem;
+    margin-left: 3.45rem;
 }
 
 .hf-tree-depth-4 {
-    margin-left: 3.4rem;
+    margin-left: 4.6rem;
 }
 
 .hf-tree-depth-5 {
-    margin-left: 4.25rem;
+    margin-left: 5.75rem;
 }
 
 .hf-workspace-folder {
@@ -1339,7 +1427,15 @@ aside > div {
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
     margin-left: auto;
-    max-width: min(88%, 42rem) !important;
+    max-width: min(76%, 46rem) !important;
+}
+
+.hf-chatbot :is(.user .panel-full-width, .panel-full-width.user) {
+    display: block !important;
+    width: fit-content !important;
+    max-width: min(76%, 46rem) !important;
+    margin-left: auto !important;
+    padding: 0 !important;
 }
 
 .hf-chatbot :is(.message, .panel-full-width),
@@ -1360,13 +1456,36 @@ aside > div {
     background: rgba(246, 249, 252, 0.98) !important;
 }
 
+.hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) :is(.prose, p, li, div, span, strong, em),
+.hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) :is(.prose, p, li, div, span, strong, em) {
+    font-size: 1.12rem !important;
+    line-height: 1.68 !important;
+}
+
+.hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) code,
+.hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) code {
+    font-size: 0.98rem !important;
+}
+
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
     border: 1px solid rgba(15, 23, 42, 0.06);
-    background: rgba(226, 236, 245, 0.7) !important;
+    background: linear-gradient(180deg, rgba(232, 238, 244, 0.96) 0%, rgba(245, 249, 252, 0.98) 100%) !important;
     color: var(--hf-text) !important;
 }
 
-.hf-chatbot :is(.user.message, .message.user, .user .message) :is(.prose, p, span, div, code, li, strong, em) {
+.hf-chatbot :is(.user .panel-full-width, .panel-full-width.user) {
+    border: 1px solid rgba(15, 23, 42, 0.06) !important;
+    background: linear-gradient(180deg, rgba(232, 238, 244, 0.96) 0%, rgba(245, 249, 252, 0.98) 100%) !important;
+    color: var(--hf-text) !important;
+}
+
+.hf-chatbot .message-row:has(:is(.user .panel-full-width, .panel-full-width.user)),
+.hf-chatbot .message-wrap:has(:is(.user .panel-full-width, .panel-full-width.user)),
+.hf-chatbot .bubble-wrap:has(:is(.user .panel-full-width, .panel-full-width.user)) {
+    background: transparent !important;
+}
+
+.hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) :is(.prose, p, span, div, code, li, strong, em) {
     color: var(--hf-text) !important;
 }
 
@@ -1378,7 +1497,7 @@ aside > div {
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: var(--hf-radius-panel);
     background: linear-gradient(180deg, rgba(244, 248, 251, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
-    padding: 0.72rem 0.78rem;
+    padding: 0.86rem 0.94rem;
 }
 
 .hf-process-card-head {
@@ -1394,9 +1513,9 @@ aside > div {
 }
 
 .hf-process-card-eyebrow {
-    margin: 0 0 0.18rem;
+    margin: 0 0 0.24rem;
     color: var(--hf-text-muted);
-    font-size: 0.64rem;
+    font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -1405,9 +1524,9 @@ aside > div {
 .hf-process-card-title {
     margin: 0;
     color: var(--hf-text);
-    font-size: 0.9rem;
+    font-size: 1.14rem;
     font-weight: 700;
-    line-height: 1.35;
+    line-height: 1.42;
 }
 
 .hf-process-card-meta {
@@ -1418,12 +1537,12 @@ aside > div {
 }
 
 .hf-process-pill {
-    padding: 0.14rem 0.38rem;
+    padding: 0.2rem 0.46rem;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: var(--hf-radius-chip);
     background: rgba(255, 255, 255, 0.92);
     color: var(--hf-text-muted);
-    font-size: 0.62rem;
+    font-size: 0.74rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -1450,21 +1569,21 @@ aside > div {
 
 .hf-process-stage-rail {
     display: flex;
-    gap: 0.28rem;
+    gap: 0.34rem;
     flex-wrap: wrap;
-    margin-top: 0.55rem;
+    margin-top: 0.72rem;
 }
 
 .hf-process-stage {
     display: inline-flex;
     align-items: center;
     gap: 0.22rem;
-    padding: 0.16rem 0.34rem;
+    padding: 0.24rem 0.44rem;
     border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: var(--hf-radius-chip);
     background: rgba(255, 255, 255, 0.96);
     color: var(--hf-text-muted);
-    font-size: 0.62rem;
+    font-size: 0.76rem;
     font-weight: 700;
     letter-spacing: 0.02em;
     text-transform: uppercase;
@@ -1495,23 +1614,23 @@ aside > div {
 
 .hf-process-card-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1.35fr) minmax(0, 1.15fr);
-    gap: 0.5rem;
-    margin-top: 0.6rem;
+    grid-template-columns: minmax(0, 1.85fr) minmax(0, 1.2fr) minmax(0, 1.2fr);
+    gap: 0.62rem;
+    margin-top: 0.72rem;
 }
 
 .hf-process-card-block {
     min-width: 0;
-    padding: 0.54rem 0.58rem;
+    padding: 0.68rem 0.72rem;
     border: 1px solid rgba(15, 23, 42, 0.06);
     border-radius: var(--hf-radius-control);
     background: rgba(255, 255, 255, 0.88);
 }
 
 .hf-process-card-label {
-    margin: 0 0 0.22rem;
+    margin: 0 0 0.3rem;
     color: var(--hf-text-muted);
-    font-size: 0.62rem;
+    font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -1520,24 +1639,78 @@ aside > div {
 .hf-process-card-copy {
     margin: 0;
     color: var(--hf-text);
-    font-size: 0.74rem;
-    line-height: 1.45;
+    font-size: 0.98rem;
+    line-height: 1.55;
 }
 
 .hf-process-card-list {
     margin: 0;
     padding-left: 1rem;
     color: var(--hf-text);
-    font-size: 0.72rem;
-    line-height: 1.4;
+    font-size: 0.96rem;
+    line-height: 1.5;
 }
 
 .hf-inline-gallery {
     width: 100%;
-    margin-top: -0.15rem;
+    display: flex;
+    justify-content: center;
+    margin: 0.08rem auto 0;
+}
+
+.hf-inline-gallery .gallery-container,
+.hf-inline-gallery > .wrap {
+    width: 100%;
+    max-width: 68rem;
+    margin: 0 auto;
+}
+
+.hf-inline-gallery .gallery-container {
+    padding: 0.12rem 0;
+}
+
+.hf-inline-gallery .grid-wrap {
+    display: flex;
+    justify-content: center;
+}
+
+.hf-inline-gallery .grid-container {
+    width: auto !important;
+    max-width: 100%;
+    margin: 0 auto !important;
+    justify-content: center;
+    gap: 0.95rem !important;
+    grid-template-columns: repeat(auto-fit, minmax(min(17rem, 100%), 18.5rem)) !important;
+}
+
+.hf-inline-gallery .gallery-item,
+.hf-inline-gallery .thumbnail-item,
+.hf-inline-gallery .thumbnail-item.thumbnail-lg {
+    border-radius: var(--hf-radius-panel) !important;
+    border: 1px solid rgba(15, 23, 42, 0.08) !important;
+    background: linear-gradient(180deg, rgba(244, 248, 251, 0.98) 0%, rgba(255, 255, 255, 0.99) 100%) !important;
+    box-shadow: none !important;
+    overflow: hidden;
+}
+
+.hf-inline-gallery .thumbnail-item,
+.hf-inline-gallery .thumbnail-item.thumbnail-lg {
+    padding: 0.52rem !important;
+}
+
+.hf-inline-gallery .caption-label {
+    display: flex;
+    justify-content: center;
+    padding: 0.18rem 0.24rem 0.28rem;
+    color: var(--hf-text) !important;
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    text-align: center;
 }
 
 .hf-inline-gallery img {
+    display: block;
+    margin: 0 auto;
     border-radius: var(--hf-radius-control) !important;
     border: 1px solid rgba(15, 23, 42, 0.06);
     background: rgba(255, 255, 255, 0.96);
@@ -1571,6 +1744,23 @@ aside > div {
     max-width: none;
 }
 
+.hf-preview-pane :is(.prose, p, li, div, span, strong, em) {
+    font-size: 1.12rem;
+    line-height: 1.66;
+}
+
+.hf-preview-pane h1 {
+    font-size: 1.9rem;
+}
+
+.hf-preview-pane h2 {
+    font-size: 1.38rem;
+}
+
+.hf-preview-pane h3 {
+    font-size: 1.12rem;
+}
+
 .hf-history-meta p,
 .hf-history-empty p {
     margin: 0;
@@ -1585,7 +1775,7 @@ footer {
     display: none !important;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1120px) {
     html,
     body {
         overflow: auto;
@@ -1617,8 +1807,8 @@ footer {
         grid-template-columns: 1fr;
     }
 
-    .hf-stage-chip {
-        width: calc(50% - 0.2rem);
+    .hf-stage-chip-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .hf-process-card-grid {
@@ -1673,14 +1863,18 @@ footer {
         min-height: 12rem;
     }
 
-    .hf-stage-chip {
-        width: 100%;
+    .hf-stage-chip-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .hf-run-overview-shell,
     .hf-starter-shell {
         margin-left: 0.85rem;
         margin-right: 0.85rem;
+    }
+
+    .hf-inline-gallery .grid-container {
+        grid-template-columns: 1fr !important;
     }
 }
 """
@@ -1855,10 +2049,12 @@ def _starter_card_html() -> str:
         "metrics.json",
         "tables/predictions.csv",
         "tables/feature_importance.csv",
+        "tables/cohort_profile.json",
         "figures/roc_curve.png",
         "figures/calibration.png",
         "figures/risk_distribution.png",
-        "final_report.md",
+        "notes/patient_vignettes.md",
+        "reports/final_report.md",
     ]
     deliverables_html = "".join(
         f'<span class="hf-starter-deliverable"><code>{html.escape(item)}</code></span>'
@@ -1868,11 +2064,11 @@ def _starter_card_html() -> str:
     signal_html = "".join(f"<li>{html.escape(item)}</li>" for item in SHOWCASE_SUCCESS_SIGNALS)
     return (
         '<section class="hf-starter-card">'
-        '<div class="hf-starter-eyebrow">Showcase Case</div>'
+        '<div class="hf-starter-eyebrow">Clinical Example</div>'
         f'<h3>{html.escape(str(_DEMO_CASE["title"]))}</h3>'
         f'<p>{html.escape(str(_DEMO_CASE["description"]))}</p>'
         '<div class="hf-starter-meta">'
-        '<span class="hf-starter-meta-item">Built-in demo file</span>'
+        '<span class="hf-starter-meta-item">Reference cohort</span>'
         f'<span class="hf-starter-meta-item"><code>{html.escape(str(_DEMO_CASE["file_name"]))}</code></span>'
         "</div>"
         f'<ol class="hf-starter-list">{step_html}</ol>'
@@ -2099,7 +2295,7 @@ def _run_overview_html(state: dict[str, Any] | None) -> str:
     current_stage = str(overview.get("current_stage") or "").strip().lower()
     current_stage_label = _RUN_STAGE_LABELS.get(current_stage, "Ready")
     objective = html.escape(str(overview.get("objective") or "").strip() or "No active plan yet.")
-    latest_message = html.escape(str(overview.get("latest_message") or "").strip() or "Planner details and runtime progress will appear here.")
+    latest_message = html.escape(str(overview.get("latest_message") or "").strip() or "Planning details and runtime progress will appear here.")
     details_open = str(overview.get("mode") or "").strip().lower() in {"running", "failed", "cancelled"}
     stage_html = []
     for stage in _RUN_STAGE_ORDER:
@@ -2121,7 +2317,7 @@ def _run_overview_html(state: dict[str, Any] | None) -> str:
     for index, item in enumerate(list(overview.get("recommended_steps") or [])[:6], start=1):
         step_items.append(f"<li><span>{index:02d}</span>{html.escape(str(item))}</li>")
     if not step_items:
-        step_items.append("<li><span>--</span>Planner steps will appear after plan generation.</li>")
+        step_items.append("<li><span>--</span>Planned steps will appear after planning completes.</li>")
 
     avoidance_items = []
     for item in list(overview.get("avoidances") or [])[:3]:
@@ -2154,15 +2350,15 @@ def _run_overview_html(state: dict[str, Any] | None) -> str:
         f'<div class="hf-stage-chip-row">{"".join(stage_html)}</div>'
         '<div class="hf-run-overview-grid">'
         '<div class="hf-run-overview-panel">'
-        '<div class="hf-run-overview-label">Execution plan</div>'
+        '<div class="hf-run-overview-label">Planned steps</div>'
         f'<ol class="hf-run-overview-list">{"".join(step_items)}</ol>'
         "</div>"
         '<div class="hf-run-overview-panel">'
-        '<div class="hf-run-overview-label">Success signals</div>'
+        '<div class="hf-run-overview-label">Success checks</div>'
         f'<ul class="hf-run-overview-watchouts">{"".join(signal_items)}</ul>'
         "</div>"
         '<div class="hf-run-overview-panel">'
-        '<div class="hf-run-overview-label">Watchouts</div>'
+        '<div class="hf-run-overview-label">Guardrails</div>'
         f'<ul class="hf-run-overview-watchouts">{"".join(avoidance_items)}</ul>'
         "</div>"
         "</div>"
@@ -2690,7 +2886,7 @@ def _process_snapshot_markup(
     if not recommended_steps and event is not None and str(event.message or "").strip():
         recommended_steps = [str(event.message or "").strip()]
     recommended_steps = recommended_steps[:2]
-    steps_html = "".join(f"<li>{html.escape(item)}</li>" for item in recommended_steps) or "<li>Planner steps will appear here.</li>"
+    steps_html = "".join(f"<li>{html.escape(item)}</li>" for item in recommended_steps) or "<li>Planned steps will appear here.</li>"
     latest_message = html.escape(str(overview.get("latest_message") or "").strip() or "Runtime progress will appear here.")
     headline = html.escape(_process_snapshot_headline(overview, event=event, restored=restored))
     mode = html.escape(str(overview.get("mode") or "idle"))
@@ -2701,7 +2897,7 @@ def _process_snapshot_markup(
         '<section class="hf-process-card">'
         '<div class="hf-process-card-head">'
         '<div class="hf-process-card-main">'
-        '<div class="hf-process-card-eyebrow">Process Snapshot</div>'
+        '<div class="hf-process-card-eyebrow">Pipeline State</div>'
         f'<p class="hf-process-card-title">{headline}</p>'
         "</div>"
         '<div class="hf-process-card-meta">'
@@ -3067,6 +3263,7 @@ def _workspace_tree_rows(catalog: Sequence[dict[str, Any]]) -> list[dict[str, An
                 "depth": max(len(parts) - 1, 0),
                 "label": display_name,
                 "meta": meta,
+                "origin": str(item.get("origin") or ""),
                 "source_path": str(item.get("source_path") or ""),
             }
         )
@@ -3118,6 +3315,7 @@ def _workspace_tree_html(
                 "depth": 0,
                 "label": "report.md",
                 "meta": "runtime/report.md",
+                "origin": "report",
                 "source_path": str(report_item.get("source_path") or ""),
             }
         )
@@ -3131,21 +3329,43 @@ def _workspace_tree_html(
         depth_class = f"hf-tree-depth-{row_depth}"
         if row.get("kind") == "folder":
             label = html.escape(str(row.get("label") or ""))
-            html_rows.append(f'<div class="hf-tree-folder {depth_class}">{label}</div>')
+            html_rows.append(
+                f'<div class="hf-tree-folder {depth_class}"><span class="hf-tree-node-badge is-folder">dir</span><span>{label}</span></div>'
+            )
             continue
 
         source_path = str(row.get("source_path") or "").strip()
         if not source_path:
             continue
         label = html.escape(str(row.get("label") or Path(source_path).name))
-        meta = html.escape(str(row.get("meta") or "").strip())
+        origin = str(row.get("origin") or "").strip().lower()
+        suffix = Path(source_path).suffix.lower()
+        badge = "file"
+        badge_class = "is-text"
+        if origin == "report":
+            badge = "report"
+            badge_class = "is-report"
+        elif suffix in {".png", ".jpg", ".jpeg", ".webp"}:
+            badge = "img"
+            badge_class = "is-image"
+        elif suffix in {".csv", ".tsv", ".parquet", ".xlsx"}:
+            badge = "tab"
+            badge_class = "is-table"
+        elif suffix in {".md", ".txt"}:
+            badge = "note"
+            badge_class = "is-text"
+        else:
+            trimmed_suffix = suffix.lstrip(".")
+            if trimmed_suffix:
+                badge = trimmed_suffix[:5]
         active_class = " is-active" if source_path == selected_file_value else ""
-        meta_html = f'<span class="hf-tree-file-meta">{meta}</span>' if meta else ""
         html_rows.append(
             f"""
             <div class="hf-tree-file {depth_class}{active_class}" data-file-path="{html.escape(source_path, quote=True)}">
-              <span class="hf-tree-file-name">{label}</span>
-              {meta_html}
+              <div class="hf-tree-file-main">
+                <span class="hf-tree-node-badge {badge_class}">{html.escape(badge)}</span>
+                <span class="hf-tree-file-name">{label}</span>
+              </div>
             </div>
             """
         )
@@ -3609,18 +3829,6 @@ def launch_web_app(
     def _new_task():
         return _compose_draft_outputs(run_overview=_empty_run_overview())
 
-    def _reset_showcase():
-        client = session_store.reset_showcase()
-        notice = "Showcase reset. Previous sessions were removed and the curated EHR case was rebuilt."
-        if client is None:
-            return _compose_draft_outputs(history_notice=notice)
-        return _compose_for_task_id(
-            client.task_id,
-            preferred_file=None,
-            history_notice=notice,
-            restored=True,
-        )
-
     def _preview_outputs_for_task(selected_file: str | None, task_id: str | None):
         task_root = _task_root_path(task_id, session_store)
         return _artifact_preview_outputs(selected_file, task_root=task_root, gr=gr)
@@ -3942,7 +4150,6 @@ def launch_web_app(
         with gr.Sidebar(label="History", open=True, width=336):
             gr.HTML(_sidebar_brand_html())
             new_task_button = gr.Button("New Task", variant="primary")
-            reset_showcase_button = gr.Button("Reset Showcase", variant="secondary")
             history_notice = gr.Markdown(visible=False)
             history_list = gr.HTML(value=_history_list_html([], None), elem_id="hf-history-list")
             history_target_task = gr.Textbox(value="", visible="hidden", container=False, elem_id="hf-history-target-task")
@@ -3972,7 +4179,7 @@ def launch_web_app(
                     with gr.Column(visible=True, elem_classes=["hf-starter-shell"]) as starter_panel:
                         starter_html = gr.HTML(value=_starter_card_html(), container=False)
                         demo_case_button = gr.Button(
-                            "Launch Predictive Modeling Demo",
+                            "Run Clinical Example",
                             variant="primary",
                             elem_classes=["hf-starter-button"],
                         )
@@ -4002,7 +4209,7 @@ def launch_web_app(
                             elem_id="hf-prompt-input",
                             elem_classes=["hf-composer"],
                         )
-                with gr.Column(scale=4, min_width=400, elem_classes=["hf-workspace-shell"]):
+                with gr.Column(scale=5, min_width=460, elem_classes=["hf-workspace-shell"]):
                     with gr.Column(elem_classes=["hf-detail-shell"]):
                         with gr.Row(elem_classes=["hf-detail-nav"]):
                             workspace_panel_button = gr.Button(
@@ -4140,19 +4347,6 @@ def launch_web_app(
 
         new_task_button.click(
             _new_task,
-            None,
-            app_outputs,
-            queue=False,
-            show_progress="hidden",
-        ).then(
-            lambda: _detail_panel_updates("workspace"),
-            None,
-            [workspace_panel_button, advanced_panel_button, workspace_panel, advanced_panel],
-            queue=False,
-            show_progress="hidden",
-        )
-        reset_showcase_button.click(
-            _reset_showcase,
             None,
             app_outputs,
             queue=False,

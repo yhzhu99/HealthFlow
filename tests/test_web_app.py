@@ -1,4 +1,5 @@
 import inspect
+import json
 import tempfile
 import time
 import unittest
@@ -6,8 +7,8 @@ import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
-from healthflow.session import HealthFlowProgressEvent, TaskSessionSummary, TaskTurnRecord
-from healthflow.showcase import SHOWCASE_TASK_ID
+from healthflow.session import HealthFlowProgressEvent, TaskSessionState, TaskSessionSummary, TaskTurnRecord
+from healthflow.showcase import SHOWCASE_FILE_NAME, SHOWCASE_TASK_ID, SHOWCASE_TITLE, ensure_showcase_task
 from healthflow.web_app import (
     WebTaskSessionStore,
     _apply_progress_to_overview,
@@ -397,7 +398,7 @@ class WebAppTests(unittest.TestCase):
         main_history = _restore_main_history(client)
 
         self.assertEqual(type(main_history[1]["content"]).__name__, "HTML")
-        self.assertIn("Process Snapshot", main_history[1]["content"].value)
+        self.assertIn("Pipeline State", main_history[1]["content"].value)
         self.assertEqual(type(main_history[-2]["content"]).__name__, "Gallery")
         self.assertEqual(main_history[-2]["content"].constructor_args["value"][0][0], str(image_path))
         self.assertEqual(main_history[-1]["content"], "All artifacts are ready.")
@@ -441,9 +442,9 @@ class WebAppTests(unittest.TestCase):
     def test_starter_card_html_surfaces_demo_case_details(self):
         html = _starter_card_html()
 
-        self.assertIn("Showcase", html)
+        self.assertIn("Clinical Example", html)
         self.assertIn("ICU Mortality Risk Modeling", html)
-        self.assertIn("ehr_predictive_demo.csv", html)
+        self.assertIn("icu_mortality_cohort.csv", html)
         self.assertIn("roc_curve.png", html)
         self.assertIn("calibration.png", html)
         self.assertIn("risk_distribution.png", html)
@@ -451,8 +452,38 @@ class WebAppTests(unittest.TestCase):
     def test_demo_case_uploads_reads_builtin_demo_file(self):
         uploads = _demo_case_uploads()
 
-        self.assertIn("ehr_predictive_demo.csv", uploads)
-        self.assertIn(b"subject_id,mortality,label", uploads["ehr_predictive_demo.csv"])
+        self.assertIn("icu_mortality_cohort.csv", uploads)
+        self.assertIn(b"subject_id,mortality,label", uploads["icu_mortality_cohort.csv"])
+
+    def test_ensure_showcase_task_reseeds_outdated_seed(self):
+        task_root = self.workspace_dir / SHOWCASE_TASK_ID
+        runtime_dir = task_root / "runtime"
+        sandbox_dir = task_root / "sandbox"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        sandbox_dir.mkdir(parents=True, exist_ok=True)
+        legacy_state = TaskSessionState(
+            task_id=SHOWCASE_TASK_ID,
+            task_root=str(task_root),
+            created_at_utc="2026-04-08T00:00:00Z",
+            updated_at_utc="2026-04-08T00:10:00Z",
+            original_goal="Legacy showcase prompt",
+            display_title="Showcase · ICU Mortality Risk Modeling",
+            turn_count=1,
+            latest_turn_number=1,
+            latest_turn_status="success",
+        )
+        (runtime_dir / "session.json").write_text(json.dumps(legacy_state.to_dict()), encoding="utf-8")
+        (sandbox_dir / "ehr_predictive_demo.csv").write_text("legacy", encoding="utf-8")
+
+        ensured_path = ensure_showcase_task(self.workspace_dir)
+        refreshed_session = json.loads((runtime_dir / "session.json").read_text(encoding="utf-8"))
+        seed_manifest = json.loads((runtime_dir / "showcase_seed.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(ensured_path, task_root)
+        self.assertEqual(refreshed_session["display_title"], SHOWCASE_TITLE)
+        self.assertEqual(seed_manifest["file_name"], SHOWCASE_FILE_NAME)
+        self.assertTrue((sandbox_dir / SHOWCASE_FILE_NAME).exists())
+        self.assertFalse((sandbox_dir / "ehr_predictive_demo.csv").exists())
 
     def test_composer_attachment_preview_update_lists_selected_file_names(self):
         prompt_input = {
@@ -529,6 +560,35 @@ class WebAppTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["kind"], "folder")
         self.assertEqual(rows[0]["label"], "figures")
+
+    def test_workspace_tree_rows_keep_cohort_profile_grouped_under_tables(self):
+        catalog = [
+            {
+                "origin": "generated",
+                "display_name": "feature_importance.csv",
+                "source_path": "/tmp/task/sandbox/tables/feature_importance.csv",
+                "task_relative_path": "sandbox/tables/feature_importance.csv",
+            },
+            {
+                "origin": "generated",
+                "display_name": "cohort_profile.json",
+                "source_path": "/tmp/task/sandbox/tables/cohort_profile.json",
+                "task_relative_path": "sandbox/tables/cohort_profile.json",
+            },
+            {
+                "origin": "generated",
+                "display_name": "patient_vignettes.md",
+                "source_path": "/tmp/task/sandbox/notes/patient_vignettes.md",
+                "task_relative_path": "sandbox/notes/patient_vignettes.md",
+            },
+        ]
+
+        rows = _workspace_tree_rows(catalog)
+        labels = [row["label"] for row in rows]
+
+        self.assertLess(labels.index("tables"), labels.index("cohort_profile.json"))
+        self.assertLess(labels.index("feature_importance.csv"), labels.index("cohort_profile.json"))
+        self.assertLess(labels.index("cohort_profile.json"), labels.index("notes"))
 
     def test_history_list_html_renders_inline_actions_and_active_state(self):
         recent_tasks = [

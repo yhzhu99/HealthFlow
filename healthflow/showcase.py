@@ -12,8 +12,9 @@ from .runtime_artifacts import TaskRuntimePaths
 from .session import TaskSessionState, TaskTurnRecord
 
 SHOWCASE_TASK_ID = "showcase-ehr-mortality"
-SHOWCASE_TITLE = "Showcase · ICU Mortality Risk Modeling"
-SHOWCASE_FILE_NAME = "ehr_predictive_demo.csv"
+SHOWCASE_SEED_VERSION = 2
+SHOWCASE_TITLE = "ICU Mortality Risk Modeling"
+SHOWCASE_FILE_NAME = "icu_mortality_cohort.csv"
 SHOWCASE_PROMPT = (
     "Use the attached ICU EHR cohort to produce a compact mortality risk diagnostic packet. "
     "Inspect the schema first, build a patient-level baseline model, generate calibration and "
@@ -21,7 +22,7 @@ SHOWCASE_PROMPT = (
     "short clinical summary that references the artifacts."
 )
 SHOWCASE_DESCRIPTION = (
-    "Curated EHR case for screenshots and demos, with rich workspace artifacts and inline figures."
+    "Reference ICU EHR workflow with inline figures, workspace deliverables, and a final report."
 )
 SHOWCASE_OBJECTIVE = "Build an in-hospital mortality risk packet from the ICU cohort."
 SHOWCASE_RECOMMENDED_STEPS = [
@@ -46,6 +47,7 @@ SHOWCASE_PRIORITY_PATHS = [
     "sandbox/metrics.json",
     "sandbox/tables/predictions.csv",
     "sandbox/tables/feature_importance.csv",
+    "sandbox/tables/cohort_profile.json",
     "sandbox/notes/patient_vignettes.md",
     "sandbox/reports/final_report.md",
 ]
@@ -443,7 +445,7 @@ def ensure_showcase_task(workspace_dir: Path, *, reset: bool = False) -> Path:
     if reset:
         clear_task_workspace(workspace_dir)
     task_root = workspace_dir / SHOWCASE_TASK_ID
-    if (task_root / "runtime" / "session.json").exists():
+    if _showcase_seed_is_current(task_root):
         return task_root
     if task_root.exists():
         shutil.rmtree(task_root)
@@ -464,9 +466,25 @@ def showcase_message_lines() -> list[str]:
         f"**Objective**\n\n{SHOWCASE_OBJECTIVE}",
         "**Recommended steps**\n\n"
         + "\n".join(f"{index}. {item}" for index, item in enumerate(SHOWCASE_RECOMMENDED_STEPS, start=1)),
-        "**Stage progress**\n\n- Memory retrieval completed.\n- Planner locked the clinical objective.\n- Executor generated figures, tables, and the report.\n- Evaluator accepted the packet for presentation use.",
+        "**Stage progress**\n\n- Memory retrieval completed.\n- Planner locked the clinical objective.\n- Executor generated figures, tables, and the report.\n- Evaluator cleared the packet for clinical review.",
         "**Artifacts surfaced**\n\n- `figures/roc_curve.png`\n- `figures/calibration.png`\n- `figures/risk_distribution.png`\n- `tables/predictions.csv`\n- `reports/final_report.md`",
     ]
+
+
+def _showcase_seed_is_current(task_root: Path) -> bool:
+    session_path = task_root / "runtime" / "session.json"
+    manifest_path = task_root / "runtime" / "showcase_seed.json"
+    if not session_path.exists() or not manifest_path.exists():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return False
+    return (
+        int(manifest.get("version") or 0) == SHOWCASE_SEED_VERSION
+        and str(manifest.get("title") or "") == SHOWCASE_TITLE
+        and str(manifest.get("file_name") or "") == SHOWCASE_FILE_NAME
+    )
 
 
 def _seed_showcase_task(task_root: Path) -> None:
@@ -578,6 +596,14 @@ def _seed_showcase_task(task_root: Path) -> None:
     upload_path = task_root / "uploads" / "turn_001" / SHOWCASE_FILE_NAME
     _write_csv(upload_path, rows, fieldnames=_csv_fieldnames(rows))
     _write_json(task_root / "runtime" / "session.json", state.to_dict())
+    _write_json(
+        task_root / "runtime" / "showcase_seed.json",
+        {
+            "version": SHOWCASE_SEED_VERSION,
+            "title": SHOWCASE_TITLE,
+            "file_name": SHOWCASE_FILE_NAME,
+        },
+    )
     _write_text(task_root / "runtime" / "history.jsonl", json.dumps(turn_record.to_dict()) + "\n")
 
 
@@ -669,7 +695,7 @@ def _final_answer(metrics: dict[str, Any], profile: dict[str, Any]) -> str:
 
 def _summary_text(metrics: dict[str, Any]) -> str:
     return (
-        f"Showcase case completed successfully. ROC and calibration diagnostics were generated, the evaluator "
+        f"Clinical example completed successfully. ROC and calibration diagnostics were generated, the evaluator "
         f"accepted the packet, and the final AUROC was {metrics['auroc']:.3f}."
     )
 
@@ -683,7 +709,7 @@ def _final_report(
         f"- **{row['feature']}** ({row['importance']:.2f}): {row['clinical_note']}" for row in feature_importance[:4]
     )
     return (
-        "# ICU Mortality Risk Showcase\n\n"
+        "# ICU Mortality Risk Report\n\n"
         "## Executive Summary\n\n"
         f"- Cohort size: {profile['cohort_size']} admissions\n"
         f"- Positive outcome count: {metrics['positive_cases']}\n"
