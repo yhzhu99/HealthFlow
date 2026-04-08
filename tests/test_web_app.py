@@ -11,13 +11,17 @@ from healthflow.web_app import (
     WebTaskSessionStore,
     _artifact_preview_outputs,
     _branding_header_html,
+    _build_history_entries,
     _build_task_choices,
     _build_task_header,
     _default_selected_file,
+    _resolved_recent_task_id,
     _restore_main_history,
     _restore_trace_history,
     _result_answer_text,
     _stream_task_turn,
+    _task_id_after_deletion,
+    _task_title_text,
     _visible_recent_tasks,
 )
 
@@ -126,6 +130,24 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("Analyze the uploaded vitals cohort", choices[0][0])
         self.assertIn("Summarize model drift findings", choices[1][0])
 
+    def test_build_history_entries_formats_status_turns_and_time(self):
+        summaries = [
+            TaskSessionSummary(
+                task_id="task-a",
+                title="Analyze the uploaded vitals cohort",
+                updated_at_utc="2026-04-08T04:59:00Z",
+                turn_count=2,
+                latest_turn_status="success",
+            )
+        ]
+
+        entries = _build_history_entries(summaries)
+
+        self.assertEqual(entries[0]["task_id"], "task-a")
+        self.assertEqual(entries[0]["status"], "success")
+        self.assertEqual(entries[0]["turns_text"], "2 turns")
+        self.assertTrue(entries[0]["updated_text"])
+
     def test_visible_recent_tasks_keeps_untitled_drafts_accessible(self):
         draft = TaskSessionSummary(task_id="task-draft", title="Untitled task", updated_at_utc="2026-04-08T03:00:00Z")
         previous = TaskSessionSummary(
@@ -158,6 +180,103 @@ class WebAppTests(unittest.TestCase):
         )
 
         self.assertEqual([item.task_id for item in visible], ["task-draft", "task-real"])
+
+    def test_resolved_recent_task_id_falls_back_to_most_recent_entry(self):
+        recent_tasks = [
+            TaskSessionSummary(task_id="task-new", title="Newest", updated_at_utc="2026-04-08T05:00:00Z"),
+            TaskSessionSummary(task_id="task-old", title="Older", updated_at_utc="2026-04-08T04:00:00Z"),
+        ]
+
+        self.assertEqual(_resolved_recent_task_id("task-old", recent_tasks), "task-old")
+        self.assertEqual(_resolved_recent_task_id("missing-task", recent_tasks), "task-new")
+        self.assertEqual(_resolved_recent_task_id(None, recent_tasks), "task-new")
+        self.assertIsNone(_resolved_recent_task_id("missing-task", []))
+
+    def test_task_id_after_deletion_only_switches_when_active_task_is_deleted(self):
+        remaining_tasks = [
+            TaskSessionSummary(task_id="task-b", title="Task B", updated_at_utc="2026-04-08T04:00:00Z"),
+            TaskSessionSummary(task_id="task-c", title="Task C", updated_at_utc="2026-04-08T03:00:00Z"),
+        ]
+
+        self.assertEqual(_task_id_after_deletion("task-a", "task-z", remaining_tasks), "task-a")
+        self.assertEqual(_task_id_after_deletion("task-a", "task-a", remaining_tasks), "task-b")
+        self.assertIsNone(_task_id_after_deletion("task-a", "task-a", []))
+
+    def test_renaming_inactive_sidebar_task_preserves_current_title_context(self):
+        active = self.system.create_task_session("task-active")
+        active.original_goal = "Current task"
+        active.turn_count = 1
+        active.latest_turn_status = "success"
+        active.updated_at_utc = "2026-04-08T04:00:00Z"
+
+        other = self.system.create_task_session("task-other")
+        other.original_goal = "Other task"
+        other.updated_at_utc = "2026-04-08T05:00:00Z"
+
+        store = WebTaskSessionStore(lambda: self.system)
+        active_client = store.get_client("task-active")
+        store.rename_task("task-other", "Renamed sidebar task")
+
+        visible = _visible_recent_tasks(
+            store.list_recent_tasks(limit=10),
+            current_task_id=active_client.task_id,
+            current_title=active_client.display_title or active_client.original_goal,
+            current_updated_at=active_client.updated_at_utc,
+            current_turn_count=active_client.turn_count,
+            current_status=active_client.latest_turn_status,
+        )
+
+        self.assertEqual(_task_title_text(active_client, visible), "Current task")
+        self.assertEqual(next(item.title for item in visible if item.task_id == "task-other"), "Renamed sidebar task")
+
+    def test_renaming_active_sidebar_task_updates_current_title_context(self):
+        active = self.system.create_task_session("task-active")
+        active.original_goal = "Current task"
+        active.turn_count = 1
+        active.latest_turn_status = "success"
+        active.updated_at_utc = "2026-04-08T04:00:00Z"
+
+        store = WebTaskSessionStore(lambda: self.system)
+        active_client = store.get_client("task-active")
+        store.rename_task("task-active", "Pinned current title")
+        active_client.refresh_state()
+
+        visible = _visible_recent_tasks(
+            store.list_recent_tasks(limit=10),
+            current_task_id=active_client.task_id,
+            current_title=active_client.display_title or active_client.original_goal,
+            current_updated_at=active_client.updated_at_utc,
+            current_turn_count=active_client.turn_count,
+            current_status=active_client.latest_turn_status,
+        )
+
+        self.assertEqual(_task_title_text(active_client, visible), "Pinned current title")
+
+    def test_deleting_inactive_sidebar_task_keeps_current_task_visible(self):
+        active = self.system.create_task_session("task-active")
+        active.original_goal = "Current task"
+        active.turn_count = 1
+        active.latest_turn_status = "success"
+        active.updated_at_utc = "2026-04-08T04:00:00Z"
+
+        other = self.system.create_task_session("task-other")
+        other.original_goal = "Other task"
+        other.updated_at_utc = "2026-04-08T05:00:00Z"
+
+        store = WebTaskSessionStore(lambda: self.system)
+        active_client = store.get_client("task-active")
+        store.delete_task("task-other")
+
+        visible = _visible_recent_tasks(
+            store.list_recent_tasks(limit=10),
+            current_task_id=active_client.task_id,
+            current_title=active_client.display_title or active_client.original_goal,
+            current_updated_at=active_client.updated_at_utc,
+            current_turn_count=active_client.turn_count,
+            current_status=active_client.latest_turn_status,
+        )
+
+        self.assertEqual([item.task_id for item in visible], ["task-active"])
 
     def test_restore_main_history_replays_prior_turns(self):
         task_id = "task-restore"

@@ -80,6 +80,88 @@ _WEB_APP_CSS = """
     color: #415166;
 }
 
+.hf-history-list {
+    gap: 0.65rem;
+}
+
+.hf-history-item {
+    gap: 0.35rem;
+    padding: 0.75rem;
+    border: 1px solid rgba(16, 32, 51, 0.08);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.88);
+}
+
+.hf-history-item.is-active {
+    border-color: rgba(11, 132, 219, 0.38);
+    background: linear-gradient(180deg, rgba(239, 248, 255, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+    box-shadow: 0 10px 30px rgba(11, 132, 219, 0.08);
+}
+
+.hf-history-row {
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.hf-history-open {
+    flex: 1 1 auto;
+}
+
+.hf-history-open button,
+.hf-history-action button,
+.hf-history-inline button {
+    border-radius: 12px;
+}
+
+.hf-history-open button {
+    justify-content: flex-start;
+    min-height: 3rem;
+    padding-inline: 0.8rem;
+    font-weight: 600;
+    text-align: left;
+}
+
+.hf-history-action {
+    flex: 0 0 auto;
+}
+
+.hf-history-action button {
+    min-width: 4.75rem;
+}
+
+.hf-history-meta {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: #526171;
+}
+
+.hf-history-inline {
+    gap: 0.45rem;
+    margin-top: 0.15rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid rgba(16, 32, 51, 0.08);
+}
+
+.hf-history-inline .gradio-button {
+    min-width: 0;
+}
+
+.hf-history-empty {
+    margin: 0;
+    font-size: 0.92rem;
+    color: #526171;
+}
+
+.hf-history-panel {
+    gap: 0.75rem;
+    margin-top: 0.85rem;
+    padding: 0.9rem;
+    border: 1px solid rgba(16, 32, 51, 0.08);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.92);
+}
+
 @media (max-width: 900px) {
     .hf-hero {
         flex-direction: column;
@@ -246,6 +328,67 @@ def _build_task_choices(recent_tasks: Sequence[TaskSessionSummary]) -> list[tupl
         label = f"{title} · {status} · {turns} · {_relative_time_text(item.updated_at_utc)}"
         choices.append((label, item.task_id))
     return choices
+
+
+def _history_turn_text(turn_count: int) -> str:
+    return "1 turn" if turn_count == 1 else f"{turn_count} turns"
+
+
+def _history_entry_payload(item: TaskSessionSummary) -> dict[str, Any]:
+    return {
+        "task_id": item.task_id,
+        "title": _truncate_text(item.title, max_chars=52),
+        "status": _status_label(item.latest_turn_status),
+        "turn_count": item.turn_count,
+        "turns_text": _history_turn_text(item.turn_count),
+        "updated_at_utc": item.updated_at_utc,
+        "updated_text": _relative_time_text(item.updated_at_utc),
+    }
+
+
+def _build_history_entries(recent_tasks: Sequence[TaskSessionSummary]) -> list[dict[str, Any]]:
+    return [_history_entry_payload(item) for item in recent_tasks]
+
+
+def _history_action_state(
+    *,
+    mode: str = "",
+    task_id: str | None = None,
+    draft_title: str = "",
+    placeholder: str = "",
+) -> dict[str, Any]:
+    return {
+        "mode": mode,
+        "task_id": task_id,
+        "draft_title": draft_title,
+        "placeholder": placeholder,
+    }
+
+
+def _resolved_recent_task_id(
+    requested_task_id: str | None,
+    recent_tasks: Sequence[TaskSessionSummary],
+) -> str | None:
+    normalized_task_id = str(requested_task_id or "").strip()
+    if normalized_task_id and any(item.task_id == normalized_task_id for item in recent_tasks):
+        return normalized_task_id
+    if recent_tasks:
+        return recent_tasks[0].task_id
+    return None
+
+
+def _task_id_after_deletion(
+    active_task_id: str | None,
+    deleted_task_id: str | None,
+    remaining_tasks: Sequence[TaskSessionSummary],
+) -> str | None:
+    normalized_active_task_id = str(active_task_id or "").strip()
+    normalized_deleted_task_id = str(deleted_task_id or "").strip()
+    if normalized_deleted_task_id != normalized_active_task_id:
+        return normalized_active_task_id or None
+    if remaining_tasks:
+        return remaining_tasks[0].task_id
+    return None
 
 
 def _visible_recent_tasks(
@@ -605,10 +748,26 @@ def launch_web_app(
 
     session_store = WebTaskSessionStore(system_factory)
 
-    def _client_for_requested_task(task_id: str | None) -> TaskSessionClient:
-        if task_id and session_store.has_task(task_id):
-            return session_store.get_client(task_id)
-        return session_store.new_client()
+    def _resolve_requested_task(task_id: str | None) -> tuple[TaskSessionClient, bool]:
+        normalized_task_id = str(task_id or "").strip()
+        if normalized_task_id and session_store.has_task(normalized_task_id):
+            return session_store.get_client(normalized_task_id), True
+        recent_tasks = session_store.list_recent_tasks(limit=50)
+        fallback_task_id = _resolved_recent_task_id(normalized_task_id, recent_tasks)
+        if fallback_task_id:
+            return session_store.get_client(fallback_task_id), True
+        return session_store.new_client(), False
+
+    def _visible_recent_task_summaries(client: TaskSessionClient) -> list[TaskSessionSummary]:
+        recent_tasks = session_store.list_recent_tasks(limit=50)
+        return _visible_recent_tasks(
+            recent_tasks,
+            current_task_id=client.task_id,
+            current_title=client.display_title or client.original_goal,
+            current_updated_at=client.updated_at_utc,
+            current_turn_count=client.turn_count,
+            current_status=client.latest_turn_status,
+        )
 
     def _compose_outputs(
         client: TaskSessionClient,
@@ -617,34 +776,72 @@ def launch_web_app(
         trace_history: list[dict[str, str]],
         preferred_file: str | None,
         history_notice: str | None = None,
-    ) -> tuple[Any, list[dict[str, str]], list[dict[str, str]], str, str, list[dict[str, Any]], str | None, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]:
-        recent_tasks = session_store.list_recent_tasks(limit=50)
-        visible_recent_tasks = _visible_recent_tasks(
-            recent_tasks,
-            current_task_id=client.task_id,
-            current_title=client.display_title or client.original_goal,
-            current_updated_at=client.updated_at_utc,
-            current_turn_count=client.turn_count,
-            current_status=client.latest_turn_status,
-        )
+        history_action: dict[str, Any] | None = None,
+    ) -> tuple[
+        list[dict[str, str]],
+        list[dict[str, str]],
+        str,
+        str,
+        str,
+        list[dict[str, Any]],
+        str | None,
+        list[dict[str, Any]],
+        dict[str, Any],
+        Any,
+        Any,
+        Any,
+        Any,
+        Any,
+        Any,
+        Any,
+        Any,
+    ]:
+        visible_recent_tasks = _visible_recent_task_summaries(client)
         catalog = _collect_artifact_catalog(client)
         selected_file = _default_selected_file(catalog, preferred_file=preferred_file)
         task_root = Path(client.task_root) if client.task_root else None
-        recent_tasks_update = gr.update(choices=_build_task_choices(visible_recent_tasks), value=client.task_id)
         preview_outputs = _artifact_preview_outputs(selected_file, task_root=task_root, gr=gr)
         return (
-            recent_tasks_update,
             main_history,
             trace_history,
+            client.task_id,
             client.task_id,
             _build_task_header(client, visible_recent_tasks),
             catalog,
             selected_file,
-            gr.update(value=_task_title_text(client, visible_recent_tasks)),
-            gr.update(value=False),
-            gr.update(interactive=False),
+            _build_history_entries(visible_recent_tasks),
+            history_action or _history_action_state(),
             _history_notice_update(history_notice, gr=gr),
             *preview_outputs,
+        )
+
+    def _compose_for_task_id(
+        task_id: str | None,
+        *,
+        main_history: list[dict[str, str]] | None = None,
+        trace_history: list[dict[str, str]] | None = None,
+        preferred_file: str | None = None,
+        history_notice: str | None = None,
+        history_action: dict[str, Any] | None = None,
+        restored: bool | None = None,
+    ):
+        client, resolved_from_history = _resolve_requested_task(task_id)
+        if main_history is None:
+            main_history = _restore_main_history(client)
+        else:
+            main_history = list(main_history)
+        if trace_history is None:
+            show_restored_trace = restored if restored is not None else resolved_from_history and client.turn_count > 0
+            trace_history = _restore_trace_history(client, restored=show_restored_trace)
+        else:
+            trace_history = list(trace_history)
+        return _compose_outputs(
+            client,
+            main_history=main_history,
+            trace_history=trace_history,
+            preferred_file=preferred_file,
+            history_notice=history_notice,
+            history_action=history_action,
         )
 
     def _format_progress_event(event: HealthFlowProgressEvent) -> str:
@@ -672,22 +869,10 @@ def launch_web_app(
         return ""
 
     def _load_session(task_id: str | None):
-        client = _client_for_requested_task(task_id)
-        return _compose_outputs(
-            client,
-            main_history=_restore_main_history(client),
-            trace_history=_restore_trace_history(client, restored=bool(task_id)),
-            preferred_file=None,
-        )
+        return _compose_for_task_id(task_id, preferred_file=None)
 
     def _switch_task(task_id: str | None):
-        client = _client_for_requested_task(task_id)
-        return _compose_outputs(
-            client,
-            main_history=_restore_main_history(client),
-            trace_history=_restore_trace_history(client, restored=True),
-            preferred_file=None,
-        )
+        return _compose_for_task_id(task_id, preferred_file=None)
 
     def _new_task():
         client = session_store.new_client()
@@ -708,70 +893,108 @@ def launch_web_app(
     def _open_report_file(report_path: str | None, task_id: str | None):
         return report_path, *_preview_outputs_for_task(report_path, task_id)
 
-    def _toggle_delete_button(delete_confirmed: bool):
-        return gr.update(interactive=bool(delete_confirmed))
-
-    def _rename_task(
-        task_title: str | None,
-        main_history: list[dict[str, str]] | None,
-        trace_history: list[dict[str, str]] | None,
-        task_id: str | None,
+    def _start_history_rename(
+        target_task_id: str | None,
+        active_task_id: str | None,
         selected_file: str | None,
     ):
-        client = _client_for_requested_task(task_id)
-        main_history = list(main_history or _restore_main_history(client))
-        trace_history = list(trace_history or _restore_trace_history(client, restored=bool(task_id)))
-        session_store.rename_task(client.task_id, str(task_title or ""))
-        client.refresh_state()
+        if not target_task_id or not session_store.has_task(target_task_id):
+            return _compose_for_task_id(
+                active_task_id,
+                preferred_file=selected_file,
+                history_notice="Task no longer exists.",
+            )
+        client = session_store.get_client(target_task_id)
+        visible_recent_tasks = _visible_recent_task_summaries(client)
+        return _compose_for_task_id(
+            active_task_id,
+            preferred_file=selected_file,
+            history_action=_history_action_state(
+                mode="rename",
+                task_id=target_task_id,
+                draft_title=client.display_title,
+                placeholder=_task_title_text(client, visible_recent_tasks),
+            ),
+        )
+
+    def _start_history_delete(
+        target_task_id: str | None,
+        active_task_id: str | None,
+        selected_file: str | None,
+    ):
+        if not target_task_id or not session_store.has_task(target_task_id):
+            return _compose_for_task_id(
+                active_task_id,
+                preferred_file=selected_file,
+                history_notice="Task no longer exists.",
+            )
+        return _compose_for_task_id(
+            active_task_id,
+            preferred_file=selected_file,
+            history_action=_history_action_state(mode="delete", task_id=target_task_id),
+        )
+
+    def _cancel_history_action(
+        active_task_id: str | None,
+        selected_file: str | None,
+    ):
+        return _compose_for_task_id(
+            active_task_id,
+            preferred_file=selected_file,
+        )
+
+    def _rename_task_from_history(
+        task_title: str | None,
+        target_task_id: str | None,
+        active_task_id: str | None,
+        selected_file: str | None,
+    ):
+        if not target_task_id or not session_store.has_task(target_task_id):
+            return _compose_for_task_id(
+                active_task_id,
+                preferred_file=selected_file,
+                history_notice="Task no longer exists.",
+            )
+
+        session_store.rename_task(target_task_id, str(task_title or ""))
         notice = "Custom title cleared." if not str(task_title or "").strip() else "Title updated."
-        return _compose_outputs(
-            client,
-            main_history=main_history,
-            trace_history=trace_history,
+        return _compose_for_task_id(
+            active_task_id,
             preferred_file=selected_file,
             history_notice=notice,
         )
 
-    def _delete_task(
-        delete_confirmed: bool,
-        task_id: str | None,
+    def _delete_task_from_history(
+        target_task_id: str | None,
+        active_task_id: str | None,
+        selected_file: str | None,
     ):
-        if not task_id:
+        if not target_task_id or not session_store.has_task(target_task_id):
+            return _compose_for_task_id(
+                active_task_id,
+                preferred_file=selected_file,
+                history_notice="Task no longer exists.",
+            )
+
+        deleting_active_task = str(target_task_id) == str(active_task_id or "")
+        session_store.delete_task(target_task_id)
+        if deleting_active_task:
+            remaining_tasks = session_store.list_recent_tasks(limit=50)
+            next_task_id = _task_id_after_deletion(active_task_id, target_task_id, remaining_tasks)
+            if next_task_id:
+                return _compose_for_task_id(next_task_id, preferred_file=None, history_notice="Task deleted.")
             client = session_store.new_client()
             return _compose_outputs(
                 client,
                 main_history=_restore_main_history(client),
                 trace_history=_restore_trace_history(client, restored=False),
                 preferred_file=None,
-            )
-        if not delete_confirmed:
-            client = _client_for_requested_task(task_id)
-            return _compose_outputs(
-                client,
-                main_history=_restore_main_history(client),
-                trace_history=_restore_trace_history(client, restored=bool(task_id)),
-                preferred_file=None,
-                history_notice="Confirm deletion before removing this task.",
-            )
-
-        session_store.delete_task(task_id)
-        remaining_tasks = session_store.list_recent_tasks(limit=50)
-        if remaining_tasks:
-            client = session_store.get_client(remaining_tasks[0].task_id)
-            return _compose_outputs(
-                client,
-                main_history=_restore_main_history(client),
-                trace_history=_restore_trace_history(client, restored=True),
-                preferred_file=None,
                 history_notice="Task deleted.",
             )
 
-        client = session_store.new_client()
-        return _compose_outputs(
-            client,
-            main_history=_restore_main_history(client),
-            trace_history=_restore_trace_history(client, restored=False),
-            preferred_file=None,
+        return _compose_for_task_id(
+            active_task_id,
+            preferred_file=selected_file,
             history_notice="Task deleted.",
         )
 
@@ -783,9 +1006,9 @@ def launch_web_app(
         report_requested: bool,
         selected_file: str | None,
     ):
-        client = session_store.get_client(task_id)
+        client, _ = _resolve_requested_task(task_id)
         main_history = list(main_history or _restore_main_history(client))
-        trace_history = list(trace_history or _restore_trace_history(client, restored=bool(task_id)))
+        trace_history = list(trace_history or _restore_trace_history(client, restored=client.turn_count > 0))
         prompt_input = prompt_input or {}
         text = str(prompt_input.get("text") or "")
         files = list(prompt_input.get("files") or [])
@@ -867,31 +1090,172 @@ def launch_web_app(
 
     with gr.Blocks(title="HealthFlow Web", fill_width=True, fill_height=True, css=_WEB_APP_CSS) as demo:
         browser_task_id = gr.BrowserState(None, storage_key="healthflow-active-task")
+        active_task_state = gr.State(None)
         workspace_catalog_state = gr.State([])
         selected_file_state = gr.State(None)
+        history_entries_state = gr.State([])
+        history_action_state = gr.State(_history_action_state())
 
         gr.HTML(_branding_header_html())
 
         with gr.Sidebar(label="History", open=True, width=360):
-            recent_tasks = gr.Radio(
-                label="Tasks",
-                choices=[],
-                value=None,
-                interactive=True,
-            )
             new_task_button = gr.Button("New Task", variant="primary")
-            task_title_input = gr.Textbox(
-                label="Task Title",
-                placeholder="Leave blank to use an automatic title.",
-                lines=1,
-            )
-            save_title_button = gr.Button("Save Title")
-            delete_confirm = gr.Checkbox(
-                label="I understand this permanently deletes this task.",
-                value=False,
-            )
-            delete_task_button = gr.Button("Delete Task", variant="stop", interactive=False)
             history_notice = gr.Markdown(visible=False)
+
+            @gr.render(
+                inputs=[history_entries_state, history_action_state],
+                queue=False,
+                show_progress="hidden",
+            )
+            def _render_history_action_panel(
+                history_entries: list[dict[str, Any]] | None,
+                action_state: dict[str, Any] | None,
+            ):
+                entries = list(history_entries or [])
+                action_state = dict(action_state or _history_action_state())
+                action_mode = str(action_state.get("mode") or "")
+                action_task_id = str(action_state.get("task_id") or "")
+                selected_entry = next((entry for entry in entries if str(entry.get("task_id") or "") == action_task_id), None)
+                if not selected_entry:
+                    return
+
+                task_id_state = gr.State(action_task_id)
+                task_title = str(selected_entry.get("title") or "Untitled task")
+                with gr.Column(elem_classes=["hf-history-panel"]):
+                    if action_mode == "rename":
+                        gr.Markdown(f"### Rename Task\n\n`{task_title}`")
+                        rename_input = gr.Textbox(
+                            label="Task Title",
+                            value=str(action_state.get("draft_title") or ""),
+                            placeholder=str(action_state.get("placeholder") or task_title),
+                            lines=1,
+                        )
+                        with gr.Row(elem_classes=["hf-history-inline"]):
+                            save_title_button = gr.Button("Save", variant="primary", size="sm")
+                            cancel_rename_button = gr.Button("Cancel", size="sm")
+                        save_title_button.click(
+                            _rename_task_from_history,
+                            [
+                                rename_input,
+                                task_id_state,
+                                active_task_state,
+                                selected_file_state,
+                            ],
+                            app_outputs,
+                            queue=False,
+                            show_progress="hidden",
+                        )
+                        cancel_rename_button.click(
+                            _cancel_history_action,
+                            [active_task_state, selected_file_state],
+                            app_outputs,
+                            queue=False,
+                            show_progress="hidden",
+                        )
+                    elif action_mode == "delete":
+                        gr.Markdown(f"### Delete Task\n\nRemove **{task_title}** and its workspace files?")
+                        with gr.Row(elem_classes=["hf-history-inline"]):
+                            confirm_delete_button = gr.Button("Confirm Delete", variant="stop", size="sm")
+                            cancel_delete_button = gr.Button("Cancel", size="sm")
+                        confirm_delete_button.click(
+                            _delete_task_from_history,
+                            [
+                                task_id_state,
+                                active_task_state,
+                                selected_file_state,
+                            ],
+                            app_outputs,
+                            queue=False,
+                            show_progress="hidden",
+                        )
+                        cancel_delete_button.click(
+                            _cancel_history_action,
+                            [active_task_state, selected_file_state],
+                            app_outputs,
+                            queue=False,
+                            show_progress="hidden",
+                        )
+
+            @gr.render(
+                inputs=[history_entries_state, active_task_state],
+                queue=False,
+                show_progress="hidden",
+            )
+            def _render_history_list(
+                history_entries: list[dict[str, Any]] | None,
+                current_task_id: str | None,
+            ):
+                entries = list(history_entries or [])
+                current_task_id = str(current_task_id or "")
+
+                with gr.Column(elem_classes=["hf-history-list"]):
+                    if not entries:
+                        gr.Markdown("No tasks yet.", elem_classes=["hf-history-empty"])
+                        return
+
+                    for entry in entries:
+                        task_id = str(entry.get("task_id") or "")
+                        task_title = str(entry.get("title") or "Untitled task")
+                        status = str(entry.get("status") or "ready")
+                        turns_text = str(entry.get("turns_text") or _history_turn_text(int(entry.get("turn_count") or 0)))
+                        updated_text = str(entry.get("updated_text") or "recently")
+                        row_classes = ["hf-history-item"]
+                        if task_id == current_task_id:
+                            row_classes.append("is-active")
+
+                        task_id_state = gr.State(task_id)
+                        with gr.Column(elem_classes=row_classes):
+                            with gr.Row(elem_classes=["hf-history-row"]):
+                                open_task_button = gr.Button(
+                                    task_title,
+                                    variant="primary" if task_id == current_task_id else "secondary",
+                                    elem_classes=["hf-history-open"],
+                                )
+                                rename_task_button = gr.Button(
+                                    "Rename",
+                                    size="sm",
+                                    elem_classes=["hf-history-action"],
+                                )
+                                delete_task_button = gr.Button(
+                                    "Delete",
+                                    variant="stop",
+                                    size="sm",
+                                    elem_classes=["hf-history-action"],
+                                )
+                            gr.Markdown(
+                                f"{status} · {turns_text} · {updated_text}",
+                                elem_classes=["hf-history-meta"],
+                            )
+
+                            open_task_button.click(
+                                _switch_task,
+                                [task_id_state],
+                                app_outputs,
+                                queue=False,
+                                show_progress="hidden",
+                            )
+                            rename_task_button.click(
+                                _start_history_rename,
+                                [
+                                    task_id_state,
+                                    active_task_state,
+                                    selected_file_state,
+                                ],
+                                app_outputs,
+                                queue=False,
+                                show_progress="hidden",
+                            )
+                            delete_task_button.click(
+                                _start_history_delete,
+                                [
+                                    task_id_state,
+                                    active_task_state,
+                                    selected_file_state,
+                                ],
+                                app_outputs,
+                                queue=False,
+                                show_progress="hidden",
+                            )
 
         with gr.Row(elem_classes=["hf-main"]):
             with gr.Column(scale=7, min_width=620):
@@ -917,7 +1281,7 @@ def launch_web_app(
                                 gr.Markdown("### Workspace")
 
                                 @gr.render(
-                                    inputs=[browser_task_id, workspace_catalog_state, selected_file_state],
+                                    inputs=[active_task_state, workspace_catalog_state, selected_file_state],
                                     queue=False,
                                     show_progress="hidden",
                                 )
@@ -954,7 +1318,7 @@ def launch_web_app(
                                         )
                                         open_report_button.click(
                                             _open_report_file,
-                                            [report_path_state, browser_task_id],
+                                            [report_path_state, active_task_state],
                                             [
                                                 selected_file_state,
                                                 preview_header,
@@ -986,7 +1350,7 @@ def launch_web_app(
                                         )
                                         workspace_browser.change(
                                             _on_workspace_file_selected,
-                                            [workspace_browser, browser_task_id],
+                                            [workspace_browser, active_task_state],
                                             [
                                                 selected_file_state,
                                                 preview_header,
@@ -1039,16 +1403,15 @@ def launch_web_app(
                         )
 
         app_outputs = [
-            recent_tasks,
             main_chatbot,
             trace_chatbot,
             browser_task_id,
+            active_task_state,
             task_header,
             workspace_catalog_state,
             selected_file_state,
-            task_title_input,
-            delete_confirm,
-            delete_task_button,
+            history_entries_state,
+            history_action_state,
             history_notice,
             preview_header,
             preview_markdown,
@@ -1067,47 +1430,9 @@ def launch_web_app(
             show_progress="hidden",
         )
 
-        recent_tasks.change(
-            _switch_task,
-            [recent_tasks],
-            app_outputs,
-            queue=False,
-            show_progress="hidden",
-        )
-
         new_task_button.click(
             _new_task,
             None,
-            app_outputs,
-            queue=False,
-            show_progress="hidden",
-        )
-
-        save_title_button.click(
-            _rename_task,
-            [
-                task_title_input,
-                main_chatbot,
-                trace_chatbot,
-                browser_task_id,
-                selected_file_state,
-            ],
-            app_outputs,
-            queue=False,
-            show_progress="hidden",
-        )
-
-        delete_confirm.change(
-            _toggle_delete_button,
-            [delete_confirm],
-            [delete_task_button],
-            queue=False,
-            show_progress="hidden",
-        )
-
-        delete_task_button.click(
-            _delete_task,
-            [delete_confirm, browser_task_id],
             app_outputs,
             queue=False,
             show_progress="hidden",
@@ -1119,7 +1444,7 @@ def launch_web_app(
                 prompt_input,
                 main_chatbot,
                 trace_chatbot,
-                browser_task_id,
+                active_task_state,
                 report_requested,
                 selected_file_state,
             ],
