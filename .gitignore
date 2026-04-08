@@ -15,6 +15,16 @@ prompt.md
 .DS_Store
 workspace/
 
+# HealthFlow platform frontend is committed as source, configs, and bundled assets.
+!platform/
+!platform/**
+!platform/**/*.json
+!platform/**/*.jsonl
+!platform/**/*.lock
+!platform/**/*.pdf
+!platform/**/*.png
+!platform/**/*.csv
+
 # Benchmark datasets are local-only artifacts; keep scripts/docs in git.
 data/*/raw/**
 data/*/processed/**

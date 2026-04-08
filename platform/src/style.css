@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+:root {
+  --hf-bg: #f4f7fb;
+  --hf-ink: #0f172a;
+  --hf-ink-soft: #475569;
+  --hf-line: rgba(15, 23, 42, 0.12);
+  --hf-card: rgba(255, 255, 255, 0.72);
+  --hf-serif: 'Instrument Serif', Georgia, serif;
+  --hf-sans: 'Manrope', 'Segoe UI', sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--hf-sans);
+  color: var(--hf-ink);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(244, 247, 251, 0.98)),
+    radial-gradient(circle at top, rgba(84, 120, 255, 0.08), transparent 42%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+.font-display {
+  font-family: var(--hf-serif);
+}
+
+.glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: var(--hf-card);
+  backdrop-filter: blur(18px);
+}
