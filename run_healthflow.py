@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from healthflow.system import HealthFlowSystem
 from healthflow.core.config import get_config, setup_logging
+from healthflow.session_client import TaskSessionClient
+from healthflow.web_app import launch_web_app
 
 app = typer.Typer(
     name="healthflow",
@@ -22,51 +24,6 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
-
-
-class _InteractiveTaskSession:
-    def __init__(self, system: Any):
-        self.system = system
-        self._state = None
-        self._fallback_counter = 0
-        self.new_task()
-
-    def new_task(self) -> None:
-        self._fallback_counter += 1
-        if hasattr(self.system, "create_task_session"):
-            self._state = self.system.create_task_session()
-        else:
-            self._state = {"task_id": f"session-{self._fallback_counter:03d}"}
-
-    @property
-    def task_id(self) -> str:
-        if isinstance(self._state, dict):
-            return str(self._state.get("task_id") or f"session-{self._fallback_counter:03d}")
-        return getattr(self._state, "task_id", f"session-{self._fallback_counter:03d}")
-
-    @property
-    def session_label(self) -> str:
-        return f"Task {self.task_id[:8]}"
-
-    async def run_turn(
-        self,
-        task: str,
-        *,
-        live: Live | None = None,
-        spinner: Spinner | None = None,
-        report_requested: bool = False,
-        progress_callback=None,
-    ) -> dict[str, Any]:
-        if hasattr(self.system, "run_task_turn"):
-            return await self.system.run_task_turn(
-                self.task_id,
-                task,
-                live=live,
-                spinner=spinner,
-                report_requested=report_requested,
-                progress_callback=progress_callback,
-            )
-        return await self.system.run_task(task, live, spinner, report_requested=report_requested)
 
 
 def _chat_panel_style(result: dict) -> tuple[str, str]:
@@ -253,7 +210,7 @@ async def run_single_task_flow(
 
 async def main_interactive_loop(system: Any, *, verbose: bool = False):
     """Runs the basic interactive loop used for non-TTY or fallback sessions."""
-    session = system if isinstance(system, _InteractiveTaskSession) else _InteractiveTaskSession(system)
+    session = system if isinstance(system, TaskSessionClient) else TaskSessionClient(system)
     console.print(
         Panel(
             "[bold green]HealthFlow Interactive Mode[/bold green]",
@@ -424,7 +381,7 @@ def interactive(
         active_executor,
         verbose=verbose,
     )
-    system_factory = lambda: _InteractiveTaskSession(base_system_factory())
+    system_factory = lambda: TaskSessionClient(base_system_factory())
 
     async def _interactive_runner(system: Any, task: str) -> dict:
         return await execute_task_with_spinner(
@@ -441,6 +398,41 @@ def interactive(
         verbose=verbose,
     )
     asyncio.run(shell.run())
+
+
+@app.command()
+def web(
+    config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
+    experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
+    planner_llm: str = typer.Option(None, "--planner-llm", help="Override runtime.planner_llm from config.toml."),
+    evaluator_llm: str = typer.Option(None, "--evaluator-llm", help="Override runtime.evaluator_llm from config.toml."),
+    reflector_llm: str = typer.Option(None, "--reflector-llm", help="Override runtime.reflector_llm from config.toml."),
+    executor_llm: str = typer.Option(None, "--executor-llm", help="Override runtime.executor_llm from config.toml."),
+    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)."),
+    server_name: str = typer.Option("127.0.0.1", "--server-name", help="Host interface to bind the web app."),
+    server_port: int = typer.Option(7860, "--server-port", help="Port to bind the web app."),
+    share: bool = typer.Option(False, "--share", help="Create a temporary public Gradio share link."),
+    verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
+):
+    """
+    Launch the Python-driven HealthFlow web frontend.
+    """
+    system_factory = _build_system_factory(
+        config_path,
+        experience_path,
+        planner_llm,
+        evaluator_llm,
+        reflector_llm,
+        executor_llm,
+        active_executor,
+        verbose=verbose,
+    )
+    launch_web_app(
+        system_factory,
+        server_name=server_name,
+        server_port=server_port,
+        share=share,
+    )
 
 @app.callback(invoke_without_command=True)
 def main_entry(ctx: typer.Context):

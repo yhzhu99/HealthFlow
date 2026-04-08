@@ -7,7 +7,7 @@ import shutil
 import time
 import uuid
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -922,6 +922,17 @@ class HealthFlowSystem:
                     "timed_out": execution_result.timed_out,
                     "cancelled": execution_result.cancelled,
                 },
+            )
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="log_chunk",
+                    stage="executor",
+                    status="completed" if execution_result.success else "failed",
+                    attempt=attempt_num,
+                    message=execution_result.log[-4000:],
+                    metadata={"backend": execution_result.backend},
+                ),
             )
             self._emit_progress(
                 progress_callback,
@@ -1882,7 +1893,7 @@ class HealthFlowSystem:
         return list(dict.fromkeys(tags))
 
     def _utc_now(self) -> str:
-        return datetime.utcnow().isoformat() + "Z"
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     def _read_json(self, path: Path) -> dict[str, Any]:
         with open(path, "r", encoding="utf-8") as handle:
@@ -2102,7 +2113,7 @@ class HealthFlowSystem:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         event_payload = {
-            "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+            "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "task_id": paths.task_root.name,
             "attempt": attempt,
             "stage": stage,

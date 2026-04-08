@@ -17,7 +17,16 @@ class _FakeSystem:
         self.created_sessions.append(task_id)
         return SimpleNamespace(task_id=task_id)
 
-    async def run_task_turn(self, task_id, task, live=None, spinner=None, report_requested=False, progress_callback=None):
+    async def run_task_turn(
+        self,
+        task_id,
+        task,
+        live=None,
+        spinner=None,
+        report_requested=False,
+        progress_callback=None,
+        uploaded_files=None,
+    ):
         self.turn_calls.append((task_id, task))
         return {
             "success": True,
@@ -84,6 +93,29 @@ class CliOutputTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(system.turn_calls[0][0], system.turn_calls[1][0])
         self.assertNotEqual(system.turn_calls[1][0], system.turn_calls[2][0])
+
+    def test_web_command_invokes_launcher(self):
+        system = _FakeSystem()
+        captured = {}
+
+        def _fake_launch(system_factory, *, server_name, server_port, share):
+            captured["server_name"] = server_name
+            captured["server_port"] = server_port
+            captured["share"] = share
+            captured["task_id"] = system_factory().create_task_session().task_id
+
+        with patch.object(run_healthflow, "_initialize_system", return_value=system):
+            with patch.object(run_healthflow, "launch_web_app", side_effect=_fake_launch):
+                result = self.runner.invoke(
+                    run_healthflow.app,
+                    ["web", "--server-port", "7861", "--share"],
+                )
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(captured["server_name"], "127.0.0.1")
+        self.assertEqual(captured["server_port"], 7861)
+        self.assertTrue(captured["share"])
+        self.assertEqual(captured["task_id"], "task-1")
 
 
 if __name__ == "__main__":
