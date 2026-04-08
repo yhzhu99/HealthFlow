@@ -408,7 +408,7 @@ aside > div {
 
 .hf-task-header h2 {
     margin: 0;
-    font-size: 1.86rem;
+    font-size: 2.02rem;
     font-weight: 700;
     letter-spacing: -0.045em;
     color: var(--hf-text);
@@ -473,7 +473,7 @@ aside > div {
 
 .hf-run-overview-summary-line h3 {
     margin: 0;
-    font-size: 1.16rem;
+    font-size: 1.24rem;
     font-weight: 700;
     letter-spacing: -0.02em;
 }
@@ -485,7 +485,7 @@ aside > div {
     border-radius: var(--hf-radius-chip);
     background: var(--hf-surface-contrast);
     color: var(--hf-text);
-    font-size: 0.72rem;
+    font-size: 0.76rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -499,7 +499,7 @@ aside > div {
     border-radius: var(--hf-radius-chip);
     background: rgba(255, 255, 255, 0.86);
     color: var(--hf-text-muted);
-    font-size: 0.72rem;
+    font-size: 0.76rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -536,7 +536,7 @@ aside > div {
 
 .hf-run-overview-objective {
     color: var(--hf-text);
-    font-size: 1.04rem;
+    font-size: 1.1rem;
     font-weight: 600;
     line-height: 1.5;
 }
@@ -544,7 +544,7 @@ aside > div {
 .hf-run-overview-note {
     margin-top: 0.3rem;
     color: var(--hf-text-muted);
-    font-size: 0.98rem;
+    font-size: 1.04rem;
     line-height: 1.52;
 }
 
@@ -570,13 +570,13 @@ aside > div {
 }
 
 .hf-stage-chip-label {
-    font-size: 0.88rem;
+    font-size: 0.94rem;
     font-weight: 700;
 }
 
 .hf-stage-chip-state {
     color: var(--hf-text-muted);
-    font-size: 0.72rem;
+    font-size: 0.76rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -629,7 +629,7 @@ aside > div {
     align-items: flex-start;
     padding: 0.32rem 0;
     color: var(--hf-text);
-    font-size: 0.9rem;
+    font-size: 0.96rem;
     line-height: 1.5;
 }
 
@@ -642,7 +642,7 @@ aside > div {
     flex: 0 0 auto;
     min-width: 1.65rem;
     color: var(--hf-accent);
-    font-size: 0.76rem;
+    font-size: 0.8rem;
     font-weight: 700;
     letter-spacing: 0.06em;
 }
@@ -1086,7 +1086,7 @@ aside > div {
     min-height: 2rem;
     padding: 0.34rem 0.1rem 0.18rem;
     color: #334155;
-    font-size: 0.98rem;
+    font-size: 1.02rem;
     font-weight: 700;
     letter-spacing: -0.01em;
     text-transform: none;
@@ -1163,7 +1163,7 @@ aside > div {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.96rem;
+    font-size: 1rem;
     font-weight: 600;
     line-height: 1.35;
     color: #0f172a;
@@ -1427,15 +1427,28 @@ aside > div {
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
     margin-left: auto;
-    max-width: min(76%, 46rem) !important;
+    width: fit-content !important;
+    max-width: min(62%, 38rem) !important;
 }
 
 .hf-chatbot :is(.user .panel-full-width, .panel-full-width.user) {
     display: block !important;
     width: fit-content !important;
-    max-width: min(76%, 46rem) !important;
+    max-width: min(62%, 38rem) !important;
     margin-left: auto !important;
     padding: 0 !important;
+}
+
+.hf-chatbot .message-row:has(:is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user)),
+.hf-chatbot .message-wrap:has(:is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user)) {
+    justify-content: flex-end !important;
+}
+
+.hf-chatbot .bubble-wrap:has(:is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user)) {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    max-width: min(62%, 38rem) !important;
+    margin-left: auto !important;
 }
 
 .hf-chatbot :is(.message, .panel-full-width),
@@ -1446,8 +1459,8 @@ aside > div {
 
 .hf-chatbot .message-row,
 .hf-trace-panel .message-row {
-    padding-left: 0.75rem !important;
-    padding-right: 0.75rem !important;
+    padding-left: 0.6rem !important;
+    padding-right: 0.6rem !important;
 }
 
 .hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width),
@@ -1458,25 +1471,27 @@ aside > div {
 
 .hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) :is(.prose, p, li, div, span, strong, em),
 .hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) :is(.prose, p, li, div, span, strong, em) {
-    font-size: 1.12rem !important;
+    font-size: 1.18rem !important;
     line-height: 1.68 !important;
 }
 
 .hf-chatbot :is(.bot.message, .message.bot, .bot .message, .bot .panel-full-width) code,
 .hf-chatbot :is(.user.message, .message.user, .user .message, .user .panel-full-width, .panel-full-width.user) code {
-    font-size: 0.98rem !important;
+    font-size: 1.02rem !important;
 }
 
 .hf-chatbot :is(.user.message, .message.user, .user .message) {
     border: 1px solid rgba(15, 23, 42, 0.06);
     background: linear-gradient(180deg, rgba(232, 238, 244, 0.96) 0%, rgba(245, 249, 252, 0.98) 100%) !important;
     color: var(--hf-text) !important;
+    padding: 0.8rem 0.95rem !important;
 }
 
 .hf-chatbot :is(.user .panel-full-width, .panel-full-width.user) {
     border: 1px solid rgba(15, 23, 42, 0.06) !important;
     background: linear-gradient(180deg, rgba(232, 238, 244, 0.96) 0%, rgba(245, 249, 252, 0.98) 100%) !important;
     color: var(--hf-text) !important;
+    padding: 0.8rem 0.95rem !important;
 }
 
 .hf-chatbot .message-row:has(:is(.user .panel-full-width, .panel-full-width.user)),
@@ -1524,7 +1539,7 @@ aside > div {
 .hf-process-card-title {
     margin: 0;
     color: var(--hf-text);
-    font-size: 1.14rem;
+    font-size: 1.22rem;
     font-weight: 700;
     line-height: 1.42;
 }
@@ -1542,7 +1557,7 @@ aside > div {
     border-radius: var(--hf-radius-chip);
     background: rgba(255, 255, 255, 0.92);
     color: var(--hf-text-muted);
-    font-size: 0.74rem;
+    font-size: 0.78rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -1583,7 +1598,7 @@ aside > div {
     border-radius: var(--hf-radius-chip);
     background: rgba(255, 255, 255, 0.96);
     color: var(--hf-text-muted);
-    font-size: 0.76rem;
+    font-size: 0.8rem;
     font-weight: 700;
     letter-spacing: 0.02em;
     text-transform: uppercase;
@@ -1639,7 +1654,7 @@ aside > div {
 .hf-process-card-copy {
     margin: 0;
     color: var(--hf-text);
-    font-size: 0.98rem;
+    font-size: 1.04rem;
     line-height: 1.55;
 }
 
@@ -1647,7 +1662,7 @@ aside > div {
     margin: 0;
     padding-left: 1rem;
     color: var(--hf-text);
-    font-size: 0.96rem;
+    font-size: 1rem;
     line-height: 1.5;
 }
 
@@ -1745,7 +1760,7 @@ aside > div {
 }
 
 .hf-preview-pane :is(.prose, p, li, div, span, strong, em) {
-    font-size: 1.12rem;
+    font-size: 1.18rem;
     line-height: 1.66;
 }
 
