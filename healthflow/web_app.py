@@ -47,6 +47,13 @@ _DEMO_CASE = {
     "file_name": SHOWCASE_FILE_NAME,
     "prompt": SHOWCASE_PROMPT,
 }
+_PROCESS_SNAPSHOT_MESSAGE_ID = "hf-process-snapshot"
+_INLINE_GALLERY_MESSAGE_ID = "hf-inline-gallery"
+_INLINE_IMAGE_PRIORITY = {
+    "roc_curve.png": 0,
+    "calibration.png": 1,
+    "risk_distribution.png": 2,
+}
 _WEB_APP_HEAD = """
 <script>
 (() => {
@@ -1363,6 +1370,183 @@ aside > div {
     color: var(--hf-text) !important;
 }
 
+.hf-process-snapshot {
+    width: 100%;
+}
+
+.hf-process-card {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: var(--hf-radius-panel);
+    background: linear-gradient(180deg, rgba(244, 248, 251, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+    padding: 0.72rem 0.78rem;
+}
+
+.hf-process-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.65rem;
+}
+
+.hf-process-card-main {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.hf-process-card-eyebrow {
+    margin: 0 0 0.18rem;
+    color: var(--hf-text-muted);
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.hf-process-card-title {
+    margin: 0;
+    color: var(--hf-text);
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.hf-process-card-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+}
+
+.hf-process-pill {
+    padding: 0.14rem 0.38rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: var(--hf-radius-chip);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--hf-text-muted);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.hf-process-pill.is-running {
+    border-color: rgba(21, 90, 138, 0.24);
+    background: rgba(224, 238, 248, 0.95);
+    color: var(--hf-accent);
+}
+
+.hf-process-pill.is-completed {
+    border-color: rgba(5, 150, 105, 0.18);
+    background: rgba(236, 253, 245, 0.96);
+    color: #047857;
+}
+
+.hf-process-pill.is-failed,
+.hf-process-pill.is-cancelled {
+    border-color: rgba(185, 28, 28, 0.18);
+    background: rgba(254, 242, 242, 0.96);
+    color: #b91c1c;
+}
+
+.hf-process-stage-rail {
+    display: flex;
+    gap: 0.28rem;
+    flex-wrap: wrap;
+    margin-top: 0.55rem;
+}
+
+.hf-process-stage {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.22rem;
+    padding: 0.16rem 0.34rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: var(--hf-radius-chip);
+    background: rgba(255, 255, 255, 0.96);
+    color: var(--hf-text-muted);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.hf-process-stage.is-active {
+    border-color: rgba(21, 90, 138, 0.24);
+    background: rgba(224, 238, 248, 0.95);
+    color: var(--hf-accent);
+}
+
+.hf-process-stage.is-done {
+    border-color: rgba(5, 150, 105, 0.18);
+    background: rgba(236, 253, 245, 0.96);
+    color: #047857;
+}
+
+.hf-process-stage.is-failed,
+.hf-process-stage.is-cancelled {
+    border-color: rgba(185, 28, 28, 0.18);
+    background: rgba(254, 242, 242, 0.96);
+    color: #b91c1c;
+}
+
+.hf-process-stage.is-skipped {
+    background: var(--hf-surface-contrast);
+}
+
+.hf-process-card-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1.35fr) minmax(0, 1.15fr);
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+}
+
+.hf-process-card-block {
+    min-width: 0;
+    padding: 0.54rem 0.58rem;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    border-radius: var(--hf-radius-control);
+    background: rgba(255, 255, 255, 0.88);
+}
+
+.hf-process-card-label {
+    margin: 0 0 0.22rem;
+    color: var(--hf-text-muted);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.hf-process-card-copy {
+    margin: 0;
+    color: var(--hf-text);
+    font-size: 0.74rem;
+    line-height: 1.45;
+}
+
+.hf-process-card-list {
+    margin: 0;
+    padding-left: 1rem;
+    color: var(--hf-text);
+    font-size: 0.72rem;
+    line-height: 1.4;
+}
+
+.hf-inline-gallery {
+    width: 100%;
+    margin-top: -0.15rem;
+}
+
+.hf-inline-gallery img {
+    border-radius: var(--hf-radius-control) !important;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.hf-inline-gallery button {
+    box-shadow: none !important;
+}
+
 .hf-chat-shell button[aria-label="Clear"],
 .hf-chat-shell button[title="Clear"] {
     display: none !important;
@@ -1435,6 +1619,10 @@ footer {
 
     .hf-stage-chip {
         width: calc(50% - 0.2rem);
+    }
+
+    .hf-process-card-grid {
+        grid-template-columns: 1fr;
     }
 
     .hf-workspace-row {
@@ -2348,81 +2536,323 @@ def _latest_attempt_from_task_root(task_root: Path | None) -> dict[str, Any]:
     return dict(latest_attempt) if isinstance(latest_attempt, dict) else {}
 
 
-def _restored_stage_messages(task_root: Path | None) -> list[dict[str, Any]]:
+def _try_import_gradio() -> Any | None:
+    try:
+        import gradio as gr
+    except ImportError:
+        return None
+    return gr
+
+
+def _artifact_paths_from_task_root(task_root: Path | None) -> list[str]:
+    if task_root is None:
+        return []
+    sandbox_root = task_root / "sandbox"
+    if not sandbox_root.exists():
+        return []
+    return [
+        path.relative_to(sandbox_root).as_posix()
+        for path in sorted(sandbox_root.rglob("*"))
+        if path.is_file()
+    ]
+
+
+def _inline_image_sort_key(path: Path) -> tuple[int, str]:
+    return (_INLINE_IMAGE_PRIORITY.get(path.name.lower(), len(_INLINE_IMAGE_PRIORITY)), path.name.lower())
+
+
+def _resolved_inline_image_paths(
+    artifact_paths: Sequence[str],
+    *,
+    task_root: Path | None,
+    seen_image_paths: set[str],
+    limit: int = 3,
+) -> list[Path]:
+    if task_root is None:
+        return []
+
+    sandbox_root = task_root / "sandbox"
+    candidates: list[Path] = []
+    for artifact_path in artifact_paths:
+        resolved_relative_path = str(artifact_path or "").strip()
+        if not resolved_relative_path:
+            continue
+        path = sandbox_root / resolved_relative_path
+        if not path.exists() or not path.is_file():
+            continue
+        if artifact_preview_kind(path) != "image":
+            continue
+        path_str = str(path)
+        if path_str in seen_image_paths:
+            continue
+        candidates.append(path)
+
+    resolved_paths: list[Path] = []
+    for path in sorted(candidates, key=_inline_image_sort_key):
+        seen_image_paths.add(str(path))
+        resolved_paths.append(path)
+        if len(resolved_paths) >= limit:
+            break
+    return resolved_paths
+
+
+def _artifact_snapshot_summary(
+    artifact_paths: Sequence[str],
+    *,
+    task_root: Path | None,
+) -> str:
+    resolved_paths = [str(item).strip() for item in artifact_paths if str(item).strip()]
+    image_count = 0
+    report_ready = False
+    if task_root is not None:
+        sandbox_root = task_root / "sandbox"
+        for artifact_path in resolved_paths:
+            path = sandbox_root / artifact_path
+            if path.exists() and path.is_file() and artifact_preview_kind(path) == "image":
+                image_count += 1
+            name = path.name.lower()
+            if name in {"report.md", "final_report.md"}:
+                report_ready = True
+    if task_root is not None and (task_root / "runtime" / "report.md").exists():
+        report_ready = True
+    parts = [
+        f"{image_count} figure{'s' if image_count != 1 else ''} inline" if image_count else "No figures inline yet",
+        f"{len(resolved_paths)} artifact{'s' if len(resolved_paths) != 1 else ''} in workspace",
+        "report ready" if report_ready else "report pending",
+    ]
+    return " · ".join(parts)
+
+
+def _process_snapshot_headline(
+    overview: dict[str, Any],
+    *,
+    event: HealthFlowProgressEvent | None = None,
+    restored: bool = False,
+) -> str:
+    mode = str(overview.get("mode") or "idle").strip().lower()
+    current_stage = str(overview.get("current_stage") or "").strip().lower()
+    current_stage_label = _RUN_STAGE_LABELS.get(current_stage, "Run")
+    if restored:
+        if mode == "completed":
+            return "Previous run ready to review"
+        if mode == "failed":
+            return "Previous run needs follow-up"
+        if mode == "cancelled":
+            return "Previous run was cancelled"
+        return "Previous run restored"
+    if event is not None:
+        if event.kind == "artifact_delta":
+            return "Artifacts rendered into the workspace"
+        if event.kind == "stage_started":
+            return f"{_RUN_STAGE_LABELS.get(str(event.stage or '').strip().lower(), 'Run')} is active"
+        if event.kind == "stage_finished":
+            stage = str(event.stage or "").strip().lower()
+            if stage == "planner":
+                return "Planner locked the objective"
+            if stage == "executor":
+                return "Executor finished the deliverables"
+            if stage == "evaluator":
+                return "Evaluator returned a verdict"
+            if stage == "reflection":
+                return "Reflection archived the run"
+            return f"{_RUN_STAGE_LABELS.get(stage, 'Run')} completed"
+        if event.kind == "turn_cancelled":
+            return "Run cancelled"
+    if mode == "completed":
+        return "Run complete"
+    if mode == "failed":
+        return "Run finished with issues"
+    if mode == "cancelled":
+        return "Run cancelled"
+    return f"{current_stage_label} in progress"
+
+
+def _process_stage_rail_html(overview: dict[str, Any]) -> str:
+    stage_status = dict(overview.get("stage_status") or {})
+    items = []
+    for stage in _RUN_STAGE_ORDER:
+        badge = _run_stage_badge(str(stage_status.get(stage) or "pending"))
+        label = html.escape(_RUN_STAGE_LABELS.get(stage, stage.title()))
+        items.append(f'<span class="hf-process-stage is-{badge}">{label}</span>')
+    return "".join(items)
+
+
+def _process_snapshot_markup(
+    overview: dict[str, Any],
+    *,
+    artifact_paths: Sequence[str],
+    task_root: Path | None,
+    event: HealthFlowProgressEvent | None = None,
+    restored: bool = False,
+) -> str:
+    objective = html.escape(str(overview.get("objective") or "").strip() or "Objective will appear after planning.")
+    recommended_steps = [str(item).strip() for item in list(overview.get("recommended_steps") or []) if str(item).strip()]
+    if not recommended_steps and event is not None and str(event.message or "").strip():
+        recommended_steps = [str(event.message or "").strip()]
+    recommended_steps = recommended_steps[:2]
+    steps_html = "".join(f"<li>{html.escape(item)}</li>" for item in recommended_steps) or "<li>Planner steps will appear here.</li>"
+    latest_message = html.escape(str(overview.get("latest_message") or "").strip() or "Runtime progress will appear here.")
+    headline = html.escape(_process_snapshot_headline(overview, event=event, restored=restored))
+    mode = html.escape(str(overview.get("mode") or "idle"))
+    current_stage = str(overview.get("current_stage") or "").strip().lower()
+    current_stage_label = html.escape(_RUN_STAGE_LABELS.get(current_stage, "Ready"))
+    artifact_copy = html.escape(_artifact_snapshot_summary(artifact_paths, task_root=task_root))
+    return (
+        '<section class="hf-process-card">'
+        '<div class="hf-process-card-head">'
+        '<div class="hf-process-card-main">'
+        '<div class="hf-process-card-eyebrow">Process Snapshot</div>'
+        f'<p class="hf-process-card-title">{headline}</p>'
+        "</div>"
+        '<div class="hf-process-card-meta">'
+        f'<span class="hf-process-pill is-{mode.lower()}">{mode}</span>'
+        f'<span class="hf-process-pill">{current_stage_label}</span>'
+        "</div>"
+        "</div>"
+        f'<div class="hf-process-stage-rail">{_process_stage_rail_html(overview)}</div>'
+        '<div class="hf-process-card-grid">'
+        '<div class="hf-process-card-block">'
+        '<div class="hf-process-card-label">Objective</div>'
+        f'<p class="hf-process-card-copy">{objective}</p>'
+        "</div>"
+        '<div class="hf-process-card-block">'
+        '<div class="hf-process-card-label">Plan</div>'
+        f'<ul class="hf-process-card-list">{steps_html}</ul>'
+        "</div>"
+        '<div class="hf-process-card-block">'
+        '<div class="hf-process-card-label">Artifacts</div>'
+        f'<p class="hf-process-card-copy">{artifact_copy}</p>'
+        f'<p class="hf-process-card-copy">{latest_message}</p>'
+        "</div>"
+        "</div>"
+        "</section>"
+    )
+
+
+def _process_snapshot_message(
+    overview: dict[str, Any],
+    *,
+    artifact_paths: Sequence[str],
+    task_root: Path | None,
+    event: HealthFlowProgressEvent | None = None,
+    restored: bool = False,
+) -> dict[str, Any]:
+    markup = _process_snapshot_markup(
+        overview,
+        artifact_paths=artifact_paths,
+        task_root=task_root,
+        event=event,
+        restored=restored,
+    )
+    gr = _try_import_gradio()
+    content: Any = markup
+    if gr is not None:
+        content = gr.HTML(
+            value=markup,
+            container=False,
+            padding=False,
+            elem_classes=["hf-process-snapshot"],
+        )
+    return {
+        "role": "assistant",
+        "content": content,
+        "metadata": {"id": _PROCESS_SNAPSHOT_MESSAGE_ID},
+    }
+
+
+def _inline_image_gallery_message(
+    artifact_paths: Sequence[str],
+    *,
+    task_root: Path | None,
+    seen_image_paths: set[str],
+    limit: int = 3,
+) -> dict[str, Any] | None:
+    image_paths = _resolved_inline_image_paths(
+        artifact_paths,
+        task_root=task_root,
+        seen_image_paths=seen_image_paths,
+        limit=limit,
+    )
+    if not image_paths:
+        return None
+
+    gallery_values = [
+        (
+            str(path),
+            {
+                "roc_curve.png": "ROC",
+                "calibration.png": "Calibration",
+                "risk_distribution.png": "Risk Distribution",
+            }.get(path.name.lower(), path.stem.replace("_", " ").title()),
+        )
+        for path in image_paths
+    ]
+    gr = _try_import_gradio()
+    if gr is None:
+        return {"role": "assistant", "content": (str(image_paths[0]), image_paths[0].name), "metadata": {"id": _INLINE_GALLERY_MESSAGE_ID}}
+    return {
+        "role": "assistant",
+        "content": gr.Gallery(
+            value=gallery_values,
+            columns=min(len(gallery_values), 3),
+            container=False,
+            elem_classes=["hf-inline-gallery"],
+            show_label=False,
+            show_download_button=False,
+            show_fullscreen_button=False,
+            preview=False,
+            allow_preview=False,
+            object_fit="contain",
+            type="filepath",
+        ),
+        "metadata": {"id": _INLINE_GALLERY_MESSAGE_ID},
+    }
+
+
+def _assistant_message_marker(message: dict[str, Any]) -> str:
+    metadata = message.get("metadata")
+    if not isinstance(metadata, dict):
+        return ""
+    return str(metadata.get("id") or "").strip()
+
+
+def _upsert_recent_assistant_message(main_history: list[dict[str, Any]], message: dict[str, Any]) -> None:
+    marker = _assistant_message_marker(message)
+    if not marker:
+        main_history.append(message)
+        return
+    for index in range(len(main_history) - 1, -1, -1):
+        existing = main_history[index]
+        if existing.get("role") == "user":
+            break
+        if _assistant_message_marker(existing) == marker:
+            main_history[index] = message
+            return
+    main_history.append(message)
+
+
+def _restored_process_messages(task_root: Path | None) -> list[dict[str, Any]]:
     overview = _run_overview_from_task_root(task_root)
     latest_attempt = _latest_attempt_from_task_root(task_root)
     if not latest_attempt:
         return []
-
-    plan = dict(latest_attempt.get("plan") or {})
-    artifacts = dict(latest_attempt.get("artifacts") or {})
-    evaluation = dict(latest_attempt.get("evaluation") or {})
-    execution = dict(latest_attempt.get("execution") or {})
-    messages: list[dict[str, Any]] = []
-
-    planner_steps = [str(item).strip() for item in list(plan.get("recommended_steps") or []) if str(item).strip()]
-    success_signals = [str(item).strip() for item in list(plan.get("success_signals") or []) if str(item).strip()]
-    if plan:
-        content = f"**Objective**\n\n{str(plan.get('objective') or overview.get('objective') or '').strip()}"
-        if planner_steps:
-            content += "\n\n**Recommended steps**\n\n" + "\n".join(
-                f"{index}. {item}" for index, item in enumerate(planner_steps, start=1)
-            )
-        if success_signals:
-            content += "\n\n**Success signals**\n\n" + "\n".join(f"- {item}" for item in success_signals)
-        messages.append(
-            {
-                "role": "assistant",
-                "content": content,
-                "metadata": {
-                    "title": "Planner",
-                    "status": "done",
-                    "log": "Recovered the latest plan from runtime artifacts.",
-                },
-            }
+    artifact_paths = [str(item).strip() for item in list((latest_attempt.get("artifacts") or {}).get("sandbox_paths") or []) if str(item).strip()]
+    seen_image_paths: set[str] = set()
+    messages = [
+        _process_snapshot_message(
+            overview,
+            artifact_paths=artifact_paths,
+            task_root=task_root,
+            restored=True,
         )
-
-    stage_notes = {
-        "memory": "Memory checks completed and the cohort context was prepared for planning.",
-        "planner": "The objective and execution path were locked before artifact generation.",
-        "executor": (
-            f"Executor finished with {len(list(artifacts.get('sandbox_paths') or []))} workspace artifacts."
-            if execution
-            else "Executor stage completed."
-        ),
-        "evaluator": str(evaluation.get("feedback") or "Evaluator accepted the latest packet.").strip(),
-        "reflection": "Reflection metadata was captured so this showcase looks like a complete system run.",
-    }
-    stage_status = dict(overview.get("stage_status") or {})
-    for stage in _RUN_STAGE_ORDER:
-        badge = _run_stage_badge(str(stage_status.get(stage) or "pending"))
-        if badge in {"pending", "skipped"}:
-            continue
-        messages.append(
-            {
-                "role": "assistant",
-                "content": stage_notes.get(stage, f"{_RUN_STAGE_LABELS.get(stage, stage.title())} completed."),
-                "metadata": {
-                    "title": _RUN_STAGE_LABELS.get(stage, stage.title()),
-                    "status": "done" if badge not in {"failed", "cancelled"} else badge,
-                },
-            }
-        )
-
-    artifact_paths = [str(item).strip() for item in list(artifacts.get("sandbox_paths") or []) if str(item).strip()]
-    if artifact_paths:
-        artifact_lines = "\n".join(f"- `{item}`" for item in artifact_paths[:6])
-        messages.append(
-            {
-                "role": "assistant",
-                "content": f"**Artifacts ready**\n\n{artifact_lines}",
-                "metadata": {
-                    "title": "Artifacts",
-                    "status": "done",
-                    "log": f"{len(artifact_paths)} artifacts available in the workspace.",
-                },
-            }
-        )
+    ]
+    gallery_message = _inline_image_gallery_message(
+        artifact_paths,
+        task_root=task_root,
+        seen_image_paths=seen_image_paths,
+    )
+    if gallery_message is not None:
+        messages.append(gallery_message)
     return messages
 
 
@@ -2430,7 +2860,6 @@ def _restore_main_history(client: TaskSessionClient) -> list[dict[str, Any]]:
     history = client.load_history()
     task_root = Path(client.task_root) if client.task_root else None
     main_history: list[dict[str, Any]] = []
-    seen_image_paths: set[str] = set()
     for index, record in enumerate(history):
         main_history.append(
             {
@@ -2442,16 +2871,7 @@ def _restore_main_history(client: TaskSessionClient) -> list[dict[str, Any]]:
             }
         )
         if index == len(history) - 1:
-            main_history.extend(_restored_stage_messages(task_root))
-            latest_attempt = _latest_attempt_from_task_root(task_root)
-            artifact_paths = list((latest_attempt.get("artifacts") or {}).get("sandbox_paths") or [])
-            main_history.extend(
-                _inline_image_messages(
-                    artifact_paths,
-                    task_root=task_root,
-                    seen_image_paths=seen_image_paths,
-                )
-            )
+            main_history.extend(_restored_process_messages(task_root))
         main_history.append({"role": "assistant", "content": _history_answer_text(record)})
     return main_history
 
@@ -2488,123 +2908,36 @@ def _progress_title(event: HealthFlowProgressEvent) -> str:
     return stage_label
 
 
-def _progress_message_content(event: HealthFlowProgressEvent) -> str:
-    metadata = event.metadata if isinstance(event.metadata, dict) else {}
-    stage_label = _RUN_STAGE_LABELS.get(str(event.stage or "").strip().lower(), str(event.stage or "Run").title())
-    if event.kind == "stage_started":
-        message = str(event.message or "").strip() or f"{stage_label} is now running."
-        return f"**{stage_label}**\n\n{message}"
-    if event.stage == "planner" and event.kind == "stage_finished":
-        objective = str(metadata.get("objective") or event.message or "").strip()
-        steps = [str(item).strip() for item in list(metadata.get("recommended_steps") or []) if str(item).strip()]
-        success_signals = [str(item).strip() for item in list(metadata.get("success_signals") or []) if str(item).strip()]
-        content = f"**Objective**\n\n{objective or 'Planner objective ready.'}"
-        if steps:
-            content += "\n\n**Recommended steps**\n\n" + "\n".join(
-                f"{index}. {item}" for index, item in enumerate(steps, start=1)
-            )
-        if success_signals:
-            content += "\n\n**Success signals**\n\n" + "\n".join(f"- {item}" for item in success_signals)
-        return content
-    if event.stage == "evaluator" and event.kind == "stage_finished":
-        score = metadata.get("score")
-        message = str(event.message or "Evaluation complete.").strip()
-        if score is not None:
-            return f"**Evaluator verdict**\n\n{message}\n\nScore: `{score}`"
-        return f"**Evaluator verdict**\n\n{message}"
-    if event.stage == "reflection" and event.kind == "stage_finished":
-        updates = int(metadata.get("memory_updates") or 0)
-        new_experiences = int(metadata.get("new_experiences") or 0)
-        return (
-            "**Reflection**\n\n"
-            f"Captured `{new_experiences}` new experiences and `{updates}` memory updates."
-        )
-    message = str(event.message or "").strip() or f"{stage_label} completed."
-    return f"**{stage_label}**\n\n{message}"
-
-
 def _main_progress_messages(
     event: HealthFlowProgressEvent,
     *,
+    overview_state: dict[str, Any],
     task_root: Path | None,
     seen_image_paths: set[str],
 ) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = []
-    metadata_status = "pending" if event.kind == "stage_started" else "done"
-
-    if event.kind in {"stage_started", "stage_finished"}:
-        content = _progress_message_content(event)
-        messages.append(
-            {
-                "role": "assistant",
-                "content": content,
-                "metadata": {
-                    "title": _progress_title(event),
-                    "status": metadata_status,
-                    "log": str(event.message or "").strip() or None,
-                },
-            }
-        )
-        return messages
-
-    if event.kind == "artifact_delta":
-        artifacts = list((event.metadata or {}).get("artifacts") or [])
-        image_messages = _inline_image_messages(artifacts, task_root=task_root, seen_image_paths=seen_image_paths)
-        artifact_lines = "\n".join(f"- `{item}`" for item in artifacts[:6])
-        if image_messages:
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": f"**Artifacts surfaced**\n\n{artifact_lines}" if artifact_lines else "Rendered artifact previews are available below.",
-                    "metadata": {
-                        "title": _progress_title(event),
-                        "status": "done",
-                        "log": f"{len(image_messages)} image artifact(s) surfaced",
-                    },
-                }
-            )
-            messages.extend(image_messages)
-        return messages
-
-    if event.kind == "turn_cancelled":
-        messages.append(
-            {
-                "role": "assistant",
-                "content": str(event.message or "The run was cancelled.").strip(),
-                "metadata": {"title": "Run Cancelled", "status": "done"},
-            }
-        )
-    return messages
-
-
-def _inline_image_messages(
-    artifact_paths: Sequence[str],
-    *,
-    task_root: Path | None,
-    seen_image_paths: set[str],
-    limit: int = 3,
-) -> list[dict[str, Any]]:
-    if task_root is None:
+    if event.kind not in {"stage_started", "stage_finished", "artifact_delta", "turn_cancelled", "turn_finished"}:
         return []
 
-    messages: list[dict[str, Any]] = []
-    sandbox_root = task_root / "sandbox"
-    for artifact_path in artifact_paths:
-        resolved_relative_path = str(artifact_path or "").strip()
-        if not resolved_relative_path:
-            continue
-        path = sandbox_root / resolved_relative_path
-        if not path.exists() or not path.is_file():
-            continue
-        if artifact_preview_kind(path) != "image":
-            continue
-        path_str = str(path)
-        if path_str in seen_image_paths:
-            continue
-        seen_image_paths.add(path_str)
-        messages.append({"role": "assistant", "content": (path_str, path.name)})
-        if len(messages) >= limit:
-            break
+    artifact_paths = _artifact_paths_from_task_root(task_root)
+    if event.kind == "artifact_delta":
+        artifact_paths = [str(item).strip() for item in list((event.metadata or {}).get("artifacts") or []) if str(item).strip()]
+
+    messages = [
+        _process_snapshot_message(
+            overview_state,
+            artifact_paths=artifact_paths,
+            task_root=task_root,
+            event=event,
+        )
+    ]
+    if event.kind == "artifact_delta":
+        gallery_message = _inline_image_gallery_message(
+            artifact_paths,
+            task_root=task_root,
+            seen_image_paths=seen_image_paths,
+        )
+        if gallery_message is not None:
+            messages.append(gallery_message)
     return messages
 
 
@@ -3367,9 +3700,13 @@ def launch_web_app(
                 event = payload
                 trace_history.append({"role": "assistant", "content": _format_progress_event(event)})
                 overview_state = _apply_progress_to_overview(overview_state, event)
-                main_history.extend(
-                    _main_progress_messages(event, task_root=task_root, seen_image_paths=seen_image_paths)
-                )
+                for message in _main_progress_messages(
+                    event,
+                    overview_state=overview_state,
+                    task_root=task_root,
+                    seen_image_paths=seen_image_paths,
+                ):
+                    _upsert_recent_assistant_message(main_history, message)
                 yield _compose_outputs(
                     client,
                     main_history=main_history,
@@ -3399,16 +3736,6 @@ def launch_web_app(
             "cancelled": False,
         }
         summary = str(result.get("final_summary") or "").strip()
-        if task_root is not None:
-            image_messages = _inline_image_messages(
-                [str(item.get("task_relative_path") or "").removeprefix("sandbox/") for item in _collect_artifact_catalog(client) if item.get("origin") == "generated"],
-                task_root=task_root,
-                seen_image_paths=seen_image_paths,
-            )
-            main_history.extend(image_messages)
-        main_history.append({"role": "assistant", "content": _result_answer_text(result)})
-        if summary:
-            trace_history.append({"role": "assistant", "content": f"**Run summary**\n\n{summary}"})
         final_event = HealthFlowProgressEvent(
             kind="turn_finished" if not result.get("cancelled") else "turn_cancelled",
             stage="run",
@@ -3416,6 +3743,30 @@ def launch_web_app(
             message=summary,
         )
         overview_state = _apply_progress_to_overview(overview_state, final_event)
+        artifact_paths: list[str] = []
+        if task_root is not None:
+            artifact_paths = [
+                str(item.get("task_relative_path") or "").removeprefix("sandbox/")
+                for item in _collect_artifact_catalog(client)
+                if item.get("origin") == "generated"
+            ]
+            for message in _main_progress_messages(
+                final_event,
+                overview_state=overview_state,
+                task_root=task_root,
+                seen_image_paths=seen_image_paths,
+            ):
+                _upsert_recent_assistant_message(main_history, message)
+            gallery_message = _inline_image_gallery_message(
+                artifact_paths,
+                task_root=task_root,
+                seen_image_paths=seen_image_paths,
+            )
+            if gallery_message is not None:
+                _upsert_recent_assistant_message(main_history, gallery_message)
+        main_history.append({"role": "assistant", "content": _result_answer_text(result)})
+        if summary:
+            trace_history.append({"role": "assistant", "content": f"**Run summary**\n\n{summary}"})
 
         yield _compose_outputs(
             client,

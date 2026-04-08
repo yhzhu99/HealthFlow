@@ -396,8 +396,10 @@ class WebAppTests(unittest.TestCase):
         client = WebTaskSessionStore(lambda: self.system).get_client(task_id)
         main_history = _restore_main_history(client)
 
-        self.assertIn("Objective", main_history[1]["content"])
-        self.assertEqual(main_history[-2]["content"], (str(image_path), "roc_curve.png"))
+        self.assertEqual(type(main_history[1]["content"]).__name__, "HTML")
+        self.assertIn("Process Snapshot", main_history[1]["content"].value)
+        self.assertEqual(type(main_history[-2]["content"]).__name__, "Gallery")
+        self.assertEqual(main_history[-2]["content"].constructor_args["value"][0][0], str(image_path))
         self.assertEqual(main_history[-1]["content"], "All artifacts are ready.")
 
     def test_task_header_is_user_facing(self):
@@ -681,12 +683,27 @@ class WebAppTests(unittest.TestCase):
                 status="completed",
                 metadata={"artifacts": ["figures/roc_curve.png"]},
             ),
+            overview_state={
+                **_empty_run_overview(),
+                "mode": "running",
+                "current_stage": "executor",
+                "stage_status": {
+                    "memory": "done",
+                    "planner": "done",
+                    "executor": "active",
+                    "evaluator": "pending",
+                    "reflection": "pending",
+                },
+            },
             task_root=task_root,
             seen_image_paths=set(),
         )
 
-        self.assertEqual(messages[0]["metadata"]["title"], "Executor")
-        self.assertEqual(messages[1]["content"], (str(image_path), "roc_curve.png"))
+        self.assertEqual(messages[0]["metadata"]["id"], "hf-process-snapshot")
+        self.assertEqual(type(messages[0]["content"]).__name__, "HTML")
+        self.assertEqual(messages[1]["metadata"]["id"], "hf-inline-gallery")
+        self.assertEqual(type(messages[1]["content"]).__name__, "Gallery")
+        self.assertEqual(messages[1]["content"].constructor_args["value"][0][0], str(image_path))
 
     def test_run_overview_from_task_root_restores_latest_plan_summary(self):
         task_root = self.workspace_dir / "task-overview"
