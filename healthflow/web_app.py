@@ -3429,20 +3429,12 @@ def _upsert_recent_assistant_message(main_history: list[dict[str, Any]], message
 
 
 def _restored_process_messages(task_root: Path | None) -> list[dict[str, Any]]:
-    overview = _run_overview_from_task_root(task_root)
     latest_attempt = _latest_attempt_from_task_root(task_root)
     if not latest_attempt:
         return []
     artifact_paths = [str(item).strip() for item in list((latest_attempt.get("artifacts") or {}).get("sandbox_paths") or []) if str(item).strip()]
     seen_image_paths: set[str] = set()
-    messages = [
-        _process_snapshot_message(
-            overview,
-            artifact_paths=artifact_paths,
-            task_root=task_root,
-            restored=True,
-        )
-    ]
+    messages: list[dict[str, Any]] = []
     gallery_message = _inline_image_gallery_message(
         artifact_paths,
         task_root=task_root,
@@ -3512,30 +3504,16 @@ def _main_progress_messages(
     task_root: Path | None,
     seen_image_paths: set[str],
 ) -> list[dict[str, Any]]:
-    if event.kind not in {"stage_started", "stage_finished", "artifact_delta", "turn_cancelled", "turn_finished"}:
+    if event.kind != "artifact_delta":
         return []
 
-    artifact_paths = _artifact_paths_from_task_root(task_root)
-    if event.kind == "artifact_delta":
-        artifact_paths = [str(item).strip() for item in list((event.metadata or {}).get("artifacts") or []) if str(item).strip()]
-
-    messages = [
-        _process_snapshot_message(
-            overview_state,
-            artifact_paths=artifact_paths,
-            task_root=task_root,
-            event=event,
-        )
-    ]
-    if event.kind == "artifact_delta":
-        gallery_message = _inline_image_gallery_message(
-            artifact_paths,
-            task_root=task_root,
-            seen_image_paths=seen_image_paths,
-        )
-        if gallery_message is not None:
-            messages.append(gallery_message)
-    return messages
+    artifact_paths = [str(item).strip() for item in list((event.metadata or {}).get("artifacts") or []) if str(item).strip()]
+    gallery_message = _inline_image_gallery_message(
+        artifact_paths,
+        task_root=task_root,
+        seen_image_paths=seen_image_paths,
+    )
+    return [gallery_message] if gallery_message is not None else []
 
 
 def _collect_artifact_catalog(client: TaskSessionClient) -> list[dict[str, Any]]:

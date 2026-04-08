@@ -25,6 +25,7 @@ from healthflow.web_app import (
     _empty_run_overview,
     _history_list_html,
     _main_progress_messages,
+    _memory_panel_html,
     _resolved_recent_task_id,
     _restore_main_history,
     _restore_trace_history,
@@ -338,7 +339,7 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(main_history[0]["content"], "Analyze this table")
         self.assertIn("Run status: failed", main_history[1]["content"])
         self.assertIn("line 42", main_history[1]["content"])
-        self.assertIn("Previous execution details", trace_history[0]["content"])
+        self.assertIn("Previous execution logs", trace_history[0]["content"])
         self.assertIn("Turn 1", trace_history[1]["content"])
 
     def test_restore_main_history_rehydrates_plan_and_inline_images(self):
@@ -397,18 +398,9 @@ class WebAppTests(unittest.TestCase):
         client = WebTaskSessionStore(lambda: self.system).get_client(task_id)
         main_history = _restore_main_history(client)
 
-        self.assertEqual(type(main_history[1]["content"]).__name__, "HTML")
-        self.assertIn("Pipeline State", main_history[1]["content"].value)
-        self.assertIn("Plan", main_history[1]["content"].value)
-        self.assertIn("Evaluate", main_history[1]["content"].value)
-        self.assertIn("Reflect", main_history[1]["content"].value)
-        self.assertIn("Reusable learnings archived for future runs.", main_history[1]["content"].value)
-        self.assertNotIn("Artifacts", main_history[1]["content"].value)
-        self.assertNotIn("Memory", main_history[1]["content"].value)
-        self.assertNotIn("Execute", main_history[1]["content"].value)
-        self.assertEqual(type(main_history[-2]["content"]).__name__, "Gallery")
-        self.assertEqual(main_history[-2]["content"].constructor_args["value"][0][0], str(image_path))
-        self.assertEqual(main_history[-1]["content"], "All artifacts are ready.")
+        self.assertEqual(type(main_history[1]["content"]).__name__, "Gallery")
+        self.assertEqual(main_history[1]["content"].constructor_args["value"][0][0], str(image_path))
+        self.assertEqual(main_history[2]["content"], "All artifacts are ready.")
 
     def test_task_header_is_user_facing(self):
         task_id = "task-header"
@@ -425,6 +417,64 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(header, "## Review the current asthma cohort analysis")
         self.assertNotIn(task_id, header)
         self.assertNotIn("workspace/tasks", header)
+
+    def test_memory_panel_html_summarizes_retrieval_and_archive(self):
+        task_root = self.workspace_dir / "task-memory"
+        run_dir = task_root / "runtime" / "run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "trajectory.json").write_text(
+            inspect.cleandoc(
+                """
+                {
+                  "task_id": "task-memory",
+                  "attempts": [
+                    {
+                      "attempt": 1,
+                      "memory": {
+                        "retrieval": {
+                          "task_family": "predictive_modeling",
+                          "domain_focus": "ehr",
+                          "dataset_signature": "icu_binary_v1",
+                          "selected": [
+                            {
+                              "kind": "workflow",
+                              "source_task_id": "42",
+                              "content_preview": "Check class balance before fitting the baseline model."
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ],
+                  "new_experiences": [
+                    {
+                      "kind": "safeguard",
+                      "source_task_id": "task-memory",
+                      "content": "Always surface calibration and ranking diagnostics together."
+                    }
+                  ],
+                  "memory_updates": [
+                    {
+                      "experience_id": "exp-1",
+                      "action": "validate",
+                      "reason": "The workflow remained reliable on the new cohort."
+                    }
+                  ],
+                  "reflection": {"model_name": "fixture"}
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        html = _memory_panel_html(task_root)
+
+        self.assertIn("Retrieval", html)
+        self.assertIn("predictive_modeling", html)
+        self.assertIn("icu_binary_v1", html)
+        self.assertIn("Check class balance before fitting the baseline model.", html)
+        self.assertIn("Archive", html)
+        self.assertIn("Always surface calibration and ranking diagnostics together.", html)
 
     def test_user_message_content_lists_uploaded_file_names(self):
         content = _user_message_content(
@@ -766,11 +816,10 @@ class WebAppTests(unittest.TestCase):
             seen_image_paths=set(),
         )
 
-        self.assertEqual(messages[0]["metadata"]["id"], "hf-process-snapshot")
-        self.assertEqual(type(messages[0]["content"]).__name__, "HTML")
-        self.assertEqual(messages[1]["metadata"]["id"], "hf-inline-gallery")
-        self.assertEqual(type(messages[1]["content"]).__name__, "Gallery")
-        self.assertEqual(messages[1]["content"].constructor_args["value"][0][0], str(image_path))
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["metadata"]["id"], "hf-inline-gallery")
+        self.assertEqual(type(messages[0]["content"]).__name__, "Gallery")
+        self.assertEqual(messages[0]["content"].constructor_args["value"][0][0], str(image_path))
 
     def test_run_overview_from_task_root_restores_latest_plan_summary(self):
         task_root = self.workspace_dir / "task-overview"

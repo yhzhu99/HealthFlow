@@ -12,7 +12,7 @@ from .runtime_artifacts import TaskRuntimePaths
 from .session import TaskSessionState, TaskTurnRecord
 
 SHOWCASE_TASK_ID = "showcase-ehr-mortality"
-SHOWCASE_SEED_VERSION = 2
+SHOWCASE_SEED_VERSION = 4
 SHOWCASE_TITLE = "ICU Mortality Risk Modeling"
 SHOWCASE_FILE_NAME = "icu_mortality_cohort.csv"
 SHOWCASE_PROMPT = (
@@ -763,7 +763,26 @@ def _trajectory_payload(answer: str) -> dict[str, Any]:
         "attempts": [
             {
                 "attempt": 1,
-                "memory": {"retrieval": {"selected": [], "skipped": True}},
+                "memory": {
+                    "retrieval": {
+                        "task_family": "predictive_modeling",
+                        "domain_focus": "ehr",
+                        "dataset_signature": "icu_mortality_binary_v1",
+                        "capacity": 4,
+                        "selected": [
+                            {
+                                "kind": "workflow",
+                                "source_task_id": "task-18",
+                                "content_preview": "Confirm class balance and outcome prevalence before fitting the baseline ICU model."
+                            },
+                            {
+                                "kind": "safeguard",
+                                "source_task_id": "task-11",
+                                "content_preview": "Always pair AUROC with calibration evidence before surfacing a risk model to clinicians."
+                            }
+                        ]
+                    }
+                },
                 "plan": {
                     "objective": SHOWCASE_OBJECTIVE,
                     "assumptions_to_check": ["Outcome label is patient-level and binary."],
@@ -811,6 +830,25 @@ def _trajectory_payload(answer: str) -> dict[str, Any]:
                 },
             }
         ],
+        "new_experiences": [
+            {
+                "kind": "workflow",
+                "source_task_id": SHOWCASE_TASK_ID,
+                "content": "Inline ROC, calibration, and risk-distribution figures should ship together for presentation-ready EHR modeling runs."
+            },
+            {
+                "kind": "safeguard",
+                "source_task_id": SHOWCASE_TASK_ID,
+                "content": "When prevalence is low, include both cohort profile and vignette outputs to ground the model narrative."
+            }
+        ],
+        "memory_updates": [
+            {
+                "experience_id": "exp-showcase-icu-balance",
+                "action": "validate",
+                "reason": "The prevalence check remained useful and matched this cohort run."
+            }
+        ],
         "reflection": {
             "model_name": "showcase-fixture",
             "estimated_cost_usd": 0.0,
@@ -828,7 +866,7 @@ def _runtime_events(created_at: str) -> list[dict[str, Any]]:
             "stage": "memory",
             "event": "retrieval_completed",
             "status": "completed",
-            "metadata": {"selected_count": 0, "skipped": True},
+            "metadata": {"selected_count": 2, "skipped": False},
         },
         {
             "timestamp_utc": timestamp,
@@ -889,16 +927,16 @@ def _write_chart_roc(path: Path) -> None:
 
     fpr = [0.0, 0.03, 0.08, 0.15, 0.25, 1.0]
     tpr = [0.0, 0.46, 0.71, 0.82, 0.92, 1.0]
-    figure, axis = plt.subplots(figsize=(6.4, 3.6), dpi=160)
+    figure, axis = plt.subplots(figsize=(6.6, 3.25), dpi=160)
     figure.patch.set_facecolor("#f7fbfd")
     axis.set_facecolor("#ffffff")
     axis.plot(fpr, tpr, color="#155a8a", linewidth=2.8, label="HealthFlow baseline")
     axis.plot([0, 1], [0, 1], color="#94a3b8", linewidth=1.2, linestyle="--", label="Chance")
     axis.fill_between(fpr, tpr, alpha=0.08, color="#155a8a")
-    axis.set_title("ROC Curve", fontsize=12, fontweight="bold")
     axis.set_xlabel("False Positive Rate")
     axis.set_ylabel("True Positive Rate")
     axis.legend(frameon=False, loc="lower right")
+    axis.margins(x=0.01, y=0.04)
     axis.grid(alpha=0.18, linewidth=0.8)
     _save_figure(figure, path)
 
@@ -908,14 +946,14 @@ def _write_chart_calibration(path: Path) -> None:
 
     predicted = [0.08, 0.18, 0.32, 0.51, 0.67, 0.83]
     observed = [0.05, 0.17, 0.28, 0.56, 0.7, 0.87]
-    figure, axis = plt.subplots(figsize=(6.4, 3.6), dpi=160)
+    figure, axis = plt.subplots(figsize=(6.6, 3.25), dpi=160)
     figure.patch.set_facecolor("#f7fbfd")
     axis.set_facecolor("#ffffff")
     axis.plot(predicted, observed, marker="o", color="#0f4a74", linewidth=2.5)
     axis.plot([0, 1], [0, 1], color="#94a3b8", linewidth=1.2, linestyle="--")
-    axis.set_title("Calibration", fontsize=12, fontweight="bold")
     axis.set_xlabel("Predicted risk")
     axis.set_ylabel("Observed mortality")
+    axis.margins(x=0.02, y=0.04)
     axis.grid(alpha=0.18, linewidth=0.8)
     _save_figure(figure, path)
 
@@ -926,22 +964,22 @@ def _write_chart_distribution(path: Path, rows: list[dict[str, Any]]) -> None:
     positive = [float(item["predicted_risk"]) for item in rows if int(item["mortality"]) == 1]
     negative = [float(item["predicted_risk"]) for item in rows if int(item["mortality"]) == 0]
     bins = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-    figure, axis = plt.subplots(figsize=(6.4, 3.6), dpi=160)
+    figure, axis = plt.subplots(figsize=(6.6, 3.25), dpi=160)
     figure.patch.set_facecolor("#f7fbfd")
     axis.set_facecolor("#ffffff")
     axis.hist([negative, positive], bins=bins, stacked=True, color=["#94a3b8", "#155a8a"], label=["Survived", "Died"])
-    axis.set_title("Risk Distribution", fontsize=12, fontweight="bold")
     axis.set_xlabel("Predicted risk")
     axis.set_ylabel("Patients")
     axis.legend(frameon=False)
+    axis.margins(x=0.01, y=0.04)
     axis.grid(alpha=0.18, linewidth=0.8, axis="y")
     _save_figure(figure, path)
 
 
 def _save_figure(figure: Any, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    figure.tight_layout(pad=0.32)
-    figure.savefig(path, format="png", bbox_inches="tight", pad_inches=0.04)
+    figure.subplots_adjust(left=0.11, right=0.992, bottom=0.17, top=0.992)
+    figure.savefig(path, format="png", bbox_inches="tight", pad_inches=0.01)
     figure.clf()
     import matplotlib.pyplot as plt
 
