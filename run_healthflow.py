@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 import typer
 from loguru import logger
@@ -21,6 +22,51 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+class _InteractiveTaskSession:
+    def __init__(self, system: Any):
+        self.system = system
+        self._state = None
+        self._fallback_counter = 0
+        self.new_task()
+
+    def new_task(self) -> None:
+        self._fallback_counter += 1
+        if hasattr(self.system, "create_task_session"):
+            self._state = self.system.create_task_session()
+        else:
+            self._state = {"task_id": f"session-{self._fallback_counter:03d}"}
+
+    @property
+    def task_id(self) -> str:
+        if isinstance(self._state, dict):
+            return str(self._state.get("task_id") or f"session-{self._fallback_counter:03d}")
+        return getattr(self._state, "task_id", f"session-{self._fallback_counter:03d}")
+
+    @property
+    def session_label(self) -> str:
+        return f"Task {self.task_id[:8]}"
+
+    async def run_turn(
+        self,
+        task: str,
+        *,
+        live: Live | None = None,
+        spinner: Spinner | None = None,
+        report_requested: bool = False,
+        progress_callback=None,
+    ) -> dict[str, Any]:
+        if hasattr(self.system, "run_task_turn"):
+            return await self.system.run_task_turn(
+                self.task_id,
+                task,
+                live=live,
+                spinner=spinner,
+                report_requested=report_requested,
+                progress_callback=progress_callback,
+            )
+        return await self.system.run_task(task, live, spinner, report_requested=report_requested)
 
 
 def _chat_panel_style(result: dict) -> tuple[str, str]:
@@ -123,8 +169,40 @@ def _display_task_result(result: dict, *, verbose: bool = False, chat_mode: bool
 """
     console.print(Panel(final_report, title=panel_title, border_style=panel_border_style))
 
+def _spinner_progress_callback(spinner: Spinner):
+    def _handle(event) -> None:
+        message = event.message or f"{event.stage}: {event.status}"
+        if event.kind == "artifact_delta":
+            artifacts = event.metadata.get("artifacts") if isinstance(event.metadata, dict) else None
+            if artifacts:
+                spinner.text = f"{event.stage}: {len(artifacts)} artifact(s) available"
+                return
+        spinner.text = message
+
+    return _handle
+
+
+async def _run_task_like(
+    target: Any,
+    task: str,
+    *,
+    live: Live | None,
+    spinner: Spinner | None,
+    report_requested: bool,
+):
+    if hasattr(target, "run_turn"):
+        return await target.run_turn(
+            task,
+            live=live,
+            spinner=spinner,
+            report_requested=report_requested,
+            progress_callback=_spinner_progress_callback(spinner) if spinner is not None else None,
+        )
+    return await target.run_task(task, live, spinner, report_requested=report_requested)
+
+
 async def execute_task_with_spinner(
-    system: HealthFlowSystem,
+    system: Any,
     task: str,
     report_requested: bool = False,
     *,
@@ -137,14 +215,20 @@ async def execute_task_with_spinner(
 
     spinner = Spinner("dots", text="HealthFlow is orchestrating...")
     with Live(spinner, console=console, transient=True, refresh_per_second=20) as live:
-        result = await system.run_task(task, live, spinner, report_requested=report_requested)
+        result = await _run_task_like(
+            system,
+            task,
+            live=live,
+            spinner=spinner,
+            report_requested=report_requested,
+        )
 
     _display_task_result(result, verbose=verbose, chat_mode=chat_mode)
     return result
 
 
 async def run_single_task_flow(
-    system: HealthFlowSystem,
+    system: Any,
     task: str,
     report_requested: bool = False,
     *,
@@ -167,9 +251,16 @@ async def run_single_task_flow(
     return result
 
 
-async def main_interactive_loop(system: HealthFlowSystem, *, verbose: bool = False):
+async def main_interactive_loop(system: Any, *, verbose: bool = False):
     """Runs the basic interactive loop used for non-TTY or fallback sessions."""
-    console.print(Panel("[bold green]HealthFlow Interactive Mode[/bold green]", subtitle="Type 'exit' or 'quit' to end the session.", border_style="green"))
+    session = system if isinstance(system, _InteractiveTaskSession) else _InteractiveTaskSession(system)
+    console.print(
+        Panel(
+            "[bold green]HealthFlow Interactive Mode[/bold green]",
+            subtitle=f"{session.session_label} · Type 'exit' or 'quit' to end the session. Use /new for a new task.",
+            border_style="green",
+        )
+    )
     while True:
         try:
             task_input = console.input("\n[bold magenta]HealthFlow > [/bold magenta]").strip()
@@ -178,7 +269,14 @@ async def main_interactive_loop(system: HealthFlowSystem, *, verbose: bool = Fal
             if task_input.lower() in ["exit", "quit"]:
                 console.print("[yellow]Exiting interactive mode.[/yellow]")
                 break
-            await run_single_task_flow(system, task_input, verbose=verbose, chat_mode=True)
+            if task_input == "/new":
+                session.new_task()
+                console.print(f"[yellow]Started a new task session: {session.task_id}[/yellow]")
+                continue
+            if task_input == "/clear":
+                console.clear()
+                continue
+            await run_single_task_flow(session, task_input, verbose=verbose, chat_mode=True)
         except (KeyboardInterrupt, EOFError):
             console.print("\n[yellow]Exiting interactive mode.[/yellow]")
             break
@@ -316,7 +414,7 @@ def interactive(
         asyncio.run(main_interactive_loop(system, verbose=verbose))
         return
 
-    system_factory = _build_system_factory(
+    base_system_factory = _build_system_factory(
         config_path,
         experience_path,
         planner_llm,
@@ -326,8 +424,9 @@ def interactive(
         active_executor,
         verbose=verbose,
     )
+    system_factory = lambda: _InteractiveTaskSession(base_system_factory())
 
-    async def _interactive_runner(system: HealthFlowSystem, task: str) -> dict:
+    async def _interactive_runner(system: Any, task: str) -> dict:
         return await execute_task_with_spinner(
             system,
             task,

@@ -276,8 +276,14 @@ class InteractiveShell:
                 reserve_space_for_menu=4,
             )
 
+    def _session_subtitle(self) -> str:
+        session_label = getattr(self._system, "session_label", None)
+        if session_label:
+            return f"Session {self._session_index} · {session_label}"
+        return f"Session {self._session_index}"
+
     def _render_banner(self) -> None:
-        subtitle = f"Session {self._session_index}"
+        subtitle = self._session_subtitle()
         interrupt_hint = "ESC ESC interrupt" if self._escape_supported else "ESC ESC interrupt (TTY only)"
         body = "\n".join(
             [
