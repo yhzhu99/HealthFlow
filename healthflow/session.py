@@ -55,6 +55,7 @@ class TaskSessionState:
     created_at_utc: str
     updated_at_utc: str
     original_goal: str
+    display_title: str = ""
     turn_count: int = 0
     latest_turn_number: int = 0
     latest_turn_status: str | None = None
@@ -70,6 +71,7 @@ class TaskSessionState:
             created_at_utc=str(payload.get("created_at_utc", "")),
             updated_at_utc=str(payload.get("updated_at_utc", "")),
             original_goal=str(payload.get("original_goal", "")),
+            display_title=str(payload.get("display_title", "")),
             turn_count=int(payload.get("turn_count", 0)),
             latest_turn_number=int(payload.get("latest_turn_number", 0)),
             latest_turn_status=payload.get("latest_turn_status"),

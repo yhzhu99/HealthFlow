@@ -138,6 +138,7 @@ class HealthFlowSystem:
             created_at_utc=now,
             updated_at_utc=now,
             original_goal=original_goal.strip(),
+            display_title="",
             turn_count=0,
             latest_turn_number=0,
             latest_turn_status=None,
@@ -173,7 +174,7 @@ class HealthFlowSystem:
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 continue
             history = self._read_session_history(task_workspace)
-            title = state.original_goal.strip() or (history[0].user_message.strip() if history else "") or "Untitled task"
+            title = self._task_session_title(state, history)
             summaries.append(
                 TaskSessionSummary(
                     task_id=state.task_id,
@@ -188,6 +189,30 @@ class HealthFlowSystem:
         if limit > 0:
             return summaries[:limit]
         return summaries
+
+    def rename_task_session(self, task_id: str, display_title: str) -> TaskSessionState:
+        state = self.load_task_session(task_id)
+        task_workspace = self._task_workspace_path(task_id)
+        updated_state = TaskSessionState(
+            task_id=state.task_id,
+            task_root=state.task_root,
+            created_at_utc=state.created_at_utc,
+            updated_at_utc=self._utc_now(),
+            original_goal=state.original_goal,
+            display_title=display_title.strip(),
+            turn_count=state.turn_count,
+            latest_turn_number=state.latest_turn_number,
+            latest_turn_status=state.latest_turn_status,
+        )
+        self._write_json(self._session_state_path(task_workspace), updated_state.to_dict())
+        return updated_state
+
+    def delete_task_session(self, task_id: str) -> None:
+        task_workspace = self._task_workspace_path(task_id)
+        session_path = self._session_state_path(task_workspace)
+        if not session_path.exists():
+            raise FileNotFoundError(f"Task session '{task_id}' does not exist.")
+        shutil.rmtree(task_workspace)
 
     async def run_task_turn(
         self,
@@ -2062,6 +2087,7 @@ class HealthFlowSystem:
             created_at_utc=session_state.created_at_utc,
             updated_at_utc=self._utc_now(),
             original_goal=session_state.original_goal,
+            display_title=session_state.display_title,
             turn_count=turn_number,
             latest_turn_number=turn_number,
             latest_turn_status=turn_status,
@@ -2097,6 +2123,21 @@ class HealthFlowSystem:
 
     def _task_session_sort_key(self, summary: TaskSessionSummary) -> tuple[str, str]:
         return (summary.updated_at_utc or "", summary.created_at_utc or "")
+
+    def _task_workspace_path(self, task_id: str) -> Path:
+        task_workspace = (self.workspace_dir / task_id).resolve()
+        workspace_root = self.workspace_dir.resolve()
+        if task_workspace == workspace_root or workspace_root not in task_workspace.parents:
+            raise ValueError(f"Task session '{task_id}' resolves outside the workspace.")
+        return task_workspace
+
+    def _task_session_title(self, state: TaskSessionState, history: list[TaskTurnRecord]) -> str:
+        return (
+            state.display_title.strip()
+            or state.original_goal.strip()
+            or (history[0].user_message.strip() if history else "")
+            or "Untitled task"
+        )
 
     def _mirror_latest_runtime(
         self,

@@ -48,6 +48,7 @@ class _FakeSystem:
                 turn_count=0,
                 latest_turn_status=None,
                 original_goal="",
+                display_title="",
                 updated_at_utc="2026-04-08T00:00:00Z",
             )
             self.state_by_task_id[resolved_task_id] = state
@@ -65,13 +66,23 @@ class _FakeSystem:
             summaries.append(
                 TaskSessionSummary(
                     task_id=task_id,
-                    title=state.original_goal or "Untitled task",
+                    title=state.display_title or state.original_goal or "Untitled task",
                     updated_at_utc=state.updated_at_utc,
                     turn_count=state.turn_count,
                     latest_turn_status=state.latest_turn_status,
                 )
             )
         return summaries[:limit]
+
+    def rename_task_session(self, task_id: str, display_title: str):
+        state = self.state_by_task_id[task_id]
+        state.display_title = display_title.strip()
+        state.updated_at_utc = "2026-04-08T05:00:00Z"
+        return state
+
+    def delete_task_session(self, task_id: str):
+        self.state_by_task_id.pop(task_id, None)
+        self.history_by_task_id.pop(task_id, None)
 
 
 class WebAppTests(unittest.TestCase):
@@ -192,6 +203,16 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("Last run: **success**", header)
         self.assertNotIn(task_id, header)
         self.assertNotIn("workspace/tasks", header)
+
+    def test_session_store_lists_custom_display_title(self):
+        task = self.system.create_task_session("task-custom")
+        task.original_goal = "Analyze the uploaded vitals cohort"
+        task.display_title = "Pinned history title"
+
+        store = WebTaskSessionStore(lambda: self.system)
+        summaries = store.list_recent_tasks(limit=10)
+
+        self.assertEqual(summaries[0].title, "Pinned history title")
 
     def test_result_answer_text_only_adds_status_for_failures(self):
         success_text = _result_answer_text(

@@ -63,6 +63,14 @@ class TaskSessionClient:
         return str(value or "")
 
     @property
+    def display_title(self) -> str:
+        if isinstance(self._state, dict):
+            value = self._state.get("display_title")
+        else:
+            value = getattr(self._state, "display_title", "")
+        return str(value or "")
+
+    @property
     def updated_at_utc(self) -> str | None:
         if isinstance(self._state, dict):
             value = self._state.get("updated_at_utc")
@@ -86,6 +94,15 @@ class TaskSessionClient:
             self._state = self.system.load_task_session(self.task_id)
         except FileNotFoundError:
             return
+
+    def rename(self, title: str) -> None:
+        if not hasattr(self.system, "rename_task_session"):
+            return
+        self._state = self.system.rename_task_session(self.task_id, title)
+
+    def delete(self) -> None:
+        if hasattr(self.system, "delete_task_session"):
+            self.system.delete_task_session(self.task_id)
 
     async def run_turn(
         self,

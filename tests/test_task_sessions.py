@@ -23,6 +23,7 @@ class TaskSessionListingTests(unittest.TestCase):
             "created_at_utc": "2026-04-08T00:00:00Z",
             "updated_at_utc": updated_at_utc,
             "original_goal": original_goal,
+            "display_title": "",
             "turn_count": turn_count,
             "latest_turn_number": turn_count,
             "latest_turn_status": latest_turn_status,
@@ -71,6 +72,64 @@ class TaskSessionListingTests(unittest.TestCase):
         summaries = HealthFlowSystem.list_task_sessions(system, limit=10)
 
         self.assertEqual(summaries[0].title, "Untitled task")
+
+    def test_list_task_sessions_prefers_custom_display_title(self):
+        self._write_task(
+            "task-renamed",
+            original_goal="Analyze original cohort",
+            updated_at_utc="2026-04-08T01:00:00Z",
+            turn_count=1,
+            latest_turn_status="success",
+        )
+        session_path = self.workspace_dir / "task-renamed" / "runtime" / "session.json"
+        payload = json.loads(session_path.read_text(encoding="utf-8"))
+        payload["display_title"] = "My curated title"
+        session_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        system = object.__new__(HealthFlowSystem)
+        system.workspace_dir = self.workspace_dir
+
+        summaries = HealthFlowSystem.list_task_sessions(system, limit=10)
+
+        self.assertEqual(summaries[0].title, "My curated title")
+
+    def test_rename_task_session_updates_display_title_only(self):
+        self._write_task(
+            "task-rename",
+            original_goal="Analyze original cohort",
+            updated_at_utc="2026-04-08T01:00:00Z",
+            turn_count=2,
+            latest_turn_status="success",
+        )
+
+        system = object.__new__(HealthFlowSystem)
+        system.workspace_dir = self.workspace_dir
+
+        updated = HealthFlowSystem.rename_task_session(system, "task-rename", "Pinned title")
+
+        self.assertEqual(updated.display_title, "Pinned title")
+        self.assertEqual(updated.original_goal, "Analyze original cohort")
+        persisted = HealthFlowSystem.load_task_session(system, "task-rename")
+        self.assertEqual(persisted.display_title, "Pinned title")
+        self.assertEqual(persisted.original_goal, "Analyze original cohort")
+
+    def test_delete_task_session_removes_task_workspace(self):
+        self._write_task(
+            "task-delete",
+            original_goal="Analyze original cohort",
+            updated_at_utc="2026-04-08T01:00:00Z",
+            turn_count=1,
+            latest_turn_status="success",
+        )
+
+        system = object.__new__(HealthFlowSystem)
+        system.workspace_dir = self.workspace_dir
+
+        HealthFlowSystem.delete_task_session(system, "task-delete")
+
+        self.assertFalse((self.workspace_dir / "task-delete").exists())
+        summaries = HealthFlowSystem.list_task_sessions(system, limit=10)
+        self.assertEqual(summaries, [])
 
 
 if __name__ == "__main__":
