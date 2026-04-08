@@ -33,6 +33,7 @@ import {
 import { readJson, writeJson } from '../lib/storage'
 
 const LAST_REVIEWER_KEY = 'healthflow:evaluation:last-reviewer'
+const TASK_PANEL_EXPANDED_KEY = 'healthflow:evaluation:task-panel-expanded'
 type EvaluationSourceMode = 'booting' | 'live' | 'sample' | 'diagnostic' | 'error'
 type CaseLoadState = 'idle' | 'loading' | 'ready' | 'error'
 const isDevMode = import.meta.env.DEV
@@ -64,11 +65,23 @@ const localManifestUrl = localEvaluationManifestUrl()
 let loadRequestId = 0
 let caseRequestId = 0
 
+const resolveStoredBoolean = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback)
+const compactMarkdown = (value: string) =>
+  value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*]\([^)]*\)/g, ' ')
+    .replace(/[#>*_\-\|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
 const reviewerDraft = ref(resolveReviewerId(readJson<unknown>(LAST_REVIEWER_KEY, DEFAULT_REVIEWER_ID)))
 const reviewerState = ref<ReviewerState | null>(null)
 const draftChoice = ref<string | null>(null)
 const draftNote = ref('')
 const activeCompareKeyByDataset = ref<Partial<Record<BenchmarkId, string>>>({})
+const taskPanelExpanded = ref(resolveStoredBoolean(readJson<unknown>(TASK_PANEL_EXPANDED_KEY, true), true))
 
 const allBenchmarks = computed(() => {
   if (sourceMode.value === 'live' && isDevMode) return localManifest.value?.benchmarks ?? []
@@ -223,6 +236,36 @@ const renderedReferenceText = computed(() => renderMarkdown(currentQuestion.valu
 const renderedActiveAnswer = computed(() =>
   renderMarkdown(activeCandidate.value?.answerText || 'No final answer was recorded.'),
 )
+const taskPreviewText = computed(() => {
+  const compactTask = compactMarkdown(currentQuestion.value?.task ?? '')
+  if (!compactTask) return 'Open the task to review the full prompt.'
+  return compactTask.length > 240 ? `${compactTask.slice(0, 237).trimEnd()}...` : compactTask
+})
+const taskSupportSummary = computed(() => {
+  if (!currentQuestion.value) return []
+
+  const summary = [
+    `${currentQuestion.value.expectedOutputs.length} expected output${currentQuestion.value.expectedOutputs.length === 1 ? '' : 's'}`,
+  ]
+
+  if (currentQuestion.value.reportRequirements.length) {
+    summary.push(
+      `${currentQuestion.value.reportRequirements.length} requirement${currentQuestion.value.reportRequirements.length === 1 ? '' : 's'}`,
+    )
+  }
+
+  if (currentQuestion.value.reference.requiredOutputs.length) {
+    summary.push(
+      `${currentQuestion.value.reference.requiredOutputs.length} reference deliverable${currentQuestion.value.reference.requiredOutputs.length === 1 ? '' : 's'}`,
+    )
+  }
+
+  return summary
+})
+
+const toggleTaskPanel = () => {
+  taskPanelExpanded.value = !taskPanelExpanded.value
+}
 
 const ensureCurrentIndex = () => {
   if (!reviewerState.value || !activeBenchmarkId.value || benchmarkQuestions.value.length === 0) return
@@ -464,6 +507,10 @@ watch(currentQuestion, () => {
 watch(submissionCandidates, () => {
   ensureActiveRun()
   ensureActiveCompareTab()
+})
+
+watch(taskPanelExpanded, (expanded) => {
+  writeJson(TASK_PANEL_EXPANDED_KEY, expanded)
 })
 
 watch(
@@ -744,44 +791,82 @@ onMounted(async () => {
 
               <div
                 v-if="currentQuestion"
-                class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_240px] 2xl:grid-cols-[minmax(0,1fr)_256px]"
+                class="space-y-3"
               >
-                <div class="prose prose-slate max-w-none" v-html="renderedTask" />
-
-                <div class="space-y-2.5">
-                  <div class="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-3">
-                    <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Expected Outputs</div>
-                    <div class="mt-3 flex flex-wrap gap-2">
-                      <template v-if="currentQuestion.expectedOutputs.length">
-                        <div
-                          v-for="item in currentQuestion.expectedOutputs"
-                          :key="`${currentQuestion.id}-${item.fileName}`"
-                          class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-600"
+                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3">
+                  <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div class="space-y-2">
+                      <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Task</div>
+                      <p class="text-sm leading-7 text-slate-600">
+                        {{
+                          taskPanelExpanded
+                            ? 'The full prompt is visible below.'
+                            : taskPreviewText
+                        }}
+                      </p>
+                      <div class="flex flex-wrap gap-2">
+                        <span
+                          v-for="item in taskSupportSummary"
+                          :key="item"
+                          class="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-600"
                         >
-                          <span class="font-semibold text-slate-900">{{ item.fileName }}</span>
-                          <span class="ml-1.5">{{ item.mediaType }}</span>
-                        </div>
-                      </template>
-                      <div
-                        v-else
-                        class="rounded-full border border-dashed border-slate-200 px-3 py-1.5 text-[11px] text-slate-500"
-                      >
-                        No structured expected outputs
+                          {{ item }}
+                        </span>
                       </div>
                     </div>
+
+                    <AppButton
+                      variant="secondary"
+                      :aria-expanded="taskPanelExpanded"
+                      :aria-label="taskPanelExpanded ? 'Collapse task details' : 'Expand task details'"
+                      @click="toggleTaskPanel"
+                    >
+                      {{ taskPanelExpanded ? 'Collapse Task' : 'Expand Task' }}
+                    </AppButton>
                   </div>
 
                   <div
-                    v-if="currentQuestion.reportRequirements.length"
-                    class="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-3"
+                    v-if="taskPanelExpanded"
+                    class="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_240px] 2xl:grid-cols-[minmax(0,1fr)_256px]"
                   >
-                    <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Report Requirements</div>
-                    <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-                      <li v-for="item in currentQuestion.reportRequirements" :key="item" class="flex gap-3">
-                        <span class="mt-2 h-1.5 w-1.5 rounded-full bg-slate-900" />
-                        <span>{{ item }}</span>
-                      </li>
-                    </ul>
+                    <div class="prose prose-slate max-w-none" v-html="renderedTask" />
+
+                    <div class="space-y-2.5">
+                      <div class="rounded-[1.2rem] border border-slate-200 bg-white p-3">
+                        <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Expected Outputs</div>
+                        <div class="mt-3 flex flex-wrap gap-2">
+                          <template v-if="currentQuestion.expectedOutputs.length">
+                            <div
+                              v-for="item in currentQuestion.expectedOutputs"
+                              :key="`${currentQuestion.id}-${item.fileName}`"
+                              class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-600"
+                            >
+                              <span class="font-semibold text-slate-900">{{ item.fileName }}</span>
+                              <span class="ml-1.5">{{ item.mediaType }}</span>
+                            </div>
+                          </template>
+                          <div
+                            v-else
+                            class="rounded-full border border-dashed border-slate-200 px-3 py-1.5 text-[11px] text-slate-500"
+                          >
+                            No structured expected outputs
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        v-if="currentQuestion.reportRequirements.length"
+                        class="rounded-[1.2rem] border border-slate-200 bg-white p-3"
+                      >
+                        <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Report Requirements</div>
+                        <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                          <li v-for="item in currentQuestion.reportRequirements" :key="item" class="flex gap-3">
+                            <span class="mt-2 h-1.5 w-1.5 rounded-full bg-slate-900" />
+                            <span>{{ item }}</span>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
