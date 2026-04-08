@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 224" role="img" aria-labelledby="healthflowIconTitle healthflowIconDesc">
+  <title id="healthflowIconTitle">HealthFlow icon</title>
+  <desc id="healthflowIconDesc">An abstract monoline H with a pulse-like flow for the HealthFlow project.</desc>
+  <path
+    d="M34 176V74C34 58 46 46 60 46C74 46 86 58 86 74V108H102L118 86L136 132L154 86H168V74C168 58 180 46 194 46C206 46 214 56 214 70V138C214 156 206 170 192 176"
+    fill="none"
+    stroke="#0F8B8D"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="16"
+  />
+</svg>
