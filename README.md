@@ -40,6 +40,7 @@ The task-level self-correction budget is controlled by `system.max_attempts`, wh
 
 Runtime state lives under `workspace/` by default:
 
+- shared app log: `workspace/healthflow.log`
 - task artifacts: `workspace/tasks/<task_id>/`
 - long-term memory: `workspace/memory/experience.jsonl`
 
@@ -49,6 +50,7 @@ Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 
 - `sandbox/`
   - executor-visible inputs and produced deliverables only
+  - Pi runs also materialize `.healthflow_pi_agent/` here when that backend is active
 - `runtime/index.json`
 - `runtime/events.jsonl`
 - `runtime/run/summary.json`
@@ -395,7 +397,7 @@ Main config sections:
 - `[system]`: workspace and task-attempt settings (`workspace_dir`, `max_attempts`)
 - `[logging]`: log level and log file
 
-By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.
+By default, `[system].workspace_dir` points to `workspace/tasks`, relative `[logging].log_file` values resolve under the workspace root (so `healthflow.log` becomes `workspace/healthflow.log`), and CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.
 
 ## Repository Layout
 
