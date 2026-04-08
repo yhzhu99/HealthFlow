@@ -1,43 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import queue
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from .artifacts import collect_task_artifacts, read_structured_preview
+from .artifacts import artifact_preview_kind, artifact_preview_language, collect_task_artifacts, read_structured_preview
 from .session import HealthFlowProgressEvent, TaskSessionSummary
 from .session_client import TaskSessionClient
 
 _MAIN_ASSISTANT_TEXT = (
-    "Describe your task, upload files if needed, and keep iterating here. Use New Task when you want "
-    "to start over."
+    "Describe a task, upload files if needed, and keep iterating in the same workspace. Start a new task "
+    "when you want a fresh workspace."
 )
 _TRACE_ASSISTANT_TEXT = "Advanced execution details for this task will appear here."
-_EMPTY_FILES_TEXT = "Generated files and uploads will appear here."
+_EMPTY_WORKSPACE_TEXT = "No workspace files yet."
 _EMPTY_PREVIEW_TEXT = "Select a file to preview it."
-_FILTER_DEFINITIONS = (
-    ("All", "all"),
-    ("Uploaded", "uploaded"),
-    ("Generated", "generated"),
-    ("Reports", "reports"),
-    ("Data", "data"),
-    ("Images", "images"),
-    ("Code", "code"),
-    ("Other", "other"),
-)
-_CATEGORY_LABELS = {
-    "reports/docs": "Document",
-    "images": "Image",
-    "code/notebooks": "Code",
-    "tables/data": "Data",
-    "other outputs": "Other",
-}
-_ORIGIN_LABELS = {
-    "uploaded": "Uploaded",
-    "generated": "Generated",
-    "report": "Report",
-}
 
 
 class WebTaskSessionStore:
@@ -84,7 +64,7 @@ def _status_label(status: str | None) -> str:
 def _truncate_text(text: str, max_chars: int = 72) -> str:
     cleaned = " ".join(str(text or "").split()).strip()
     if not cleaned:
-        return "New task"
+        return "Untitled task"
     if len(cleaned) <= max_chars:
         return cleaned
     return cleaned[: max_chars - 3].rstrip() + "..."
@@ -139,13 +119,23 @@ def _visible_recent_tasks(
     recent_tasks: Sequence[TaskSessionSummary],
     *,
     current_task_id: str,
+    current_title: str = "",
+    current_updated_at: str | None = None,
+    current_turn_count: int = 0,
+    current_status: str | None = None,
 ) -> list[TaskSessionSummary]:
-    visible_tasks = [
-        item
-        for item in recent_tasks
-        if item.task_id == current_task_id or item.turn_count > 0 or item.title.strip().lower() not in {"", "new task"}
-    ]
-    return visible_tasks or [item for item in recent_tasks if item.task_id == current_task_id]
+    task_map = {item.task_id: item for item in recent_tasks}
+    if current_task_id and current_task_id not in task_map:
+        task_map[current_task_id] = TaskSessionSummary(
+            task_id=current_task_id,
+            title=_truncate_text(current_title),
+            updated_at_utc=current_updated_at or "",
+            turn_count=current_turn_count,
+            latest_turn_status=current_status,
+        )
+    tasks = list(task_map.values())
+    tasks.sort(key=lambda item: (item.updated_at_utc or "", item.created_at_utc or ""), reverse=True)
+    return tasks
 
 
 def _build_task_header(client: TaskSessionClient, recent_tasks: Sequence[TaskSessionSummary]) -> str:
@@ -153,7 +143,7 @@ def _build_task_header(client: TaskSessionClient, recent_tasks: Sequence[TaskSes
     if client.turn_count <= 0:
         return (
             f"## {title}\n\n"
-            "Describe the task or upload files to begin. Files you share will appear in the Files panel."
+            "Describe the task or upload files to begin. Your workspace files will appear on the right."
         )
 
     status = _status_label(client.latest_turn_status)
@@ -231,85 +221,6 @@ def _collect_artifact_catalog(client: TaskSessionClient) -> list[dict[str, Any]]
     return collect_task_artifacts(task_root, client.load_history())
 
 
-def _filter_catalog(catalog: Sequence[dict[str, Any]], filter_value: str | None) -> list[dict[str, Any]]:
-    normalized = (filter_value or "all").strip().lower()
-    if normalized == "all":
-        return list(catalog)
-    if normalized == "uploaded":
-        return [item for item in catalog if item.get("origin") == "uploaded"]
-    if normalized == "generated":
-        return [item for item in catalog if item.get("origin") == "generated"]
-    if normalized == "reports":
-        return [item for item in catalog if item.get("origin") == "report" or item.get("category") == "reports/docs"]
-    if normalized == "data":
-        return [item for item in catalog if item.get("category") == "tables/data"]
-    if normalized == "images":
-        return [item for item in catalog if item.get("category") == "images"]
-    if normalized == "code":
-        return [item for item in catalog if item.get("category") == "code/notebooks"]
-    if normalized == "other":
-        return [item for item in catalog if item.get("category") == "other outputs"]
-    return list(catalog)
-
-
-def _artifact_filter_choices(catalog: Sequence[dict[str, Any]]) -> list[tuple[str, str]]:
-    choices: list[tuple[str, str]] = []
-    for label, value in _FILTER_DEFINITIONS:
-        count = len(_filter_catalog(catalog, value))
-        choices.append((f"{label} ({count})", value))
-    return choices
-
-
-def _artifact_selection_label(item: dict[str, Any]) -> str:
-    display_name = str(item.get("display_name") or "artifact")
-    origin_label = _ORIGIN_LABELS.get(str(item.get("origin") or ""), "File")
-    category_label = _CATEGORY_LABELS.get(str(item.get("category") or ""), "File")
-    return f"{display_name} · {origin_label} · {category_label}"
-
-
-def _default_selected_artifact(
-    filtered_catalog: Sequence[dict[str, Any]],
-    preferred_artifact: str | None = None,
-) -> str | None:
-    if preferred_artifact and any(item.get("task_relative_path") == preferred_artifact for item in filtered_catalog):
-        return preferred_artifact
-    if not filtered_catalog:
-        return None
-    for origin in ("report", "generated", "uploaded"):
-        for item in filtered_catalog:
-            if item.get("origin") == origin:
-                return str(item.get("task_relative_path"))
-    return str(filtered_catalog[0].get("task_relative_path"))
-
-
-def _artifact_selector_update(
-    catalog: Sequence[dict[str, Any]],
-    filter_value: str,
-    preferred_artifact: str | None,
-    *,
-    gr: Any,
-) -> tuple[Any, str | None]:
-    filtered_catalog = _filter_catalog(catalog, filter_value)
-    selected_path = _default_selected_artifact(filtered_catalog, preferred_artifact=preferred_artifact)
-    choices = [(_artifact_selection_label(item), str(item.get("task_relative_path"))) for item in filtered_catalog]
-    return gr.update(choices=choices, value=selected_path), selected_path
-
-
-def _human_size(size_bytes: Any) -> str:
-    try:
-        size = float(size_bytes)
-    except (TypeError, ValueError):
-        return "Unknown size"
-    units = ["B", "KB", "MB", "GB"]
-    unit_index = 0
-    while size >= 1024 and unit_index < len(units) - 1:
-        size /= 1024
-        unit_index += 1
-    if unit_index == 0:
-        return f"{int(size)} {units[unit_index]}"
-    return f"{size:.1f} {units[unit_index]}"
-
-
 def _read_text_preview(path: Path, *, max_chars: int = 50000) -> tuple[str | None, bool]:
     try:
         content = path.read_text(encoding="utf-8")
@@ -317,46 +228,67 @@ def _read_text_preview(path: Path, *, max_chars: int = 50000) -> tuple[str | Non
         return None, False
     if len(content) <= max_chars:
         return content, False
-    trimmed = content[: max_chars - 25].rstrip()
-    return f"{trimmed}\n\n[Preview truncated]", True
+    return content[:max_chars].rstrip(), True
 
 
-def _preview_meta_text(item: dict[str, Any], *, truncated: bool = False) -> str:
-    display_name = str(item.get("display_name") or "artifact")
-    descriptor = str(item.get("descriptor") or "").strip()
-    origin_label = _ORIGIN_LABELS.get(str(item.get("origin") or ""), "File")
-    category_label = _CATEGORY_LABELS.get(str(item.get("category") or ""), "File")
-    updated_text = _relative_time_text(str(item.get("updated_at") or ""))
-    meta_lines = [
-        f"### {display_name}",
-        f"**Type:** {category_label}  \n**Source:** {origin_label}  \n**Updated:** {updated_text}  \n**Size:** {_human_size(item.get('size_bytes'))}",
-    ]
-    if descriptor:
-        meta_lines.append(f"**Summary:** {descriptor}")
-    if truncated:
-        meta_lines.append("_Preview truncated to keep the UI responsive._")
-    return "\n\n".join(meta_lines)
+def _default_selected_file(
+    catalog: Sequence[dict[str, Any]],
+    preferred_file: str | None = None,
+) -> str | None:
+    if preferred_file and any(str(item.get("source_path")) == preferred_file for item in catalog):
+        return preferred_file
+    if not catalog:
+        return None
+    report_item = next((item for item in catalog if item.get("origin") == "report"), None)
+    if report_item is not None:
+        return str(report_item.get("source_path"))
+    return str(catalog[0].get("source_path"))
+
+
+def _task_root_path(task_id: str | None, session_store: WebTaskSessionStore) -> Path | None:
+    if not task_id:
+        return None
+    client = session_store.get_client(task_id)
+    if not client.task_root:
+        return None
+    return Path(client.task_root)
+
+
+def _task_relative_label(path: Path, task_root: Path | None) -> str:
+    if task_root is None:
+        return path.name
+    try:
+        return path.relative_to(task_root).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _preview_header_text(path: Path, *, task_root: Path | None) -> str:
+    relative_label = _task_relative_label(path, task_root)
+    if relative_label and relative_label != path.name:
+        return f"### {path.name}\n\n`{relative_label}`"
+    return f"### {path.name}"
+
+
+def _workspace_tree_value(selected_file: str | None, *, task_root: Path | None) -> str | None:
+    if not selected_file or task_root is None:
+        return None
+    sandbox_root = task_root / "sandbox"
+    path = Path(selected_file)
+    try:
+        path.relative_to(sandbox_root)
+    except ValueError:
+        return None
+    return str(path)
 
 
 def _artifact_preview_outputs(
-    catalog: Sequence[dict[str, Any]],
-    selected_artifact: str | None,
+    selected_file: str | None,
     *,
+    task_root: Path | None,
     gr: Any,
 ) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
-    if not catalog:
-        return (
-            gr.update(value="### Preview", visible=True),
-            gr.update(value="", visible=False),
-            gr.update(value=None, visible=False),
-            gr.update(visible=False),
-            gr.update(value="", language=None, visible=False),
-            gr.update(value=_EMPTY_FILES_TEXT, visible=True),
-            gr.update(value=None, visible=False),
-        )
-
-    selected_item = next((item for item in catalog if item.get("task_relative_path") == selected_artifact), None)
-    if selected_item is None:
+    if not selected_file:
         return (
             gr.update(value="### Preview", visible=True),
             gr.update(value="", visible=False),
@@ -367,24 +299,46 @@ def _artifact_preview_outputs(
             gr.update(value=None, visible=False),
         )
 
-    path = Path(str(selected_item.get("source_path")))
+    path = Path(selected_file)
+    if not path.exists():
+        return (
+            gr.update(value="### Preview", visible=True),
+            gr.update(value="", visible=False),
+            gr.update(value=None, visible=False),
+            gr.update(visible=False),
+            gr.update(value="", language=None, visible=False),
+            gr.update(value=_EMPTY_PREVIEW_TEXT, visible=True),
+            gr.update(value=None, visible=False),
+        )
+
+    if path.is_dir():
+        return (
+            gr.update(value=_preview_header_text(path, task_root=task_root), visible=True),
+            gr.update(value="", visible=False),
+            gr.update(value=None, visible=False),
+            gr.update(visible=False),
+            gr.update(value="", language=None, visible=False),
+            gr.update(value="Choose a file in this folder to preview it.", visible=True),
+            gr.update(value=None, visible=False),
+        )
+
     download_update = gr.update(value=str(path), visible=True)
-    preview_kind = str(selected_item.get("preview_kind") or "download")
+    preview_kind = artifact_preview_kind(path)
 
     if preview_kind == "markdown":
-        content, truncated = _read_text_preview(path)
+        content, _ = _read_text_preview(path)
         if content is None:
             return (
-                gr.update(value=_preview_meta_text(selected_item), visible=True),
+                gr.update(value=_preview_header_text(path, task_root=task_root), visible=True),
                 gr.update(value="", visible=False),
                 gr.update(value=None, visible=False),
                 gr.update(visible=False),
                 gr.update(value="", language=None, visible=False),
-                gr.update(value="Preview not available for this file type. Download to inspect it locally.", visible=True),
+                gr.update(value="Preview not available for this file type.", visible=True),
                 download_update,
             )
         return (
-            gr.update(value=_preview_meta_text(selected_item, truncated=truncated), visible=True),
+            gr.update(value=_preview_header_text(path, task_root=task_root), visible=True),
             gr.update(value=content, visible=True),
             gr.update(value=None, visible=False),
             gr.update(visible=False),
@@ -395,7 +349,7 @@ def _artifact_preview_outputs(
 
     if preview_kind == "image":
         return (
-            gr.update(value=_preview_meta_text(selected_item), visible=True),
+            gr.update(value=_preview_header_text(path, task_root=task_root), visible=True),
             gr.update(value="", visible=False),
             gr.update(value=str(path), visible=True),
             gr.update(visible=False),
@@ -408,10 +362,7 @@ def _artifact_preview_outputs(
         structured_preview = read_structured_preview(path)
         if structured_preview is not None:
             return (
-                gr.update(
-                    value=_preview_meta_text(selected_item, truncated=bool(structured_preview.get("truncated"))),
-                    visible=True,
-                ),
+                gr.update(value=_preview_header_text(path, task_root=task_root), visible=True),
                 gr.update(value="", visible=False),
                 gr.update(value=None, visible=False),
                 gr.update(
@@ -425,27 +376,79 @@ def _artifact_preview_outputs(
             )
 
     if preview_kind == "code":
-        content, truncated = _read_text_preview(path)
+        content, _ = _read_text_preview(path)
         if content is not None:
             return (
-                gr.update(value=_preview_meta_text(selected_item, truncated=truncated), visible=True),
+                gr.update(value=_preview_header_text(path, task_root=task_root), visible=True),
                 gr.update(value="", visible=False),
                 gr.update(value=None, visible=False),
                 gr.update(visible=False),
-                gr.update(value=content, language=selected_item.get("preview_language"), visible=True),
+                gr.update(value=content, language=artifact_preview_language(path), visible=True),
                 gr.update(value="", visible=False),
                 download_update,
             )
 
     return (
-        gr.update(value=_preview_meta_text(selected_item), visible=True),
+        gr.update(value=_preview_header_text(path, task_root=task_root), visible=True),
         gr.update(value="", visible=False),
         gr.update(value=None, visible=False),
         gr.update(visible=False),
         gr.update(value="", language=None, visible=False),
-        gr.update(value="Preview not available for this file type. Download to inspect it locally.", visible=True),
+        gr.update(value="Preview not available for this file type.", visible=True),
         download_update,
     )
+
+
+def _stream_task_turn(
+    client: TaskSessionClient,
+    user_message: str,
+    *,
+    report_requested: bool,
+    uploaded_files: dict[str, bytes] | None = None,
+):
+    stream_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+    closed = threading.Event()
+
+    def _progress_callback(event: HealthFlowProgressEvent) -> None:
+        if not closed.is_set():
+            stream_queue.put(("progress", event))
+
+    def _runner() -> None:
+        try:
+            result = asyncio.run(
+                client.run_turn(
+                    user_message,
+                    report_requested=report_requested,
+                    progress_callback=_progress_callback,
+                    uploaded_files=uploaded_files,
+                )
+            )
+        except Exception as exc:  # pragma: no cover - defensive fallback for unexpected runtime failures
+            if not closed.is_set():
+                stream_queue.put(("error", exc))
+        else:
+            if not closed.is_set():
+                stream_queue.put(("result", result))
+        finally:
+            if not closed.is_set():
+                stream_queue.put(("done", None))
+
+    worker = threading.Thread(target=_runner, name=f"healthflow-web-turn-{client.task_id[:8]}", daemon=True)
+    worker.start()
+
+    finished = False
+    try:
+        while not finished or not stream_queue.empty():
+            try:
+                kind, payload = stream_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if kind == "done":
+                finished = True
+                continue
+            yield kind, payload
+    finally:
+        closed.set()
 
 
 def launch_web_app(
@@ -469,22 +472,22 @@ def launch_web_app(
         *,
         main_history: list[dict[str, str]],
         trace_history: list[dict[str, str]],
-        artifact_filter: str | None,
-        preferred_artifact: str | None,
-    ) -> tuple[Any, list[dict[str, str]], list[dict[str, str]], str, str, list[dict[str, Any]], Any, Any, str | None, Any, Any, Any, Any, Any, Any, Any]:
-        recent_tasks = session_store.list_recent_tasks(limit=24)
-        visible_recent_tasks = _visible_recent_tasks(recent_tasks, current_task_id=client.task_id)
-        catalog = _collect_artifact_catalog(client)
-        normalized_filter = artifact_filter if artifact_filter in {value for _, value in _FILTER_DEFINITIONS} else "all"
-        recent_tasks_update = gr.update(choices=_build_task_choices(visible_recent_tasks), value=client.task_id)
-        artifact_filter_update = gr.update(choices=_artifact_filter_choices(catalog), value=normalized_filter)
-        artifact_selector_update, selected_artifact = _artifact_selector_update(
-            catalog,
-            normalized_filter,
-            preferred_artifact,
-            gr=gr,
+        preferred_file: str | None,
+    ) -> tuple[Any, list[dict[str, str]], list[dict[str, str]], str, str, list[dict[str, Any]], str | None, Any, Any, Any, Any, Any, Any, Any]:
+        recent_tasks = session_store.list_recent_tasks(limit=50)
+        visible_recent_tasks = _visible_recent_tasks(
+            recent_tasks,
+            current_task_id=client.task_id,
+            current_title=client.original_goal,
+            current_updated_at=client.updated_at_utc,
+            current_turn_count=client.turn_count,
+            current_status=client.latest_turn_status,
         )
-        preview_outputs = _artifact_preview_outputs(catalog, selected_artifact, gr=gr)
+        catalog = _collect_artifact_catalog(client)
+        selected_file = _default_selected_file(catalog, preferred_file=preferred_file)
+        task_root = Path(client.task_root) if client.task_root else None
+        recent_tasks_update = gr.update(choices=_build_task_choices(visible_recent_tasks), value=client.task_id)
+        preview_outputs = _artifact_preview_outputs(selected_file, task_root=task_root, gr=gr)
         return (
             recent_tasks_update,
             main_history,
@@ -492,9 +495,7 @@ def launch_web_app(
             client.task_id,
             _build_task_header(client, visible_recent_tasks),
             catalog,
-            artifact_filter_update,
-            artifact_selector_update,
-            selected_artifact,
+            selected_file,
             *preview_outputs,
         )
 
@@ -528,8 +529,7 @@ def launch_web_app(
             client,
             main_history=_restore_main_history(client),
             trace_history=_restore_trace_history(client, restored=bool(task_id)),
-            artifact_filter="all",
-            preferred_artifact=None,
+            preferred_file=None,
         )
 
     def _switch_task(task_id: str | None):
@@ -538,8 +538,7 @@ def launch_web_app(
             client,
             main_history=_restore_main_history(client),
             trace_history=_restore_trace_history(client, restored=True),
-            artifact_filter="all",
-            preferred_artifact=None,
+            preferred_file=None,
         )
 
     def _new_task():
@@ -548,41 +547,26 @@ def launch_web_app(
             client,
             main_history=_restore_main_history(client),
             trace_history=_restore_trace_history(client, restored=False),
-            artifact_filter="all",
-            preferred_artifact=None,
+            preferred_file=None,
         )
 
-    def _on_artifact_filter_change(
-        artifact_filter: str,
-        artifact_catalog: list[dict[str, Any]] | None,
-        selected_artifact: str | None,
-    ):
-        catalog = list(artifact_catalog or [])
-        artifact_selector_update, selected_value = _artifact_selector_update(
-            catalog,
-            artifact_filter or "all",
-            selected_artifact,
-            gr=gr,
-        )
-        preview_outputs = _artifact_preview_outputs(catalog, selected_value, gr=gr)
-        return artifact_selector_update, selected_value, *preview_outputs
+    def _preview_outputs_for_task(selected_file: str | None, task_id: str | None):
+        task_root = _task_root_path(task_id, session_store)
+        return _artifact_preview_outputs(selected_file, task_root=task_root, gr=gr)
 
-    def _on_artifact_selected(
-        selected_artifact: str | None,
-        artifact_catalog: list[dict[str, Any]] | None,
-    ):
-        catalog = list(artifact_catalog or [])
-        preview_outputs = _artifact_preview_outputs(catalog, selected_artifact, gr=gr)
-        return selected_artifact, *preview_outputs
+    def _on_workspace_file_selected(selected_file: str | None, task_id: str | None):
+        return selected_file, *_preview_outputs_for_task(selected_file, task_id)
 
-    async def _run_turn(
+    def _open_report_file(report_path: str | None, task_id: str | None):
+        return report_path, *_preview_outputs_for_task(report_path, task_id)
+
+    def _run_turn(
         prompt_input: dict[str, Any] | None,
         main_history: list[dict[str, str]] | None,
         trace_history: list[dict[str, str]] | None,
         task_id: str | None,
         report_requested: bool,
-        artifact_filter: str | None,
-        selected_artifact: str | None,
+        selected_file: str | None,
     ):
         client = session_store.get_client(task_id)
         main_history = list(main_history or _restore_main_history(client))
@@ -603,8 +587,7 @@ def launch_web_app(
                 client,
                 main_history=main_history,
                 trace_history=trace_history,
-                artifact_filter=artifact_filter,
-                preferred_artifact=selected_artifact,
+                preferred_file=selected_file,
             )
             return
 
@@ -616,76 +599,74 @@ def launch_web_app(
             client,
             main_history=main_history,
             trace_history=trace_history,
-            artifact_filter=artifact_filter,
-            preferred_artifact=selected_artifact,
+            preferred_file=selected_file,
         )
 
-        queue: asyncio.Queue[HealthFlowProgressEvent] = asyncio.Queue()
-
-        def _progress_callback(event: HealthFlowProgressEvent) -> None:
-            queue.put_nowait(event)
-
-        task = asyncio.create_task(
-            client.run_turn(
-                user_message,
-                report_requested=report_requested,
-                progress_callback=_progress_callback,
-                uploaded_files=upload_payloads or None,
-            )
-        )
-
-        while True:
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=0.1)
+        result: dict[str, Any] | None = None
+        error: Exception | None = None
+        for kind, payload in _stream_task_turn(
+            client,
+            user_message,
+            report_requested=report_requested,
+            uploaded_files=upload_payloads or None,
+        ):
+            if kind == "progress":
+                event = payload
                 trace_history.append({"role": "assistant", "content": _format_progress_event(event)})
                 yield _compose_outputs(
                     client,
                     main_history=main_history,
                     trace_history=trace_history,
-                    artifact_filter=artifact_filter,
-                    preferred_artifact=selected_artifact,
+                    preferred_file=selected_file,
                 )
-            except asyncio.TimeoutError:
-                if task.done():
-                    break
+                continue
+            if kind == "error":
+                error = payload
+                break
+            if kind == "result":
+                result = payload
 
-        while not queue.empty():
-            event = queue.get_nowait()
-            trace_history.append({"role": "assistant", "content": _format_progress_event(event)})
+        if error is not None:
+            result = {
+                "success": False,
+                "answer": "The web session failed before the run completed.",
+                "final_summary": str(error),
+            }
 
-        result = await task
+        result = result or {
+            "success": False,
+            "answer": "The run stopped before a result was returned.",
+            "final_summary": "",
+        }
         summary = str(result.get("final_summary") or "").strip()
         main_history.append({"role": "assistant", "content": _result_answer_text(result)})
         if summary:
             trace_history.append({"role": "assistant", "content": f"**Run summary**\n\n{summary}"})
 
-        preferred_artifact = None if (artifact_filter or "all") == "all" else selected_artifact
         yield _compose_outputs(
             client,
             main_history=main_history,
             trace_history=trace_history,
-            artifact_filter=artifact_filter,
-            preferred_artifact=preferred_artifact,
+            preferred_file=selected_file,
         )
 
     with gr.Blocks(title="HealthFlow Web") as demo:
         browser_task_id = gr.BrowserState(None, storage_key="healthflow-active-task")
-        artifact_catalog_state = gr.State([])
-        selected_artifact_state = gr.State(None)
+        workspace_catalog_state = gr.State([])
+        selected_file_state = gr.State(None)
 
         gr.Markdown(
             """
             # HealthFlow
 
-            A browser workspace for task-driven analysis. Switch between recent tasks, keep the conversation
-            going, and preview uploaded or generated files without leaving the page.
+            Continue a task, review earlier work, and inspect files in the task workspace without leaving the page.
             """
         )
 
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
                 recent_tasks = gr.Radio(
-                    label="Recent Tasks",
+                    label="History",
                     choices=[],
                     value=None,
                     interactive=True,
@@ -708,50 +689,129 @@ def launch_web_app(
                             placeholder="Describe the task or provide follow-up feedback. Upload files if needed.",
                             show_label=False,
                         )
-                        gr.Markdown(
-                            "Uploads appear in the **Files** panel automatically. Use **New Task** when you want a fresh workspace."
-                        )
                     with gr.Column(scale=2):
-                        report_requested = gr.Checkbox(label="Generate report.md for each turn", value=False)
                         with gr.Tabs():
-                            with gr.Tab("Files"):
-                                artifact_filter = gr.Radio(
-                                    label="Browse",
-                                    choices=_artifact_filter_choices([]),
-                                    value="all",
-                                    interactive=True,
-                                )
-                                artifact_list = gr.Radio(
-                                    label="Files",
-                                    choices=[],
-                                    value=None,
-                                    interactive=True,
-                                )
-                                preview_meta = gr.Markdown(value="### Preview")
-                                preview_markdown = gr.Markdown(visible=False)
-                                preview_image = gr.Image(
-                                    label="Image preview",
-                                    visible=False,
-                                    type="filepath",
-                                    show_download_button=False,
-                                )
-                                preview_table = gr.Dataframe(
-                                    label="Data preview",
-                                    visible=False,
-                                    interactive=False,
-                                    show_copy_button=True,
-                                    max_height=360,
-                                )
-                                preview_code = gr.Code(
-                                    label="Code preview",
-                                    visible=False,
-                                    interactive=False,
-                                    lines=18,
-                                    max_lines=32,
-                                )
-                                preview_empty = gr.Markdown(value=_EMPTY_FILES_TEXT)
-                                download_button = gr.DownloadButton("Download file", visible=False)
+                            with gr.Tab("Workspace"):
+                                with gr.Row():
+                                    with gr.Column(scale=1, min_width=240):
+                                        gr.Markdown("### Workspace")
+
+                                        @gr.render(
+                                            inputs=[browser_task_id, workspace_catalog_state, selected_file_state],
+                                            queue=False,
+                                            show_progress="hidden",
+                                        )
+                                        def _render_workspace_browser(
+                                            current_task_id: str | None,
+                                            workspace_catalog: list[dict[str, Any]] | None,
+                                            current_selected_file: str | None,
+                                        ):
+                                            if not current_task_id:
+                                                gr.Markdown(_EMPTY_WORKSPACE_TEXT)
+                                                return
+
+                                            task_root = _task_root_path(current_task_id, session_store)
+                                            if task_root is None:
+                                                gr.Markdown(_EMPTY_WORKSPACE_TEXT)
+                                                return
+
+                                            catalog = list(workspace_catalog or [])
+                                            report_path = next(
+                                                (
+                                                    str(item.get("source_path"))
+                                                    for item in catalog
+                                                    if item.get("origin") == "report"
+                                                ),
+                                                None,
+                                            )
+                                            visible_files = [item for item in catalog if item.get("origin") != "report"]
+                                            report_path_state = gr.State(report_path)
+
+                                            if report_path:
+                                                open_report_button = gr.Button(
+                                                    "report.md",
+                                                    variant="primary"
+                                                    if current_selected_file == report_path
+                                                    else "secondary",
+                                                )
+                                                open_report_button.click(
+                                                    _open_report_file,
+                                                    [report_path_state, browser_task_id],
+                                                    [
+                                                        selected_file_state,
+                                                        preview_header,
+                                                        preview_markdown,
+                                                        preview_image,
+                                                        preview_table,
+                                                        preview_code,
+                                                        preview_empty,
+                                                        download_button,
+                                                    ],
+                                                    queue=False,
+                                                    show_progress="hidden",
+                                                )
+
+                                            sandbox_root = task_root / "sandbox"
+                                            if visible_files:
+                                                workspace_browser = gr.FileExplorer(
+                                                    root_dir=str(sandbox_root),
+                                                    file_count="single",
+                                                    label="Files",
+                                                    height=360,
+                                                    interactive=True,
+                                                    value=_workspace_tree_value(
+                                                        current_selected_file,
+                                                        task_root=task_root,
+                                                    ),
+                                                    key=("workspace-browser", current_task_id),
+                                                    preserved_by_key=[],
+                                                )
+                                                workspace_browser.change(
+                                                    _on_workspace_file_selected,
+                                                    [workspace_browser, browser_task_id],
+                                                    [
+                                                        selected_file_state,
+                                                        preview_header,
+                                                        preview_markdown,
+                                                        preview_image,
+                                                        preview_table,
+                                                        preview_code,
+                                                        preview_empty,
+                                                        download_button,
+                                                    ],
+                                                    queue=False,
+                                                    show_progress="hidden",
+                                                )
+                                            elif not report_path:
+                                                gr.Markdown(_EMPTY_WORKSPACE_TEXT)
+
+                                    with gr.Column(scale=2, min_width=320):
+                                        preview_header = gr.Markdown(value="### Preview")
+                                        preview_markdown = gr.Markdown(visible=False)
+                                        preview_image = gr.Image(
+                                            label="Image preview",
+                                            visible=False,
+                                            type="filepath",
+                                            show_download_button=False,
+                                        )
+                                        preview_table = gr.Dataframe(
+                                            label="Data preview",
+                                            visible=False,
+                                            interactive=False,
+                                            show_copy_button=True,
+                                            max_height=360,
+                                        )
+                                        preview_code = gr.Code(
+                                            label="Code preview",
+                                            visible=False,
+                                            interactive=False,
+                                            lines=18,
+                                            max_lines=32,
+                                        )
+                                        preview_empty = gr.Markdown(value=_EMPTY_WORKSPACE_TEXT)
+                                        download_button = gr.DownloadButton("Download file", visible=False)
                             with gr.Tab("Advanced"):
+                                report_requested = gr.Checkbox(label="Generate report.md for each turn", value=False)
                                 trace_chatbot = gr.Chatbot(
                                     label="Execution Trace",
                                     type="messages",
@@ -769,11 +829,9 @@ def launch_web_app(
                 trace_chatbot,
                 browser_task_id,
                 task_header,
-                artifact_catalog_state,
-                artifact_filter,
-                artifact_list,
-                selected_artifact_state,
-                preview_meta,
+                workspace_catalog_state,
+                selected_file_state,
+                preview_header,
                 preview_markdown,
                 preview_image,
                 preview_table,
@@ -794,11 +852,9 @@ def launch_web_app(
                 trace_chatbot,
                 browser_task_id,
                 task_header,
-                artifact_catalog_state,
-                artifact_filter,
-                artifact_list,
-                selected_artifact_state,
-                preview_meta,
+                workspace_catalog_state,
+                selected_file_state,
+                preview_header,
                 preview_markdown,
                 preview_image,
                 preview_table,
@@ -819,46 +875,9 @@ def launch_web_app(
                 trace_chatbot,
                 browser_task_id,
                 task_header,
-                artifact_catalog_state,
-                artifact_filter,
-                artifact_list,
-                selected_artifact_state,
-                preview_meta,
-                preview_markdown,
-                preview_image,
-                preview_table,
-                preview_code,
-                preview_empty,
-                download_button,
-            ],
-            queue=False,
-            show_progress="hidden",
-        )
-
-        artifact_filter.change(
-            _on_artifact_filter_change,
-            [artifact_filter, artifact_catalog_state, selected_artifact_state],
-            [
-                artifact_list,
-                selected_artifact_state,
-                preview_meta,
-                preview_markdown,
-                preview_image,
-                preview_table,
-                preview_code,
-                preview_empty,
-                download_button,
-            ],
-            queue=False,
-            show_progress="hidden",
-        )
-
-        artifact_list.change(
-            _on_artifact_selected,
-            [artifact_list, artifact_catalog_state],
-            [
-                selected_artifact_state,
-                preview_meta,
+                workspace_catalog_state,
+                selected_file_state,
+                preview_header,
                 preview_markdown,
                 preview_image,
                 preview_table,
@@ -878,8 +897,7 @@ def launch_web_app(
                 trace_chatbot,
                 browser_task_id,
                 report_requested,
-                artifact_filter,
-                selected_artifact_state,
+                selected_file_state,
             ],
             [
                 recent_tasks,
@@ -887,11 +905,9 @@ def launch_web_app(
                 trace_chatbot,
                 browser_task_id,
                 task_header,
-                artifact_catalog_state,
-                artifact_filter,
-                artifact_list,
-                selected_artifact_state,
-                preview_meta,
+                workspace_catalog_state,
+                selected_file_state,
+                preview_header,
                 preview_markdown,
                 preview_image,
                 preview_table,
