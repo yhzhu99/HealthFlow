@@ -55,6 +55,22 @@ class TaskSessionClient:
         return str(status) if status else None
 
     @property
+    def original_goal(self) -> str:
+        if isinstance(self._state, dict):
+            value = self._state.get("original_goal")
+        else:
+            value = getattr(self._state, "original_goal", "")
+        return str(value or "")
+
+    @property
+    def updated_at_utc(self) -> str | None:
+        if isinstance(self._state, dict):
+            value = self._state.get("updated_at_utc")
+        else:
+            value = getattr(self._state, "updated_at_utc", None)
+        return str(value) if value else None
+
+    @property
     def session_label(self) -> str:
         return f"Task {self.task_id[:8]}"
 

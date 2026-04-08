@@ -28,7 +28,7 @@ from .experience.experience_manager import ExperienceManager
 from .experience.experience_models import RetrievalContext
 from .reporting import generate_task_report
 from .runtime_artifacts import AttemptPaths, TaskRuntimePaths
-from .session import HealthFlowProgressEvent, SessionPromptContext, TaskSessionState, TaskTurnRecord
+from .session import HealthFlowProgressEvent, SessionPromptContext, TaskSessionState, TaskSessionSummary, TaskTurnRecord
 
 _STEP_FINISH_REASON_RE = re.compile(r"reason=([^\s]+)")
 _CONTENT_TOKEN_RE = re.compile(r"[a-z0-9']+")
@@ -159,6 +159,35 @@ class HealthFlowSystem:
     def load_task_history(self, task_id: str) -> list[TaskTurnRecord]:
         task_workspace = self.workspace_dir / task_id
         return self._read_session_history(task_workspace)
+
+    def list_task_sessions(self, limit: int = 20) -> list[TaskSessionSummary]:
+        summaries: list[TaskSessionSummary] = []
+        for task_workspace in sorted(self.workspace_dir.iterdir()) if self.workspace_dir.exists() else []:
+            if not task_workspace.is_dir():
+                continue
+            session_path = self._session_state_path(task_workspace)
+            if not session_path.exists():
+                continue
+            try:
+                state = TaskSessionState.from_dict(self._read_json(session_path))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+            history = self._read_session_history(task_workspace)
+            title = state.original_goal.strip() or (history[0].user_message.strip() if history else "") or "New task"
+            summaries.append(
+                TaskSessionSummary(
+                    task_id=state.task_id,
+                    title=title,
+                    updated_at_utc=state.updated_at_utc,
+                    created_at_utc=state.created_at_utc,
+                    turn_count=state.turn_count,
+                    latest_turn_status=state.latest_turn_status,
+                )
+            )
+        summaries.sort(key=self._task_session_sort_key, reverse=True)
+        if limit > 0:
+            return summaries[:limit]
+        return summaries
 
     async def run_task_turn(
         self,
@@ -2065,6 +2094,9 @@ class HealthFlowSystem:
             sandbox_artifacts=self._workspace_artifact_paths(task_workspace / "sandbox"),
             current_uploads=uploaded_file_records,
         )
+
+    def _task_session_sort_key(self, summary: TaskSessionSummary) -> tuple[str, str]:
+        return (summary.updated_at_utc or "", summary.created_at_utc or "")
 
     def _mirror_latest_runtime(
         self,

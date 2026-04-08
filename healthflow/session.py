@@ -77,6 +77,30 @@ class TaskSessionState:
 
 
 @dataclass
+class TaskSessionSummary:
+    task_id: str
+    title: str
+    updated_at_utc: str
+    created_at_utc: str | None = None
+    turn_count: int = 0
+    latest_turn_status: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "TaskSessionSummary":
+        return cls(
+            task_id=str(payload.get("task_id", "")),
+            title=str(payload.get("title", "")),
+            updated_at_utc=str(payload.get("updated_at_utc", "")),
+            created_at_utc=payload.get("created_at_utc"),
+            turn_count=int(payload.get("turn_count", 0)),
+            latest_turn_status=payload.get("latest_turn_status"),
+        )
+
+
+@dataclass
 class SessionPromptContext:
     task_id: str
     turn_number: int

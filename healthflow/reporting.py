@@ -7,6 +7,11 @@ from pathlib import Path
 import re
 from typing import Any
 
+from .artifacts import (
+    artifact_category as shared_artifact_category,
+    artifact_descriptor as shared_artifact_descriptor,
+    collect_report_deliverables,
+)
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
 _REPORT_EXTENSIONS = {".md", ".txt", ".pdf", ".rst", ".doc", ".docx"}
@@ -927,54 +932,11 @@ def _audit_rows(run_summary: dict[str, Any], latest_attempt: dict[str, Any]) -> 
 
 
 def _collect_deliverables(sandbox_dir: Path, report_path: Path) -> list[dict[str, Any]]:
-    deliverables: list[dict[str, Any]] = []
-    if not sandbox_dir.exists():
-        return deliverables
-    for path in sorted(sandbox_dir.rglob("*")):
-        if not path.is_file():
-            continue
-        relative_path = path.relative_to(sandbox_dir).as_posix()
-        if _is_runtime_path(relative_path):
-            continue
-        report_relative_path = os.path.relpath(path, report_path.parent).replace("\\", "/")
-        deliverables.append(
-            {
-                "path": report_relative_path,
-                "sandbox_relative_path": relative_path,
-                "source_path": path,
-                "category": _categorize_artifact(path),
-                "descriptor": _artifact_descriptor(path),
-                "size_bytes": path.stat().st_size,
-            }
-        )
-    return deliverables
+    return collect_report_deliverables(sandbox_dir, report_path)
 
 
 def _artifact_descriptor(path: Path) -> str:
-    if path.suffix.lower() == ".md":
-        heading = _first_markdown_heading(path)
-        if heading:
-            return heading
-    if path.suffix.lower() == ".json":
-        json_descriptor = _json_descriptor(path)
-        if json_descriptor:
-            return json_descriptor
-    if path.suffix.lower() in {".csv", ".tsv"}:
-        csv_descriptor = _csv_descriptor(path)
-        if csv_descriptor:
-            return csv_descriptor
-    if path.suffix.lower() == ".ipynb":
-        notebook_descriptor = _notebook_descriptor(path)
-        if notebook_descriptor:
-            return notebook_descriptor
-    if path.suffix.lower() == ".py":
-        python_descriptor = _python_descriptor(path)
-        if python_descriptor:
-            return python_descriptor
-    text_descriptor = _text_descriptor(path)
-    if text_descriptor:
-        return text_descriptor
-    return _generic_descriptor(path)
+    return shared_artifact_descriptor(path)
 
 
 def _first_markdown_heading(path: Path) -> str | None:
@@ -1116,16 +1078,7 @@ def _generic_descriptor(path: Path) -> str:
 
 
 def _categorize_artifact(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix in _IMAGE_EXTENSIONS:
-        return "images"
-    if suffix in _CODE_EXTENSIONS:
-        return "code/notebooks"
-    if suffix in _DATA_EXTENSIONS:
-        return "tables/data"
-    if suffix in _REPORT_EXTENSIONS:
-        return "reports/docs"
-    return "other outputs"
+    return shared_artifact_category(path)
 
 
 def _artifact_link(relative_path: str) -> str:
