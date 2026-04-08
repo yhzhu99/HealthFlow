@@ -25,6 +25,11 @@ workspace/
 !platform/**/*.png
 !platform/**/*.csv
 
+# Local-only evaluation data and generated review artifacts.
+platform/evaluation-data/
+platform/public/data/
+platform/public/evaluation-assets/
+
 # Benchmark datasets are local-only artifacts; keep scripts/docs in git.
 data/*/raw/**
 data/*/processed/**
