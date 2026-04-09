@@ -20,6 +20,10 @@ const navItems = computed(() => [
 ])
 
 const isActive = (path: string) => route.path === path
+const navItemClass = (path: string) =>
+  isActive(path)
+    ? 'bg-sky-50 text-sky-900 shadow-[0_12px_28px_rgba(56,189,248,0.14)] ring-1 ring-sky-200'
+    : 'text-slate-500 hover:bg-white hover:text-slate-950'
 
 const contentWidthClass = computed(() =>
   props.contentWidth === 'wide' ? 'max-w-[1680px]' : 'max-w-7xl',
@@ -51,7 +55,8 @@ const brandIconUrl = toBasePath('branding/healthflow-icon.svg')
             :key="item.to"
             :to="item.to"
             class="rounded-full px-4 py-2 text-sm font-semibold tracking-[-0.01em] transition"
-            :class="isActive(item.to) ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-950'"
+            :aria-current="isActive(item.to) ? 'page' : undefined"
+            :class="navItemClass(item.to)"
           >
             {{ item.label }}
           </RouterLink>
