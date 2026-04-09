@@ -7,24 +7,25 @@ import AppButton from '../components/ui/AppButton.vue'
 import AppCard from '../components/ui/AppCard.vue'
 import {
   blindOrderCandidates,
-  DEFAULT_REVIEWER_ID,
+  buildBlindMapping,
+  buildEvaluationExportPayload,
+  EVALUATION_SESSION_STORAGE_KEY,
+  LEGACY_LAST_REVIEWER_KEY,
+  legacyReviewerStorageKey,
   type BenchmarkId,
   type DevEvaluationManifest,
   type DiagnosticEvaluationDiagnostics,
   type EvaluationQuestionSummary,
+  type EvaluationResponse,
+  type EvaluationSessionState,
   type EvaluationSnapshot,
-  type ReviewerResponse,
-  type ReviewerState,
   type SnapshotCandidate,
   type SnapshotQuestion,
-  evaluationStorageKey,
-  resolveReviewerId,
-  restoreReviewerState,
+  restoreEvaluationSessionStateWithLegacySupport,
 } from '../domain/evaluation'
 import { downloadJson } from '../lib/download'
 import { renderMarkdown } from '../lib/markdown'
 import {
-  embeddedEvaluationSnapshot,
   loadEvaluationSnapshot,
   loadLocalEvaluationCase,
   loadLocalEvaluationManifest,
@@ -32,16 +33,15 @@ import {
 } from '../lib/snapshot'
 import { readJson, writeJson } from '../lib/storage'
 
-const LAST_REVIEWER_KEY = 'healthflow:evaluation:last-reviewer'
 const TASK_PANEL_EXPANDED_KEY = 'healthflow:evaluation:task-panel-expanded'
-type EvaluationSourceMode = 'booting' | 'live' | 'sample' | 'diagnostic' | 'error'
+
+type EvaluationSourceMode = 'booting' | 'live' | 'static' | 'diagnostic' | 'error'
 type CaseLoadState = 'idle' | 'loading' | 'ready' | 'error'
-const isDevMode = import.meta.env.DEV
 
 type CompareTab =
   | {
       key: 'reference'
-      label: 'Reference'
+      label: 'Reference Foundset'
       kind: 'reference'
     }
   | {
@@ -52,6 +52,8 @@ type CompareTab =
       candidate: SnapshotCandidate
     }
 
+const isDevMode = import.meta.env.DEV
+
 const snapshot = ref<EvaluationSnapshot | null>(null)
 const localManifest = ref<DevEvaluationManifest | null>(null)
 const currentQuestionDetail = ref<SnapshotQuestion | null>(null)
@@ -61,7 +63,7 @@ const sourceMode = ref<EvaluationSourceMode>('booting')
 const loadError = ref<string | null>(null)
 const diagnostics = ref<DiagnosticEvaluationDiagnostics | null>(null)
 const sourceWarnings = ref<string[]>([])
-const localManifestUrl = localEvaluationManifestUrl()
+const localManifestUrlValue = localEvaluationManifestUrl()
 let loadRequestId = 0
 let caseRequestId = 0
 
@@ -76,25 +78,22 @@ const compactMarkdown = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim()
 
-const reviewerDraft = ref(resolveReviewerId(readJson<unknown>(LAST_REVIEWER_KEY, DEFAULT_REVIEWER_ID)))
-const reviewerState = ref<ReviewerState | null>(null)
+const sessionState = ref<EvaluationSessionState | null>(null)
 const draftChoice = ref<string | null>(null)
 const draftNote = ref('')
-const activeCompareKeyByDataset = ref<Partial<Record<BenchmarkId, string>>>({})
 const taskPanelExpanded = ref(resolveStoredBoolean(readJson<unknown>(TASK_PANEL_EXPANDED_KEY, true), true))
+const exportModalOpen = ref(false)
+const participantNameDraft = ref('')
+const exportError = ref<string | null>(null)
 
-const allBenchmarks = computed(() => {
-  if (sourceMode.value === 'live' && isDevMode) return localManifest.value?.benchmarks ?? []
-  return snapshot.value?.benchmarks ?? []
-})
+const allBenchmarks = computed(() => (sourceMode.value === 'live' && isDevMode ? localManifest.value?.benchmarks : snapshot.value?.benchmarks) ?? [])
 
-const allRuns = computed(() => {
-  if (sourceMode.value === 'live' && isDevMode) return localManifest.value?.runs ?? []
-  return snapshot.value?.runs ?? []
-})
+const allRuns = computed(() => (sourceMode.value === 'live' && isDevMode ? localManifest.value?.runs : snapshot.value?.runs) ?? [])
 
 const allQuestionSummaries = computed<EvaluationQuestionSummary[]>(() => {
-  if (sourceMode.value === 'live' && isDevMode) return localManifest.value?.questions ?? []
+  if (sourceMode.value === 'live' && isDevMode) {
+    return localManifest.value?.questions ?? []
+  }
 
   return (snapshot.value?.questions ?? []).map((question) => ({
     caseId: question.id,
@@ -110,21 +109,21 @@ const allQuestionSummaries = computed<EvaluationQuestionSummary[]>(() => {
 })
 
 const benchmarks = computed(() => allBenchmarks.value)
+const activeSnapshotVersion = computed(() => (sourceMode.value === 'live' && isDevMode ? localManifest.value?.snapshotVersion : snapshot.value?.snapshotVersion) ?? null)
 const isWorkspaceReady = computed(() => {
-  if (sourceMode.value === 'sample') return Boolean(snapshot.value)
   if (sourceMode.value === 'live' && isDevMode) return Boolean(localManifest.value)
-  if (sourceMode.value === 'live') return Boolean(snapshot.value)
+  if (sourceMode.value === 'static') return Boolean(snapshot.value)
   return false
 })
-const sourceBadgeLabel = computed(() => (sourceMode.value === 'sample' ? 'Bundled Samples' : 'Local Cases'))
+const sourceBadgeLabel = computed(() => (sourceMode.value === 'static' ? 'Build Bundle' : 'Local Cases'))
 const sourceDescription = computed(() =>
-  sourceMode.value === 'sample'
-    ? 'Showing bundled sample cases because local evaluation files are unavailable.'
+  sourceMode.value === 'static'
+    ? 'Serving the build-generated evaluation bundle created from platform/evaluation-data.'
     : 'Reading a lightweight evaluation manifest first, then loading each case on demand from platform/evaluation-data.',
 )
 
 const activeBenchmarkId = computed<BenchmarkId | null>(() => {
-  if (reviewerState.value?.activeBenchmarkId) return reviewerState.value.activeBenchmarkId
+  if (sessionState.value?.activeBenchmarkId) return sessionState.value.activeBenchmarkId
   return (benchmarks.value[0]?.id as BenchmarkId | undefined) ?? null
 })
 
@@ -140,14 +139,12 @@ const benchmarkRuns = computed(() => {
 
 const answeredIds = computed(() => {
   const questionIds = new Set(benchmarkQuestions.value.map((question) => question.id))
-  return new Set(
-    Object.keys(reviewerState.value?.responses ?? {}).filter((questionId) => questionIds.has(questionId)),
-  )
+  return new Set(Object.keys(sessionState.value?.responses ?? {}).filter((questionId) => questionIds.has(questionId)))
 })
 
 const currentQuestionIndex = computed(() => {
-  if (!reviewerState.value || !activeBenchmarkId.value) return 0
-  return reviewerState.value.currentIndexByDataset[activeBenchmarkId.value] ?? 0
+  if (!sessionState.value || !activeBenchmarkId.value) return 0
+  return sessionState.value.currentIndexByDataset[activeBenchmarkId.value] ?? 0
 })
 
 const currentQuestionSummary = computed(() => benchmarkQuestions.value[currentQuestionIndex.value] ?? null)
@@ -168,10 +165,11 @@ const progressPercent = computed(() =>
 )
 
 const candidateSlots = computed(() => {
-  if (!currentQuestion.value || !reviewerState.value) return []
+  if (!currentQuestion.value || !sessionState.value) return []
+
   return blindOrderCandidates(
     currentQuestion.value.candidates,
-    reviewerState.value.reviewerId,
+    sessionState.value.sessionId,
     currentQuestion.value.datasetId,
     currentQuestion.value.qid,
   )
@@ -180,8 +178,8 @@ const candidateSlots = computed(() => {
 const submissionCandidates = computed(() => candidateSlots.value)
 
 const activeRunId = computed(() => {
-  if (!reviewerState.value || !activeBenchmarkId.value) return null
-  return reviewerState.value.activeRunIdByDataset[activeBenchmarkId.value] ?? benchmarkRuns.value[0]?.id ?? null
+  if (!sessionState.value || !activeBenchmarkId.value) return null
+  return sessionState.value.activeRunIdByDataset[activeBenchmarkId.value] ?? benchmarkRuns.value[0]?.id ?? null
 })
 
 const compareTabs = computed<CompareTab[]>(() => {
@@ -190,7 +188,7 @@ const compareTabs = computed<CompareTab[]>(() => {
   return [
     {
       key: 'reference',
-      label: 'Reference',
+      label: 'Reference Foundset',
       kind: 'reference',
     },
     ...submissionCandidates.value.map((item) => ({
@@ -204,8 +202,8 @@ const compareTabs = computed<CompareTab[]>(() => {
 })
 
 const activeCompareKey = computed(() => {
-  if (!activeBenchmarkId.value) return null
-  const storedKey = activeCompareKeyByDataset.value[activeBenchmarkId.value]
+  if (!activeBenchmarkId.value || !sessionState.value) return null
+  const storedKey = sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value]
   if (storedKey && compareTabs.value.some((tab) => tab.key === storedKey)) {
     return storedKey
   }
@@ -263,108 +261,148 @@ const taskSupportSummary = computed(() => {
   return summary
 })
 
+const hasSavedResponses = computed(() => answeredIds.value.size > 0)
+
 const toggleTaskPanel = () => {
   taskPanelExpanded.value = !taskPanelExpanded.value
 }
 
+const ensureActiveBenchmark = () => {
+  if (!sessionState.value) return
+  if (sessionState.value.activeBenchmarkId && benchmarks.value.some((benchmark) => benchmark.id === sessionState.value?.activeBenchmarkId)) {
+    return
+  }
+
+  sessionState.value.activeBenchmarkId = benchmarks.value[0]?.id ?? null
+}
+
 const ensureCurrentIndex = () => {
-  if (!reviewerState.value || !activeBenchmarkId.value || benchmarkQuestions.value.length === 0) return
-  const storedIndex = reviewerState.value.currentIndexByDataset[activeBenchmarkId.value]
+  if (!sessionState.value || !activeBenchmarkId.value || benchmarkQuestions.value.length === 0) return
+  const storedIndex = sessionState.value.currentIndexByDataset[activeBenchmarkId.value]
   if (storedIndex != null && storedIndex < benchmarkQuestions.value.length) return
 
-  const firstUnansweredIndex = benchmarkQuestions.value.findIndex(
-    (question) => !reviewerState.value?.responses[question.id],
-  )
-  reviewerState.value.currentIndexByDataset[activeBenchmarkId.value] =
-    firstUnansweredIndex >= 0 ? firstUnansweredIndex : 0
+  const firstUnansweredIndex = benchmarkQuestions.value.findIndex((question) => !sessionState.value?.responses[question.id])
+  sessionState.value.currentIndexByDataset[activeBenchmarkId.value] = firstUnansweredIndex >= 0 ? firstUnansweredIndex : 0
 }
 
 const ensureActiveRun = () => {
-  if (!reviewerState.value || !activeBenchmarkId.value) return
-  const storedRunId = reviewerState.value.activeRunIdByDataset[activeBenchmarkId.value]
+  if (!sessionState.value || !activeBenchmarkId.value) return
+  const storedRunId = sessionState.value.activeRunIdByDataset[activeBenchmarkId.value]
   if (storedRunId && benchmarkRuns.value.some((run) => run.id === storedRunId)) return
 
   const firstRunId = benchmarkRuns.value[0]?.id
   if (firstRunId) {
-    reviewerState.value.activeRunIdByDataset[activeBenchmarkId.value] = firstRunId
+    sessionState.value.activeRunIdByDataset[activeBenchmarkId.value] = firstRunId
   }
 }
 
 const ensureActiveCompareTab = () => {
-  if (!activeBenchmarkId.value || compareTabs.value.length === 0) return
-  const currentKey = activeCompareKeyByDataset.value[activeBenchmarkId.value]
+  if (!activeBenchmarkId.value || compareTabs.value.length === 0 || !sessionState.value) return
+  const currentKey = sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value]
   if (currentKey && compareTabs.value.some((tab) => tab.key === currentKey)) return
 
   if (activeRunId.value && compareTabs.value.some((tab) => tab.key === activeRunId.value)) {
-    activeCompareKeyByDataset.value[activeBenchmarkId.value] = activeRunId.value
+    sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value] = activeRunId.value
     return
   }
 
-  activeCompareKeyByDataset.value[activeBenchmarkId.value] = compareTabs.value[0]?.key ?? 'reference'
+  sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value] = compareTabs.value[0]?.key ?? 'reference'
 }
 
-const persistReviewerState = () => {
-  if (!reviewerState.value) return
-  writeJson(evaluationStorageKey(reviewerState.value.reviewerId), reviewerState.value)
-  writeJson(LAST_REVIEWER_KEY, reviewerState.value.reviewerId)
+const persistSessionState = () => {
+  if (!sessionState.value) return
+  writeJson(EVALUATION_SESSION_STORAGE_KEY, sessionState.value)
 }
 
-const resolveSavedRunId = (saved: ReviewerResponse | undefined) => {
-  if (!saved || !currentQuestion.value) return null
-  if (saved.choice === 'none') return 'none'
+const resolveRunIdFromChoice = (choice: string | null | undefined) => {
+  if (!choice || !currentQuestion.value) return null
+  if (choice === 'none') return 'none'
 
-  if (saved.selectedRunId && currentQuestion.value.candidates.some((candidate) => candidate.runId === saved.selectedRunId)) {
-    return saved.selectedRunId
+  if (currentQuestion.value.candidates.some((candidate) => candidate.runId === choice)) {
+    return choice
   }
 
-  if (saved.selectedModelId) {
-    const matchedByModel = currentQuestion.value.candidates.find((candidate) => candidate.modelId === saved.selectedModelId)
-    if (matchedByModel) return matchedByModel.runId
+  const matchedByModel = currentQuestion.value.candidates.find((candidate) => candidate.modelId === choice)
+  if (matchedByModel) {
+    return matchedByModel.runId
   }
 
-  if (saved.selectedSlot) {
-    const matchedBySlot = candidateSlots.value.find((item) => item.slot === saved.selectedSlot)
-    if (matchedBySlot) return matchedBySlot.candidate.runId
+  const matchedBySlot = candidateSlots.value.find((item) => item.slot === choice)
+  if (matchedBySlot) {
+    return matchedBySlot.candidate.runId
   }
 
   return null
 }
 
+const resolveSavedRunId = (saved: EvaluationResponse | undefined) => {
+  if (!saved || !currentQuestion.value) return null
+  if (saved.choice === 'none') return 'none'
+  return resolveRunIdFromChoice(saved.selectedRunId ?? saved.selectedModelId ?? saved.selectedBlindSlot ?? saved.choice)
+}
+
+const persistDraft = () => {
+  if (!currentQuestion.value || !sessionState.value) return
+
+  if (!draftChoice.value && !draftNote.value.trim()) {
+    delete sessionState.value.drafts[currentQuestion.value.id]
+    persistSessionState()
+    return
+  }
+
+  sessionState.value.drafts[currentQuestion.value.id] = {
+    choice: draftChoice.value,
+    note: draftNote.value,
+    updatedAt: new Date().toISOString(),
+  }
+  persistSessionState()
+}
+
 const hydrateDraft = () => {
-  if (!currentQuestion.value || !reviewerState.value) {
+  if (!currentQuestion.value || !sessionState.value) {
     draftChoice.value = null
     draftNote.value = ''
     return
   }
 
-  const saved = reviewerState.value.responses[currentQuestion.value.id]
-  draftChoice.value = resolveSavedRunId(saved)
-  draftNote.value = saved?.note ?? ''
+  const savedDraft = sessionState.value.drafts[currentQuestion.value.id]
+  const savedResponse = sessionState.value.responses[currentQuestion.value.id]
+  const restoredDraftChoice = resolveRunIdFromChoice(savedDraft?.choice)
+  const restoredSavedChoice = resolveSavedRunId(savedResponse)
+
+  draftChoice.value = restoredDraftChoice ?? restoredSavedChoice
+  draftNote.value = savedDraft?.note ?? savedResponse?.note ?? ''
 
   if (draftChoice.value && draftChoice.value !== 'none' && activeBenchmarkId.value) {
-    reviewerState.value.activeRunIdByDataset[activeBenchmarkId.value] = draftChoice.value
+    sessionState.value.activeRunIdByDataset[activeBenchmarkId.value] = draftChoice.value
   }
 }
 
-const activateReviewer = (requestedId?: string) => {
-  const reviewerId = resolveReviewerId(requestedId ?? reviewerDraft.value)
-  reviewerDraft.value = reviewerId
-  reviewerState.value = restoreReviewerState(readJson<unknown>(evaluationStorageKey(reviewerId), null), reviewerId)
+const activateSession = () => {
+  const legacyReviewerId = readJson<unknown>(LEGACY_LAST_REVIEWER_KEY, null)
+  const normalizedLegacyReviewerId =
+    typeof legacyReviewerId === 'string' && legacyReviewerId.trim() ? legacyReviewerId.trim() : null
+  const legacyState = normalizedLegacyReviewerId
+    ? readJson<unknown>(legacyReviewerStorageKey(normalizedLegacyReviewerId), null)
+    : null
 
-  if (!reviewerState.value.activeBenchmarkId && benchmarks.value[0]) {
-    reviewerState.value.activeBenchmarkId = benchmarks.value[0].id
-  }
+  sessionState.value = restoreEvaluationSessionStateWithLegacySupport({
+    sessionValue: readJson<unknown>(EVALUATION_SESSION_STORAGE_KEY, null),
+    legacyReviewerValue: legacyState,
+    legacyReviewerId: normalizedLegacyReviewerId,
+  })
 
+  ensureActiveBenchmark()
   ensureCurrentIndex()
   ensureActiveRun()
   hydrateDraft()
   ensureActiveCompareTab()
-  persistReviewerState()
+  persistSessionState()
 }
 
 const saveCurrentResponse = () => {
-  if (!currentQuestion.value || !reviewerState.value || !draftChoice.value) return false
-  const slotMapping = Object.fromEntries(candidateSlots.value.map((item) => [item.slot, item.candidate.modelId]))
+  if (!currentQuestion.value || !sessionState.value || !draftChoice.value) return false
+
   const selectedRunId = draftChoice.value === 'none' ? null : draftChoice.value
   const selectedSlot = selectedRunId
     ? candidateSlots.value.find((item) => item.candidate.runId === selectedRunId)?.slot ?? null
@@ -372,89 +410,109 @@ const saveCurrentResponse = () => {
   const selectedCandidate = selectedRunId
     ? currentQuestion.value.candidates.find((candidate) => candidate.runId === selectedRunId) ?? null
     : null
+  const now = new Date().toISOString()
 
-  reviewerState.value.responses[currentQuestion.value.id] = {
+  sessionState.value.responses[currentQuestion.value.id] = {
     questionId: currentQuestion.value.id,
     datasetId: currentQuestion.value.datasetId,
     qid: currentQuestion.value.qid,
     choice: draftChoice.value,
-    selectedSlot,
+    selectedBlindSlot: selectedSlot,
     selectedRunId,
     selectedRunLabel: selectedCandidate?.runLabel ?? null,
     selectedModelId: selectedCandidate?.modelId ?? null,
-    slotMapping,
+    selectedBackend: selectedCandidate?.backend ?? null,
+    blindMapping: buildBlindMapping(candidateSlots.value),
     note: draftNote.value.trim(),
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
   }
-  persistReviewerState()
+  sessionState.value.drafts[currentQuestion.value.id] = {
+    choice: draftChoice.value,
+    note: draftNote.value,
+    updatedAt: now,
+  }
+  persistSessionState()
   return true
 }
 
 const setActiveBenchmark = (benchmarkId: BenchmarkId) => {
-  if (!reviewerState.value) return
+  if (!sessionState.value) return
   saveCurrentResponse()
-  reviewerState.value.activeBenchmarkId = benchmarkId
+  sessionState.value.activeBenchmarkId = benchmarkId
   ensureCurrentIndex()
   ensureActiveRun()
   hydrateDraft()
   ensureActiveCompareTab()
-  persistReviewerState()
+  persistSessionState()
 }
 
 const setActiveRun = (runId: string) => {
-  if (!reviewerState.value || !activeBenchmarkId.value) return
-  reviewerState.value.activeRunIdByDataset[activeBenchmarkId.value] = runId
-  persistReviewerState()
+  if (!sessionState.value || !activeBenchmarkId.value) return
+  sessionState.value.activeRunIdByDataset[activeBenchmarkId.value] = runId
+  persistSessionState()
 }
 
 const setActiveCompareTab = (key: string) => {
-  if (!activeBenchmarkId.value) return
-  activeCompareKeyByDataset.value[activeBenchmarkId.value] = key
+  if (!activeBenchmarkId.value || !sessionState.value) return
+  sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value] = key
   if (key !== 'reference') {
     setActiveRun(key)
+  } else {
+    persistSessionState()
   }
 }
 
 const selectQuestion = (index: number) => {
-  if (!reviewerState.value || !activeBenchmarkId.value) return
+  if (!sessionState.value || !activeBenchmarkId.value) return
   saveCurrentResponse()
-  reviewerState.value.currentIndexByDataset[activeBenchmarkId.value] = index
+  sessionState.value.currentIndexByDataset[activeBenchmarkId.value] = index
   ensureActiveRun()
   hydrateDraft()
   ensureActiveCompareTab()
-  persistReviewerState()
+  persistSessionState()
 }
 
 const goToRelativeQuestion = (delta: number) => {
-  if (!reviewerState.value || !activeBenchmarkId.value) return
+  if (!sessionState.value || !activeBenchmarkId.value || benchmarkQuestions.value.length === 0) return
   const nextIndex = Math.max(0, Math.min(benchmarkQuestions.value.length - 1, currentQuestionIndex.value + delta))
   if (nextIndex === currentQuestionIndex.value) return
   selectQuestion(nextIndex)
 }
 
+const openExportModal = () => {
+  if (!sessionState.value) return
+  participantNameDraft.value = sessionState.value.lastParticipantName
+  exportError.value = null
+  exportModalOpen.value = true
+}
+
+const closeExportModal = () => {
+  exportModalOpen.value = false
+  exportError.value = null
+}
+
 const exportResponses = () => {
-  const activeSnapshotVersion =
-    sourceMode.value === 'live' && isDevMode ? localManifest.value?.snapshotVersion : snapshot.value?.snapshotVersion
-  if (!reviewerState.value || !activeSnapshotVersion) return
+  if (!sessionState.value || !activeSnapshotVersion.value) return
 
-  const orderedResponses = allQuestionSummaries.value
-    .map((question) => reviewerState.value?.responses[question.id])
-    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+  const participantName = participantNameDraft.value.trim()
+  if (!participantName) {
+    exportError.value = 'Name is required before export.'
+    return
+  }
 
-  downloadJson(`${reviewerState.value.reviewerId}_evaluation.json`, {
-    reviewer_id: reviewerState.value.reviewerId,
-    snapshot_version: activeSnapshotVersion,
-    exported_at: new Date().toISOString(),
-    responses: orderedResponses.map((response) => ({
-      questionId: response.questionId,
-      datasetId: response.datasetId,
-      qid: response.qid,
-      choice: response.choice === 'none' ? 'none' : response.selectedSlot ?? response.choice,
-      selectedSlot: response.choice === 'none' ? null : response.selectedSlot,
-      note: response.note,
-      updatedAt: response.updatedAt,
-    })),
+  sessionState.value.lastParticipantName = participantName
+  persistSessionState()
+
+  const payload = buildEvaluationExportPayload({
+    participantName,
+    snapshotVersion: activeSnapshotVersion.value,
+    sessionState: sessionState.value,
+    questions: allQuestionSummaries.value,
   })
+
+  const filenameStem = participantName.replace(/[^a-z0-9]+/gi, '-').replace(/(^-|-$)/g, '') || 'evaluation'
+  downloadJson(`${filenameStem}_evaluation.json`, payload)
+  closeExportModal()
 }
 
 const loadCurrentQuestion = async () => {
@@ -493,6 +551,7 @@ const reloadCurrentQuestion = async () => {
 }
 
 watch([activeBenchmarkId, benchmarkQuestions], () => {
+  ensureActiveBenchmark()
   ensureCurrentIndex()
   ensureActiveRun()
   ensureActiveCompareTab()
@@ -524,16 +583,18 @@ watch(
   },
 )
 
-const applySnapshot = (loadedSnapshot: EvaluationSnapshot | null, nextMode: Extract<EvaluationSourceMode, 'live' | 'sample'>) => {
+watch([draftChoice, draftNote, () => currentQuestion.value?.id], () => {
+  persistDraft()
+})
+
+const applySnapshot = (loadedSnapshot: EvaluationSnapshot) => {
   snapshot.value = loadedSnapshot
   localManifest.value = null
   currentQuestionDetail.value = null
-  caseLoadState.value = nextMode === 'sample' ? 'ready' : 'idle'
+  caseLoadState.value = 'idle'
   caseLoadError.value = null
-  sourceMode.value = nextMode
-  if (loadedSnapshot) {
-    activateReviewer(reviewerDraft.value)
-  }
+  sourceMode.value = 'static'
+  activateSession()
 }
 
 const applyLocalManifest = (manifest: DevEvaluationManifest) => {
@@ -543,14 +604,7 @@ const applyLocalManifest = (manifest: DevEvaluationManifest) => {
   caseLoadState.value = 'idle'
   caseLoadError.value = null
   sourceMode.value = 'live'
-  activateReviewer(reviewerDraft.value)
-}
-
-const useEmbeddedSample = () => {
-  diagnostics.value = null
-  sourceWarnings.value = []
-  loadError.value = null
-  applySnapshot(embeddedEvaluationSnapshot, 'sample')
+  activateSession()
 }
 
 const loadSnapshot = async () => {
@@ -586,14 +640,13 @@ const loadSnapshot = async () => {
     const loadedSnapshot = await loadEvaluationSnapshot()
     if (requestId !== loadRequestId) return
 
-    if (loadedSnapshot) {
-      diagnostics.value = null
-      sourceWarnings.value = []
-      applySnapshot(loadedSnapshot, 'live')
-      return
+    if (!loadedSnapshot) {
+      throw new Error('No build-generated evaluation snapshot was found. Rebuild the app from the local evaluation-data tree.')
     }
 
-    useEmbeddedSample()
+    diagnostics.value = null
+    sourceWarnings.value = []
+    applySnapshot(loadedSnapshot)
   } catch (caughtError) {
     if (requestId !== loadRequestId) return
     snapshot.value = null
@@ -614,10 +667,13 @@ onMounted(async () => {
     <div v-if="sourceMode === 'booting'" class="pt-4 sm:pt-5">
       <AppCard class="!p-4">
         <div class="space-y-4 py-4 text-center">
-          <div class="text-lg font-semibold text-slate-950">Loading local evaluation workspace...</div>
+          <div class="text-lg font-semibold text-slate-950">Loading evaluation workspace...</div>
           <p class="text-sm leading-7 text-slate-500">
-            Resolving benchmark cases from
-            <code class="rounded bg-slate-100 px-2 py-1 text-[12px]">{{ localManifestUrl }}</code>
+            <span v-if="isDevMode">
+              Resolving benchmark cases from
+              <code class="rounded bg-slate-100 px-2 py-1 text-[12px]">{{ localManifestUrlValue }}</code>
+            </span>
+            <span v-else>Loading the build-generated evaluation bundle.</span>
           </p>
         </div>
       </AppCard>
@@ -626,11 +682,10 @@ onMounted(async () => {
     <div v-else-if="sourceMode === 'error'" class="pt-4 sm:pt-5">
       <AppCard class="!p-4">
         <div class="space-y-4">
-          <div class="text-lg font-semibold text-rose-700">Local evaluation runtime failed</div>
+          <div class="text-lg font-semibold text-rose-700">Evaluation runtime failed</div>
           <p class="text-sm leading-7 text-rose-700">{{ loadError }}</p>
           <div class="flex flex-wrap gap-2">
-            <AppButton @click="loadSnapshot">Reload Local Data</AppButton>
-            <AppButton variant="secondary" @click="useEmbeddedSample">Load Sample Cases</AppButton>
+            <AppButton @click="loadSnapshot">Reload Evaluation Data</AppButton>
           </div>
         </div>
       </AppCard>
@@ -643,7 +698,7 @@ onMounted(async () => {
           <p class="text-base leading-8 text-slate-600">
             The dev server is looking for case directories under
             <code class="rounded bg-slate-100 px-2 py-1 text-sm">{{ diagnostics?.root }}</code>.
-            Fix the listed issues or load the bundled sample cases.
+            Fix the listed issues and reload the local evaluation workspace.
           </p>
           <div class="grid gap-3 lg:grid-cols-3">
             <div class="rounded-[1.4rem] border border-slate-200 bg-slate-50/90 p-4">
@@ -670,7 +725,6 @@ onMounted(async () => {
           </div>
           <div class="flex flex-wrap gap-2">
             <AppButton @click="loadSnapshot">Reload Local Data</AppButton>
-            <AppButton variant="secondary" @click="useEmbeddedSample">Load Sample Cases</AppButton>
           </div>
         </div>
       </AppCard>
@@ -683,8 +737,8 @@ onMounted(async () => {
             <div
               class="rounded-full border px-3 py-1 text-[10px] font-semibold tracking-[0.18em] uppercase"
               :class="
-                sourceMode === 'sample'
-                  ? 'border-amber-200 bg-amber-50 text-amber-700'
+                sourceMode === 'static'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                   : 'border-sky-200 bg-sky-50 text-sky-700'
               "
             >
@@ -710,24 +764,16 @@ onMounted(async () => {
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
-            <input
-              v-model="reviewerDraft"
-              type="text"
-              placeholder="reviewer_id"
-              class="min-w-[168px] rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-950"
-            />
-            <AppButton variant="secondary" @click="activateReviewer()">Switch Reviewer</AppButton>
+            <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-6 text-slate-600">
+              Saved locally in this browser
+            </div>
             <AppButton v-if="isDevMode" variant="ghost" @click="loadSnapshot">Reload Local Data</AppButton>
-            <AppButton v-if="sourceMode !== 'sample'" variant="ghost" @click="useEmbeddedSample">Load Sample Cases</AppButton>
-            <AppButton @click="exportResponses">Export JSON</AppButton>
+            <AppButton :disabled="!hasSavedResponses" @click="openExportModal">Export JSON</AppButton>
           </div>
         </div>
       </AppCard>
 
-      <AppCard
-        v-if="sourceWarnings.length"
-        class="!p-3 border-amber-200/80 bg-amber-50/80"
-      >
+      <AppCard v-if="sourceWarnings.length" class="!p-3 border-amber-200/80 bg-amber-50/80">
         <div class="space-y-2">
           <div class="text-[11px] font-semibold tracking-[0.16em] text-amber-700 uppercase">Local data warnings</div>
           <ul class="space-y-1.5 text-sm leading-6 text-amber-900">
@@ -736,7 +782,7 @@ onMounted(async () => {
         </div>
       </AppCard>
 
-      <template v-if="reviewerState && currentQuestionSummary">
+      <template v-if="sessionState && currentQuestionSummary">
         <div class="grid gap-3 xl:grid-cols-[136px_minmax(0,1fr)_280px] 2xl:grid-cols-[144px_minmax(0,1fr)_292px]">
           <AppCard class="!p-3 border-slate-200/80 bg-white/88 xl:sticky xl:top-20 xl:self-start">
             <div class="space-y-3">
@@ -789,10 +835,7 @@ onMounted(async () => {
                 <span v-if="currentPaperTitle">{{ currentPaperTitle }}</span>
               </div>
 
-              <div
-                v-if="currentQuestion"
-                class="space-y-3"
-              >
+              <div v-if="currentQuestion" class="space-y-3">
                 <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3">
                   <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div class="space-y-2">
@@ -891,7 +934,7 @@ onMounted(async () => {
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Compare</div>
                 <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-600">
-                  {{ submissionCandidates.length }} submissions + reference
+                  {{ submissionCandidates.length }} submissions + reference foundset
                 </div>
               </div>
 
@@ -903,8 +946,12 @@ onMounted(async () => {
                   class="rounded-full border px-3 py-1.5 text-sm font-semibold transition"
                   :class="
                     activeCompareKey === tab.key
-                      ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
-                      : 'border border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white'
+                      ? tab.kind === 'reference'
+                        ? 'border-amber-700 bg-amber-600 text-white shadow-sm'
+                        : 'border-slate-950 bg-slate-950 text-white shadow-sm'
+                      : tab.kind === 'reference'
+                        ? 'border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-300 hover:bg-amber-100'
+                        : 'border border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white'
                   "
                   @click="setActiveCompareTab(tab.key)"
                 >
@@ -935,21 +982,24 @@ onMounted(async () => {
 
                 <div
                   v-else
-                  class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3"
+                  class="rounded-[1.25rem] border border-amber-200 bg-amber-50/90 p-3"
                 >
-                  <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                    <span class="rounded-full bg-white px-3 py-1 font-semibold text-slate-900">Reference</span>
-                    <span class="rounded-full border border-slate-200 bg-white px-3 py-1">
+                  <div class="flex flex-wrap items-center gap-2 text-xs text-amber-800">
+                    <span class="rounded-full bg-white px-3 py-1 font-semibold text-amber-900">Reference Foundset</span>
+                    <span class="rounded-full border border-amber-200 bg-white px-3 py-1">
                       {{ currentQuestion.reference.mode }}
                     </span>
                   </div>
-                  <p v-if="currentQuestion.reference.note" class="mt-3 text-sm leading-7 text-slate-600">
+                  <p v-if="currentQuestion.reference.note" class="mt-3 text-sm leading-7 text-amber-900/80">
                     {{ currentQuestion.reference.note }}
                   </p>
                 </div>
 
                 <div v-if="activeCompareTab.kind === 'candidate' && activeCandidate" class="space-y-4">
-                  <div class="prose prose-slate max-w-none rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3" v-html="renderedActiveAnswer" />
+                  <div
+                    class="prose prose-slate max-w-none rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3"
+                    v-html="renderedActiveAnswer"
+                  />
 
                   <ArtifactViewer
                     :artifacts="activeCandidate.artifacts"
@@ -960,23 +1010,23 @@ onMounted(async () => {
                 <div v-else class="space-y-4">
                   <div
                     v-if="currentQuestion.reference.text"
-                    class="prose prose-slate max-w-none rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3"
+                    class="prose prose-slate max-w-none rounded-[1.25rem] border border-amber-200 bg-white px-4 py-3"
                     v-html="renderedReferenceText"
                   />
 
                   <div
                     v-if="currentQuestion.reference.requiredOutputs.length"
-                    class="rounded-[1.25rem] border border-slate-200 bg-slate-50 p-3"
+                    class="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-3"
                   >
-                    <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Reference Deliverables</div>
-                    <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                    <div class="text-[11px] font-semibold tracking-[0.16em] text-amber-700 uppercase">Reference Deliverables</div>
+                    <ul class="mt-3 space-y-2 text-sm leading-6 text-amber-900">
                       <li
                         v-for="item in currentQuestion.reference.requiredOutputs"
                         :key="`${currentQuestion.id}-reference-${item.fileName}`"
                         class="flex gap-3"
                       >
-                        <span class="mt-2 h-1.5 w-1.5 rounded-full bg-slate-900" />
-                        <span>{{ item.fileName }} <span class="text-slate-500">({{ item.mediaType }})</span></span>
+                        <span class="mt-2 h-1.5 w-1.5 rounded-full bg-amber-700" />
+                        <span>{{ item.fileName }} <span class="text-amber-700/70">({{ item.mediaType }})</span></span>
                       </li>
                     </ul>
                   </div>
@@ -1000,10 +1050,10 @@ onMounted(async () => {
 
               <div class="flex flex-wrap gap-2">
                 <div class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-6 text-slate-600">
-                  Reviewer <span class="font-semibold text-slate-900">{{ reviewerState.reviewerId }}</span>
+                  Progress <span class="font-semibold text-slate-900">{{ answeredIds.size }}/{{ benchmarkQuestions.length }}</span>
                 </div>
                 <div class="rounded-[1rem] border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-6 text-slate-600">
-                  Progress <span class="font-semibold text-slate-900">{{ answeredIds.size }}/{{ benchmarkQuestions.length }}</span>
+                  All edits persist locally
                 </div>
               </div>
 
@@ -1081,6 +1131,44 @@ onMounted(async () => {
           </AppCard>
         </div>
       </template>
+    </div>
+
+    <div
+      v-if="exportModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-8 backdrop-blur-sm"
+      @click.self="closeExportModal"
+    >
+      <AppCard class="w-full max-w-md border-slate-200/90 bg-white !p-5 shadow-2xl">
+        <div class="space-y-4">
+          <div>
+            <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Export JSON</div>
+            <div class="mt-2 text-lg font-semibold text-slate-950">Attach your name to this evaluation export</div>
+            <p class="mt-2 text-sm leading-7 text-slate-600">
+              The downloaded JSON will keep both the blinded submission labels and the de-anonymized framework mapping.
+            </p>
+          </div>
+
+          <div class="space-y-2">
+            <label class="text-sm font-semibold text-slate-900" for="participant-name">Name</label>
+            <input
+              id="participant-name"
+              v-model="participantNameDraft"
+              type="text"
+              placeholder="Your name"
+              class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-950"
+            />
+          </div>
+
+          <div v-if="exportError" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {{ exportError }}
+          </div>
+
+          <div class="flex justify-end gap-2">
+            <AppButton variant="ghost" @click="closeExportModal">Cancel</AppButton>
+            <AppButton @click="exportResponses">Download JSON</AppButton>
+          </div>
+        </div>
+      </AppCard>
     </div>
   </AppShell>
 </template>

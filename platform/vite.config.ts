@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
-import type { Plugin } from 'vite'
+import type { Plugin, ResolvedConfig } from 'vite'
 import { defineConfig } from 'vitest/config'
 
 import {
@@ -12,6 +12,7 @@ import {
   buildEvaluationManifestPayload,
   evaluationDataRootForProject,
   evaluationCaseRouteFromSegments,
+  exportStaticEvaluationBundle,
   evaluationManifestRoute,
 } from './dev/evaluation-data'
 
@@ -156,8 +157,29 @@ const evaluationDevPlugin = (): Plugin => ({
   },
 })
 
+const evaluationBuildPlugin = (): Plugin => {
+  let resolvedConfig: ResolvedConfig | null = null
+
+  return {
+    name: 'healthflow-evaluation-build',
+    apply: 'build',
+    configResolved(config) {
+      resolvedConfig = config
+    },
+    async closeBundle() {
+      if (!resolvedConfig) return
+
+      const outputRoot = path.resolve(resolvedConfig.root, resolvedConfig.build.outDir)
+      await exportStaticEvaluationBundle({
+        projectRoot: __dirname,
+        outputRoot,
+      })
+    },
+  }
+}
+
 export default defineConfig(({ command }) => ({
-  plugins: [vue(), tailwindcss(), command === 'serve' ? evaluationDevPlugin() : null].filter(Boolean),
+  plugins: [vue(), tailwindcss(), command === 'serve' ? evaluationDevPlugin() : evaluationBuildPlugin()].filter(Boolean),
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],

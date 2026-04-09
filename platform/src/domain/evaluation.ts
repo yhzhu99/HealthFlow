@@ -84,11 +84,6 @@ export interface SnapshotRun {
 
 export interface EvaluationSnapshot {
   snapshotVersion: string
-  generatedAt: string
-  site: {
-    title: string
-    reviewerExportKeyPrefix: string
-  }
   benchmarks: SnapshotBenchmark[]
   runs: SnapshotRun[]
   questions: SnapshotQuestion[]
@@ -96,11 +91,6 @@ export interface EvaluationSnapshot {
 
 export interface DevEvaluationManifest {
   snapshotVersion: string
-  generatedAt: string
-  site: {
-    title: string
-    reviewerExportKeyPrefix: string
-  }
   benchmarks: SnapshotBenchmark[]
   runs: SnapshotRun[]
   questions: EvaluationQuestionSummary[]
@@ -139,32 +129,74 @@ export interface BlindCandidateSlot {
   candidate: SnapshotCandidate
 }
 
-export interface ReviewerResponse {
-  questionId: string
-  datasetId: BenchmarkId
-  qid: string
-  choice: string
-  selectedSlot: string | null
-  selectedRunId?: string | null
-  selectedRunLabel?: string | null
-  selectedModelId: string | null
-  slotMapping: Record<string, string>
+export interface BlindSlotMappingEntry {
+  slot: string
+  runId: string
+  runLabel: string
+  modelId: string
+  backend: string | null
+}
+
+export interface EvaluationDraft {
+  choice: string | null
   note: string
   updatedAt: string
 }
 
-export interface ReviewerState {
-  reviewerId: string
+export interface EvaluationResponse {
+  questionId: string
+  datasetId: BenchmarkId
+  qid: string
+  choice: string
+  selectedBlindSlot: string | null
+  selectedRunId: string | null
+  selectedRunLabel: string | null
+  selectedModelId: string | null
+  selectedBackend: string | null
+  blindMapping: BlindSlotMappingEntry[]
+  note: string
+  updatedAt: string
+}
+
+export interface EvaluationSessionState {
+  sessionId: string
   activeBenchmarkId: BenchmarkId | null
   activeRunIdByDataset: Partial<Record<BenchmarkId, string>>
+  activeCompareKeyByDataset: Partial<Record<BenchmarkId, string>>
   currentIndexByDataset: Partial<Record<BenchmarkId, number>>
-  responses: Record<string, ReviewerResponse>
+  responses: Record<string, EvaluationResponse>
+  drafts: Record<string, EvaluationDraft>
+  lastParticipantName: string
+}
+
+export interface ExportedEvaluationResponse {
+  questionId: string
+  datasetId: BenchmarkId
+  qid: string
+  choice: string
+  selectedBlindSlot: string | null
+  selectedRunId: string | null
+  selectedRunLabel: string | null
+  selectedModelId: string | null
+  selectedBackend: string | null
+  blindMapping: BlindSlotMappingEntry[]
+  note: string
+  updatedAt: string
+}
+
+export interface ExportedEvaluationPayload {
+  participant_name: string
+  session_id: string
+  snapshot_version: string
+  exported_at: string
+  responses: ExportedEvaluationResponse[]
 }
 
 export const BLIND_SLOTS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
-export const DEFAULT_REVIEWER_ID = 'reviewer-001'
+export const EVALUATION_SESSION_STORAGE_KEY = 'healthflow:evaluation:session'
+export const LEGACY_LAST_REVIEWER_KEY = 'healthflow:evaluation:last-reviewer'
 
-export const evaluationStorageKey = (reviewerId: string) => `healthflow:evaluation:${reviewerId.trim()}`
+export const legacyReviewerStorageKey = (reviewerId: string) => `healthflow:evaluation:${reviewerId.trim()}`
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -197,12 +229,73 @@ const normalizeIndexMap = (value: unknown): Partial<Record<BenchmarkId, number>>
   return Object.fromEntries(normalizedEntries) as Partial<Record<BenchmarkId, number>>
 }
 
-const normalizeReviewerResponse = (questionId: string, value: unknown): ReviewerResponse | null => {
+const normalizeBlindMappingEntry = (value: unknown): BlindSlotMappingEntry | null => {
+  if (!isRecord(value)) return null
+
+  const slot = normalizeNullableString(value.slot)
+  const modelId = normalizeNullableString(value.modelId)
+  if (!slot || !modelId) {
+    return null
+  }
+
+  return {
+    slot,
+    runId: normalizeNullableString(value.runId) ?? modelId,
+    runLabel: normalizeNullableString(value.runLabel) ?? normalizeNullableString(value.runId) ?? modelId,
+    modelId,
+    backend: normalizeNullableString(value.backend),
+  }
+}
+
+const normalizeBlindMapping = (value: unknown): BlindSlotMappingEntry[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const entry = normalizeBlindMappingEntry(item)
+      return entry ? [entry] : []
+    })
+  }
+
+  if (!isRecord(value)) {
+    return []
+  }
+
+  return Object.entries(normalizeStringMap(value)).map(([slot, modelId]) => ({
+    slot,
+    runId: modelId,
+    runLabel: modelId,
+    modelId,
+    backend: null,
+  }))
+}
+
+const normalizeDraft = (value: unknown): EvaluationDraft | null => {
+  if (!isRecord(value)) return null
+
+  return {
+    choice: normalizeNullableString(value.choice),
+    note: typeof value.note === 'string' ? value.note : '',
+    updatedAt: normalizeNullableString(value.updatedAt) ?? new Date(0).toISOString(),
+  }
+}
+
+const normalizeDraftMap = (value: unknown): Record<string, EvaluationDraft> => {
+  if (!isRecord(value)) return {}
+
+  const normalizedEntries = Object.entries(value).flatMap(([questionId, draftValue]) => {
+    const draft = normalizeDraft(draftValue)
+    return draft ? [[questionId, draft] as const] : []
+  })
+
+  return Object.fromEntries(normalizedEntries)
+}
+
+const normalizeEvaluationResponse = (questionId: string, value: unknown): EvaluationResponse | null => {
   if (!isRecord(value)) return null
 
   const datasetId = normalizeNullableString(value.datasetId)
   const qid = normalizeNullableString(value.qid)
   const choice = normalizeNullableString(value.choice)
+  const selectedModelId = normalizeNullableString(value.selectedModelId)
 
   if (!datasetId || !qid || !choice) {
     return null
@@ -213,43 +306,59 @@ const normalizeReviewerResponse = (questionId: string, value: unknown): Reviewer
     datasetId,
     qid,
     choice,
-    selectedSlot: normalizeNullableString(value.selectedSlot),
-    selectedRunId: normalizeNullableString(value.selectedRunId),
-    selectedRunLabel: normalizeNullableString(value.selectedRunLabel),
-    selectedModelId: normalizeNullableString(value.selectedModelId),
-    slotMapping: normalizeStringMap(value.slotMapping),
+    selectedBlindSlot: normalizeNullableString(value.selectedBlindSlot) ?? normalizeNullableString(value.selectedSlot),
+    selectedRunId: normalizeNullableString(value.selectedRunId) ?? (choice === 'none' ? null : selectedModelId),
+    selectedRunLabel:
+      normalizeNullableString(value.selectedRunLabel) ??
+      normalizeNullableString(value.selectedRunId) ??
+      (choice === 'none' ? null : selectedModelId),
+    selectedModelId,
+    selectedBackend: normalizeNullableString(value.selectedBackend),
+    blindMapping: normalizeBlindMapping(value.blindMapping ?? value.slotMapping),
     note: typeof value.note === 'string' ? value.note : '',
     updatedAt: normalizeNullableString(value.updatedAt) ?? new Date(0).toISOString(),
   }
 }
 
-const normalizeResponseMap = (value: unknown): Record<string, ReviewerResponse> => {
+const normalizeResponseMap = (value: unknown): Record<string, EvaluationResponse> => {
   if (!isRecord(value)) return {}
 
   const normalizedEntries = Object.entries(value).flatMap(([questionId, responseValue]) => {
-    const response = normalizeReviewerResponse(questionId, responseValue)
+    const response = normalizeEvaluationResponse(questionId, responseValue)
     return response ? [[questionId, response] as const] : []
   })
 
   return Object.fromEntries(normalizedEntries)
 }
 
-export const resolveReviewerId = (reviewerId: unknown) =>
-  typeof reviewerId === 'string' && reviewerId.trim() ? reviewerId.trim() : DEFAULT_REVIEWER_ID
+const createSessionId = () => {
+  const cryptoObject = globalThis.crypto
+  if (cryptoObject?.randomUUID) {
+    return cryptoObject.randomUUID()
+  }
 
-export const createReviewerState = (reviewerId: string): ReviewerState => ({
-  reviewerId: resolveReviewerId(reviewerId),
+  return `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+export const resolveSessionId = (sessionId: unknown) =>
+  typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : createSessionId()
+
+export const createEvaluationSessionState = (sessionId?: string): EvaluationSessionState => ({
+  sessionId: resolveSessionId(sessionId),
   activeBenchmarkId: null,
   activeRunIdByDataset: {},
+  activeCompareKeyByDataset: {},
   currentIndexByDataset: {},
   responses: {},
+  drafts: {},
+  lastParticipantName: '',
 })
 
-export const restoreReviewerState = (value: unknown, preferredReviewerId?: unknown): ReviewerState => {
-  const normalizedPreferredReviewerId = normalizeNullableString(preferredReviewerId)
-  const normalizedStoredReviewerId = isRecord(value) ? normalizeNullableString(value.reviewerId) : null
-  const reviewerId = resolveReviewerId(normalizedPreferredReviewerId ?? normalizedStoredReviewerId)
-  const restoredState = createReviewerState(reviewerId)
+export const restoreEvaluationSessionState = (value: unknown, preferredSessionId?: unknown): EvaluationSessionState => {
+  const normalizedPreferredSessionId = normalizeNullableString(preferredSessionId)
+  const normalizedStoredSessionId = isRecord(value) ? normalizeNullableString(value.sessionId) : null
+  const sessionId = resolveSessionId(normalizedPreferredSessionId ?? normalizedStoredSessionId)
+  const restoredState = createEvaluationSessionState(sessionId)
 
   if (!isRecord(value)) {
     return restoredState
@@ -257,10 +366,43 @@ export const restoreReviewerState = (value: unknown, preferredReviewerId?: unkno
 
   restoredState.activeBenchmarkId = normalizeNullableString(value.activeBenchmarkId)
   restoredState.activeRunIdByDataset = normalizeStringMap(value.activeRunIdByDataset)
+  restoredState.activeCompareKeyByDataset = normalizeStringMap(value.activeCompareKeyByDataset)
   restoredState.currentIndexByDataset = normalizeIndexMap(value.currentIndexByDataset)
   restoredState.responses = normalizeResponseMap(value.responses)
+  restoredState.drafts = normalizeDraftMap(value.drafts)
+  restoredState.lastParticipantName = normalizeNullableString(value.lastParticipantName) ?? ''
 
   return restoredState
+}
+
+export const restoreEvaluationSessionStateWithLegacySupport = ({
+  sessionValue,
+  legacyReviewerValue,
+  legacyReviewerId,
+}: {
+  sessionValue: unknown
+  legacyReviewerValue: unknown
+  legacyReviewerId?: unknown
+}): EvaluationSessionState => {
+  if (isRecord(sessionValue)) {
+    return restoreEvaluationSessionState(sessionValue)
+  }
+
+  const normalizedLegacyReviewerId =
+    normalizeNullableString(legacyReviewerId) ??
+    (isRecord(legacyReviewerValue) ? normalizeNullableString(legacyReviewerValue.reviewerId) : null)
+
+  if (!isRecord(legacyReviewerValue)) {
+    return restoreEvaluationSessionState(sessionValue, normalizedLegacyReviewerId)
+  }
+
+  const restoredLegacyState = restoreEvaluationSessionState({}, normalizedLegacyReviewerId)
+  restoredLegacyState.activeBenchmarkId = normalizeNullableString(legacyReviewerValue.activeBenchmarkId)
+  restoredLegacyState.activeRunIdByDataset = normalizeStringMap(legacyReviewerValue.activeRunIdByDataset)
+  restoredLegacyState.currentIndexByDataset = normalizeIndexMap(legacyReviewerValue.currentIndexByDataset)
+  restoredLegacyState.responses = normalizeResponseMap(legacyReviewerValue.responses)
+
+  return restoredLegacyState
 }
 
 export const stableHash = (value: string) => {
@@ -274,16 +416,16 @@ export const stableHash = (value: string) => {
 
 export const blindOrderCandidates = (
   candidates: SnapshotCandidate[],
-  reviewerId: string,
+  sessionId: string,
   datasetId: BenchmarkId,
   qid: string,
 ): BlindCandidateSlot[] => {
-  const reviewerToken = reviewerId.trim().toLowerCase() || 'anonymous'
+  const sessionToken = resolveSessionId(sessionId).toLowerCase()
 
   return [...candidates]
     .sort((left, right) => {
-      const leftKey = stableHash(`${reviewerToken}:${datasetId}:${qid}:${left.modelId}`)
-      const rightKey = stableHash(`${reviewerToken}:${datasetId}:${qid}:${right.modelId}`)
+      const leftKey = stableHash(`${sessionToken}:${datasetId}:${qid}:${left.modelId}`)
+      const rightKey = stableHash(`${sessionToken}:${datasetId}:${qid}:${right.modelId}`)
       if (leftKey === rightKey) {
         return left.modelId.localeCompare(right.modelId)
       }
@@ -293,4 +435,57 @@ export const blindOrderCandidates = (
       slot: BLIND_SLOTS[index] ?? `Slot-${index + 1}`,
       candidate,
     }))
+}
+
+export const buildBlindMapping = (slots: BlindCandidateSlot[]): BlindSlotMappingEntry[] =>
+  slots.map((item) => ({
+    slot: item.slot,
+    runId: item.candidate.runId,
+    runLabel: item.candidate.runLabel,
+    modelId: item.candidate.modelId,
+    backend: item.candidate.backend ?? null,
+  }))
+
+export const buildEvaluationExportPayload = ({
+  participantName,
+  snapshotVersion,
+  exportedAt = new Date().toISOString(),
+  sessionState,
+  questions,
+}: {
+  participantName: string
+  snapshotVersion: string
+  exportedAt?: string
+  sessionState: EvaluationSessionState
+  questions: EvaluationQuestionSummary[]
+}): ExportedEvaluationPayload => {
+  const normalizedParticipantName = participantName.trim()
+  if (!normalizedParticipantName) {
+    throw new Error('Participant name is required for export.')
+  }
+
+  const orderedResponses = questions
+    .map((question) => sessionState.responses[question.id])
+    .filter((item): item is EvaluationResponse => Boolean(item))
+
+  return {
+    participant_name: normalizedParticipantName,
+    session_id: sessionState.sessionId,
+    snapshot_version: snapshotVersion,
+    exported_at: exportedAt,
+    responses: orderedResponses.map((response) => ({
+      questionId: response.questionId,
+      datasetId: response.datasetId,
+      qid: response.qid,
+      choice: response.choice === 'none' ? 'none' : response.selectedBlindSlot ?? response.choice,
+      selectedBlindSlot: response.choice === 'none' ? null : response.selectedBlindSlot,
+      selectedRunId: response.selectedRunId,
+      selectedRunLabel: response.selectedRunLabel,
+      selectedModelId: response.selectedModelId,
+      selectedBackend: response.selectedBackend,
+      blindMapping: response.blindMapping,
+      note: response.note,
+      updatedAt: response.updatedAt,
+    })),
+  }
 }

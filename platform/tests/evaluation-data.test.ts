@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -9,6 +9,7 @@ import {
   buildEvaluationManifestPayload,
   buildEvaluationSnapshotBundle,
   evaluationDataRootForProject,
+  exportStaticEvaluationBundle,
 } from '../dev/evaluation-data'
 
 const tempRoots: string[] = []
@@ -197,5 +198,55 @@ describe('evaluation data bundle', () => {
       'evaluation-assets/demo/0001/alpha/report.md',
     )
     expect(bundle.artifactCopies[0]?.relativePath).toBe('evaluation-assets/demo/0001/alpha/report.md')
+  })
+
+  it('exports a static evaluation bundle into a build output directory', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'healthflow-export-'))
+    tempRoots.push(tempRoot)
+
+    const benchmarkRoot = path.join(tempRoot, 'evaluation-data', 'benchmarks', 'demo', 'cases', '0001')
+    await mkdir(path.join(benchmarkRoot, 'reference', 'files'), { recursive: true })
+    await mkdir(path.join(benchmarkRoot, 'frameworks', 'alpha', 'files'), { recursive: true })
+    await writeFile(
+      path.join(tempRoot, 'evaluation-data', 'benchmarks', 'demo', 'benchmark.json'),
+      JSON.stringify({
+        id: 'demo',
+        label: 'Demo',
+        description: 'Demo benchmark',
+        frameworkOrder: ['alpha'],
+      }),
+    )
+    await writeFile(
+      path.join(benchmarkRoot, 'case.json'),
+      JSON.stringify({
+        id: 'demo:1',
+        qid: '1',
+        task: 'Example task',
+        expectedOutputs: [],
+      }),
+    )
+    await writeFile(
+      path.join(benchmarkRoot, 'frameworks', 'alpha', 'manifest.json'),
+      JSON.stringify({
+        runId: 'demo-alpha',
+        runLabel: 'Alpha',
+        modelId: 'alpha',
+      }),
+    )
+    await writeFile(path.join(benchmarkRoot, 'frameworks', 'alpha', 'answer.md'), 'Alpha answer')
+    await writeFile(path.join(benchmarkRoot, 'frameworks', 'alpha', 'files', 'report.md'), '# Report')
+
+    const outputRoot = path.join(tempRoot, 'dist')
+    const result = await exportStaticEvaluationBundle({
+      projectRoot: tempRoot,
+      outputRoot,
+    })
+
+    expect(result.outputPath).toBe(path.join(outputRoot, 'data', 'evaluation.snapshot.json'))
+    expect(result.snapshot.questions).toHaveLength(1)
+    expect(result.artifactCount).toBe(1)
+    expect(await readFile(path.join(outputRoot, 'evaluation-assets', 'demo', '0001', 'alpha', 'report.md'), 'utf-8')).toBe(
+      '# Report',
+    )
   })
 })
