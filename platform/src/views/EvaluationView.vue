@@ -33,8 +33,6 @@ import {
 } from '../lib/snapshot'
 import { readJson, writeJson } from '../lib/storage'
 
-const TASK_PANEL_EXPANDED_KEY = 'healthflow:evaluation:task-panel-expanded'
-
 type EvaluationSourceMode = 'booting' | 'live' | 'static' | 'diagnostic' | 'error'
 type CaseLoadState = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -67,12 +65,9 @@ const localManifestUrlValue = localEvaluationManifestUrl()
 let loadRequestId = 0
 let caseRequestId = 0
 
-const resolveStoredBoolean = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback)
-
 const sessionState = ref<EvaluationSessionState | null>(null)
 const draftChoice = ref<string | null>(null)
 const draftNote = ref('')
-const taskPanelExpanded = ref(resolveStoredBoolean(readJson<unknown>(TASK_PANEL_EXPANDED_KEY, true), true))
 const exportModalOpen = ref(false)
 const participantNameDraft = ref('')
 const exportError = ref<string | null>(null)
@@ -107,12 +102,6 @@ const isWorkspaceReady = computed(() => {
   if (sourceMode.value === 'static') return Boolean(snapshot.value)
   return false
 })
-const sourceBadgeLabel = computed(() => (sourceMode.value === 'static' ? 'Build Bundle' : 'Local Cases'))
-const sourceDescription = computed(() =>
-  sourceMode.value === 'static'
-    ? 'Serving the build-generated evaluation bundle created from platform/evaluation-data.'
-    : 'Reading a lightweight evaluation manifest first, then loading each case on demand from platform/evaluation-data.',
-)
 
 const activeBenchmarkId = computed<BenchmarkId | null>(() => {
   if (sessionState.value?.activeBenchmarkId) return sessionState.value.activeBenchmarkId
@@ -159,6 +148,47 @@ const currentPaperTitle = computed(() => currentQuestion.value?.paperTitle ?? cu
 const progressPercent = computed(() =>
   benchmarkQuestions.value.length ? (answeredIds.value.size / benchmarkQuestions.value.length) * 100 : 0,
 )
+
+const benchmarkTabClass = (isActive: boolean) =>
+  isActive
+    ? 'border border-sky-300 bg-sky-50 text-sky-900'
+    : 'border border-slate-200 bg-white text-slate-600 hover:-translate-y-0.5 hover:border-sky-200 hover:bg-sky-50/70 hover:text-sky-900'
+
+const questionGridButtonClass = (isCurrent: boolean, isAnswered: boolean) => {
+  if (isCurrent && isAnswered) {
+    return 'border-sky-300 bg-sky-50 text-sky-900 shadow-[0_10px_22px_rgba(56,189,248,0.14)]'
+  }
+
+  if (isCurrent) {
+    return 'border-amber-300 bg-amber-100 text-amber-900'
+  }
+
+  return isAnswered
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+    : 'border-dashed border-amber-300 bg-white text-amber-700 hover:bg-amber-50'
+}
+
+const compareTabClass = (isActive: boolean, kind: CompareTab['kind']) => {
+  if (isActive) {
+    return kind === 'reference'
+      ? 'border-amber-300 bg-amber-100 text-amber-900 shadow-[0_10px_24px_rgba(245,158,11,0.16)]'
+      : 'border-sky-300 bg-sky-50 text-sky-900 shadow-[0_10px_24px_rgba(56,189,248,0.14)]'
+  }
+
+  return kind === 'reference'
+    ? 'border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-300 hover:bg-amber-100'
+    : 'border border-slate-200 bg-slate-50 text-slate-700 hover:border-sky-200 hover:bg-sky-50/60 hover:text-sky-900'
+}
+
+const submissionChoiceClass = (isActive: boolean) =>
+  isActive
+    ? 'border-sky-300 bg-sky-50 text-sky-900 shadow-[0_10px_24px_rgba(56,189,248,0.14)]'
+    : 'border border-slate-200 bg-white text-slate-700 hover:border-sky-200 hover:bg-sky-50/60'
+
+const rejectChoiceClass = (isActive: boolean) =>
+  isActive
+    ? 'border-rose-300 bg-rose-100 text-rose-900 shadow-[0_10px_24px_rgba(251,113,133,0.16)]'
+    : 'border border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100'
 
 const candidateSlots = computed(() => {
   if (!currentQuestion.value || !sessionState.value) return []
@@ -230,35 +260,10 @@ const renderedReferenceText = computed(() => renderMarkdown(currentQuestion.valu
 const renderedActiveAnswer = computed(() =>
   renderMarkdown(activeCandidate.value?.answerText || 'No final answer was recorded.'),
 )
-const taskSupportSummary = computed(() => {
-  if (!currentQuestion.value) return []
-
-  const summary = [
-    `${currentQuestion.value.expectedOutputs.length} expected output${currentQuestion.value.expectedOutputs.length === 1 ? '' : 's'}`,
-  ]
-
-  if (currentQuestion.value.reportRequirements.length) {
-    summary.push(
-      `${currentQuestion.value.reportRequirements.length} requirement${currentQuestion.value.reportRequirements.length === 1 ? '' : 's'}`,
-    )
-  }
-
-  if (currentQuestion.value.reference.requiredOutputs.length) {
-    summary.push(
-      `${currentQuestion.value.reference.requiredOutputs.length} reference deliverable${currentQuestion.value.reference.requiredOutputs.length === 1 ? '' : 's'}`,
-    )
-  }
-
-  return summary
-})
 
 const unansweredCount = computed(() => Math.max(benchmarkQuestions.value.length - answeredIds.value.size, 0))
 const globalAnsweredCount = computed(() => allAnsweredIds.value.size)
 const globalUnansweredCount = computed(() => Math.max(allQuestionSummaries.value.length - globalAnsweredCount.value, 0))
-
-const toggleTaskPanel = () => {
-  taskPanelExpanded.value = !taskPanelExpanded.value
-}
 
 const ensureActiveBenchmark = () => {
   if (!sessionState.value) return
@@ -585,10 +590,6 @@ watch(submissionCandidates, () => {
   ensureActiveCompareTab()
 })
 
-watch(taskPanelExpanded, (expanded) => {
-  writeJson(TASK_PANEL_EXPANDED_KEY, expanded)
-})
-
 watch(globalUnansweredCount, (count) => {
   if (count === 0) {
     exportGuardMessage.value = null
@@ -758,42 +759,27 @@ onMounted(async () => {
 
     <div v-else-if="isWorkspaceReady" class="space-y-3 pt-3 sm:pt-4">
       <AppCard class="!p-3 border-slate-200/80 bg-white/88">
-        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-          <div class="flex flex-wrap items-center gap-2">
-            <div
-              class="rounded-full border px-3 py-1 text-[10px] font-semibold tracking-[0.18em] uppercase"
-              :class="
-                sourceMode === 'static'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-sky-200 bg-sky-50 text-sky-700'
-              "
-            >
-              {{ sourceBadgeLabel }}
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div class="overflow-x-auto pb-1">
+            <div class="flex w-max gap-2" role="tablist" aria-label="Evaluation benchmarks">
+              <button
+                v-for="benchmark in benchmarks"
+                :key="benchmark.id"
+                type="button"
+                role="tab"
+                :aria-selected="activeBenchmarkId === benchmark.id"
+                class="whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition"
+                :class="benchmarkTabClass(activeBenchmarkId === benchmark.id)"
+                @click="setActiveBenchmark(benchmark.id)"
+              >
+                {{ benchmark.label }}
+                <span class="ml-1.5 text-[11px] opacity-70">{{ benchmark.taskCount }}</span>
+              </button>
             </div>
-            <div class="text-sm text-slate-500">{{ sourceDescription }}</div>
-
-            <button
-              v-for="benchmark in benchmarks"
-              :key="benchmark.id"
-              type="button"
-              class="rounded-full px-3 py-1.5 text-sm font-semibold transition"
-              :class="
-                activeBenchmarkId === benchmark.id
-                  ? 'border border-slate-900 bg-slate-950 text-white shadow-sm'
-                  : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-950'
-              "
-              @click="setActiveBenchmark(benchmark.id)"
-            >
-              {{ benchmark.label }}
-              <span class="ml-1.5 text-[11px] opacity-70">{{ benchmark.taskCount }}</span>
-            </button>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2">
-            <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-6 text-slate-600">
-              Saved locally in this browser
-            </div>
-            <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-6 text-slate-600">
+          <div class="flex flex-wrap items-center gap-2 xl:justify-end">
+            <div class="rounded-full border border-sky-200 bg-sky-50/80 px-3 py-1.5 text-xs leading-6 text-sky-800">
               Overall <span class="font-semibold text-slate-900">{{ globalAnsweredCount }}/{{ allQuestionSummaries.length }}</span>
             </div>
             <AppButton v-if="isDevMode" variant="ghost" @click="loadSnapshot">Reload Local Data</AppButton>
@@ -831,7 +817,7 @@ onMounted(async () => {
                   <span>{{ answeredIds.size }}/{{ benchmarkQuestions.length }}</span>
                 </div>
                 <div class="h-2 rounded-full bg-slate-200">
-                  <div class="h-full rounded-full bg-slate-950 transition-all" :style="{ width: `${progressPercent}%` }" />
+                  <div class="h-full rounded-full bg-sky-500 transition-all" :style="{ width: `${progressPercent}%` }" />
                 </div>
               </div>
 
@@ -856,15 +842,7 @@ onMounted(async () => {
                     :key="question.id"
                     type="button"
                     class="relative rounded-xl border px-0 py-2 text-sm font-semibold transition"
-                    :class="
-                      question.id === currentQuestionSummary.id
-                        ? answeredIds.has(question.id)
-                          ? 'border-slate-950 bg-slate-950 text-white'
-                          : 'border-amber-300 bg-amber-100 text-amber-900'
-                        : answeredIds.has(question.id)
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                          : 'border-dashed border-amber-300 bg-white text-amber-700 hover:bg-amber-50'
-                    "
+                    :class="questionGridButtonClass(question.id === currentQuestionSummary.id, answeredIds.has(question.id))"
                     @click="selectQuestion(index)"
                   >
                     {{ index + 1 }}
@@ -891,74 +869,12 @@ onMounted(async () => {
 
               <div v-if="currentQuestion" class="space-y-3">
                 <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3">
-                  <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Task</div>
-                    </div>
-
-                    <div v-if="taskPanelExpanded" class="flex flex-wrap gap-2 lg:justify-end">
-                        <span
-                          v-for="item in taskSupportSummary"
-                          :key="item"
-                          class="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-600"
-                        >
-                          {{ item }}
-                        </span>
-                    </div>
-
-                    <AppButton
-                      variant="secondary"
-                      :aria-expanded="taskPanelExpanded"
-                      :aria-label="taskPanelExpanded ? 'Collapse task details' : 'Expand task details'"
-                      @click="toggleTaskPanel"
-                    >
-                      {{ taskPanelExpanded ? 'Collapse Task' : 'Expand Task' }}
-                    </AppButton>
-                  </div>
+                  <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Task Description</div>
 
                   <div
-                    v-if="taskPanelExpanded"
-                    class="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_240px] 2xl:grid-cols-[minmax(0,1fr)_256px]"
-                  >
-                    <div class="prose prose-slate max-w-none" v-html="renderedTask" />
-
-                    <div class="space-y-2.5">
-                      <div class="rounded-[1.2rem] border border-slate-200 bg-white p-3">
-                        <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Expected Outputs</div>
-                        <div class="mt-3 flex flex-wrap gap-2">
-                          <template v-if="currentQuestion.expectedOutputs.length">
-                            <div
-                              v-for="item in currentQuestion.expectedOutputs"
-                              :key="`${currentQuestion.id}-${item.fileName}`"
-                              class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-600"
-                            >
-                              <span class="font-semibold text-slate-900">{{ item.fileName }}</span>
-                              <span class="ml-1.5">{{ item.mediaType }}</span>
-                            </div>
-                          </template>
-                          <div
-                            v-else
-                            class="rounded-full border border-dashed border-slate-200 px-3 py-1.5 text-[11px] text-slate-500"
-                          >
-                            No structured expected outputs
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        v-if="currentQuestion.reportRequirements.length"
-                        class="rounded-[1.2rem] border border-slate-200 bg-white p-3"
-                      >
-                        <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Report Requirements</div>
-                        <ul class="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-                          <li v-for="item in currentQuestion.reportRequirements" :key="item" class="flex gap-3">
-                            <span class="mt-2 h-1.5 w-1.5 rounded-full bg-slate-900" />
-                            <span>{{ item }}</span>
-                          </li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
+                    class="prose prose-slate mt-4 max-w-none rounded-[1rem] border border-slate-200/80 bg-white px-4 py-3"
+                    v-html="renderedTask"
+                  />
                 </div>
               </div>
 
@@ -992,15 +908,7 @@ onMounted(async () => {
                   :key="tab.key"
                   type="button"
                   class="rounded-full border px-3 py-1.5 text-sm font-semibold transition"
-                  :class="
-                    activeCompareKey === tab.key
-                      ? tab.kind === 'reference'
-                        ? 'border-amber-700 bg-amber-600 text-white shadow-sm'
-                        : 'border-slate-950 bg-slate-950 text-white shadow-sm'
-                      : tab.kind === 'reference'
-                        ? 'border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-300 hover:bg-amber-100'
-                        : 'border border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white'
-                  "
+                  :class="compareTabClass(activeCompareKey === tab.key, tab.kind)"
                   @click="setActiveCompareTab(tab.key)"
                 >
                   {{ tab.label }}
@@ -1008,12 +916,9 @@ onMounted(async () => {
               </div>
 
               <template v-if="currentQuestion && activeCompareTab">
-                <div
-                  v-if="activeCompareTab.kind === 'candidate' && activeCandidate"
-                  class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3"
-                >
+                <div v-if="activeCompareTab.kind === 'candidate' && activeCandidate" class="space-y-4">
                   <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                    <span class="rounded-full bg-white px-3 py-1 font-semibold text-slate-900">
+                    <span class="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 font-semibold text-sky-900">
                       {{ activeCompareTab.label }}
                     </span>
                     <span
@@ -1023,27 +928,7 @@ onMounted(async () => {
                       Selected
                     </span>
                   </div>
-                  <p class="mt-3 text-sm leading-7 text-slate-600">
-                    {{ activeCandidate.summary ?? 'No summary recorded for this submission.' }}
-                  </p>
-                </div>
 
-                <div
-                  v-else
-                  class="rounded-[1.25rem] border border-amber-200 bg-amber-50/90 p-3"
-                >
-                  <div class="flex flex-wrap items-center gap-2 text-xs text-amber-800">
-                    <span class="rounded-full bg-white px-3 py-1 font-semibold text-amber-900">Reference</span>
-                    <span class="rounded-full border border-amber-200 bg-white px-3 py-1">
-                      {{ currentQuestion.reference.mode }}
-                    </span>
-                  </div>
-                  <p v-if="currentQuestion.reference.note" class="mt-3 text-sm leading-7 text-amber-900/80">
-                    {{ currentQuestion.reference.note }}
-                  </p>
-                </div>
-
-                <div v-if="activeCompareTab.kind === 'candidate' && activeCandidate" class="space-y-4">
                   <div
                     class="prose prose-slate max-w-none rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3"
                     v-html="renderedActiveAnswer"
@@ -1056,28 +941,17 @@ onMounted(async () => {
                 </div>
 
                 <div v-else class="space-y-4">
+                  <div class="flex flex-wrap items-center gap-2 text-xs text-amber-800">
+                    <span class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-semibold text-amber-900">
+                      Reference
+                    </span>
+                  </div>
+
                   <div
                     v-if="currentQuestion.reference.text"
                     class="prose prose-slate max-w-none rounded-[1.25rem] border border-amber-200 bg-white px-4 py-3"
                     v-html="renderedReferenceText"
                   />
-
-                  <div
-                    v-if="currentQuestion.reference.requiredOutputs.length"
-                    class="rounded-[1.25rem] border border-amber-200 bg-amber-50 p-3"
-                  >
-                    <div class="text-[11px] font-semibold tracking-[0.16em] text-amber-700 uppercase">Reference Deliverables</div>
-                    <ul class="mt-3 space-y-2 text-sm leading-6 text-amber-900">
-                      <li
-                        v-for="item in currentQuestion.reference.requiredOutputs"
-                        :key="`${currentQuestion.id}-reference-${item.fileName}`"
-                        class="flex gap-3"
-                      >
-                        <span class="mt-2 h-1.5 w-1.5 rounded-full bg-amber-700" />
-                        <span>{{ item.fileName }} <span class="text-amber-700/70">({{ item.mediaType }})</span></span>
-                      </li>
-                    </ul>
-                  </div>
 
                   <ArtifactViewer
                     v-if="currentQuestion.reference.artifacts.length"
@@ -1111,11 +985,7 @@ onMounted(async () => {
                   :key="item.candidate.runId"
                   type="button"
                   class="w-full rounded-[1rem] border px-3 py-2 text-left transition"
-                  :class="
-                    draftChoice === item.candidate.runId
-                      ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
-                      : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                  "
+                  :class="submissionChoiceClass(draftChoice === item.candidate.runId)"
                   @click="selectChoice(item.candidate.runId)"
                 >
                   <div class="flex items-center justify-between gap-2">
@@ -1127,11 +997,7 @@ onMounted(async () => {
                 <button
                   type="button"
                   class="w-full rounded-[1rem] border px-3 py-2 text-left text-sm font-semibold transition"
-                  :class="
-                    draftChoice === 'none'
-                      ? 'border-rose-600 bg-rose-600 text-white shadow-sm'
-                      : 'border border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300'
-                  "
+                  :class="rejectChoiceClass(draftChoice === 'none')"
                   @click="selectChoice('none')"
                 >
                   No Acceptable Submission
@@ -1157,7 +1023,7 @@ onMounted(async () => {
                 rows="5"
                 placeholder="Quick note"
                 :disabled="!currentQuestion"
-                class="w-full rounded-[1rem] border border-slate-200 bg-white px-3 py-3 text-sm leading-7 text-slate-900 outline-none transition focus:border-slate-950"
+                class="w-full rounded-[1rem] border border-slate-200 bg-white px-3 py-3 text-sm leading-7 text-slate-900 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
               />
 
               <div class="grid grid-cols-2 gap-2">
@@ -1192,7 +1058,7 @@ onMounted(async () => {
               v-model="participantNameDraft"
               type="text"
               placeholder="Your name"
-              class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-950"
+              class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
             />
           </div>
 

@@ -50,14 +50,6 @@ const formattedAuthors = computed(() =>
   <AppShell content-width="wide">
     <section id="overview" class="py-7 sm:py-8 xl:py-10">
       <div class="mx-auto max-w-[1240px] space-y-7">
-        <div class="flex items-center">
-          <div
-            class="inline-flex rounded-full border border-slate-950/10 bg-white/86 px-4 py-1.5 text-[11px] font-semibold tracking-[0.26em] text-slate-500 uppercase backdrop-blur"
-          >
-            {{ projectMeta.eyebrow }}
-          </div>
-        </div>
-
         <div class="overflow-x-auto pb-1">
           <div class="flex w-max gap-2 md:mx-auto xl:mx-0">
             <a
