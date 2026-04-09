@@ -129,6 +129,7 @@ describe('evaluation data bundle', () => {
     expect(payload.question.id).toBe('medagentboard:1')
     expect(payload.question.candidates).toHaveLength(1)
     expect(payload.question.candidates[0]?.artifacts[0]?.relativePath).toMatch(/^\/__eval\/artifacts\//)
+    expect(payload.question.candidates[0]?.reportPath).toMatch(/^\/__eval\/artifacts\//)
   })
 
   it('reports a diagnostic payload when the local evaluation root is missing', async () => {

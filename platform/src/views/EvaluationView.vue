@@ -262,9 +262,15 @@ const currentSelectionLabel = computed(() => {
 })
 
 const renderedTask = computed(() => renderMarkdown(currentQuestion.value?.task ?? ''))
-const renderedReferenceText = computed(() => renderMarkdown(currentQuestion.value?.reference.text ?? ''))
+const renderedReferenceText = computed(() =>
+  renderMarkdown(currentQuestion.value?.reference.text ?? '', {
+    assetBasePath: currentQuestion.value?.reference.reportPath ?? null,
+  }),
+)
 const renderedActiveAnswer = computed(() =>
-  renderMarkdown(activeCandidate.value?.answerText || 'No final answer was recorded.'),
+  renderMarkdown(activeCandidate.value?.answerText || 'No final answer was recorded.', {
+    assetBasePath: activeCandidate.value?.reportPath ?? null,
+  }),
 )
 
 const unansweredCount = computed(() => Math.max(benchmarkQuestions.value.length - answeredIds.value.size, 0))

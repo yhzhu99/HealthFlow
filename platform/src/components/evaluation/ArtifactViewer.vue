@@ -21,7 +21,11 @@ const loading = ref(false)
 const selectedArtifact = computed(() => props.artifacts[selectedIndex.value] ?? null)
 const selectedUrl = computed(() => (selectedArtifact.value ? toAssetUrl(selectedArtifact.value.relativePath) : ''))
 const parsedTable = computed(() => parseDelimitedText(content.value))
-const renderedMarkdown = computed(() => renderMarkdown(content.value))
+const renderedMarkdown = computed(() =>
+  renderMarkdown(content.value, {
+    assetBasePath: selectedArtifact.value?.relativePath ?? null,
+  }),
+)
 
 watch(
   () => props.artifacts,

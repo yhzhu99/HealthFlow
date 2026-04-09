@@ -22,6 +22,7 @@ export interface SnapshotReference {
   mode: 'none' | 'text' | 'artifacts' | 'manifest'
   text?: string | null
   note?: string | null
+  reportPath?: string | null
   artifacts: SnapshotArtifact[]
   requiredOutputs: SnapshotExpectedOutput[]
 }

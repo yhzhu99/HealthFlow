@@ -634,6 +634,7 @@ const buildReference = async ({
     mode: artifacts.length > 0 ? 'artifacts' : referenceAnswer ? 'text' : 'none',
     text: referenceAnswer,
     note: null,
+    reportPath: findReportPath(artifacts),
     artifacts,
     requiredOutputs: caseRecord.config.expectedOutputs ?? [],
   }
