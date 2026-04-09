@@ -47,7 +47,7 @@ export const projectMeta = {
       kind: 'primary' as const,
     },
     {
-      label: 'Evaluation',
+      label: 'Local Evaluation',
       href: '/evaluation',
       kind: 'secondary' as const,
     },
@@ -74,8 +74,8 @@ export const projectFacts = [
   },
   {
     label: 'Comparison set',
-    value: 'Five peer systems',
-    note: 'The manuscript reports five primary comparison systems while the reviewer-facing workspace stays blinded.',
+    value: 'HealthFlow + 6 baselines',
+    note: 'The blinded evaluation compares HealthFlow against AFlow, Alita, Biomni, STELLA, BioDSA, and BioMedAgent.',
   },
 ]
 
