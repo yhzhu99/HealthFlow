@@ -123,11 +123,15 @@ const formattedAuthors = computed(() =>
           </div>
         </div>
 
-        <div class="mx-auto max-w-[66rem] space-y-3 text-center">
-          <div class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">Abstract</div>
-          <p class="text-base leading-8 text-pretty text-slate-600 sm:text-lg sm:leading-9">
-            {{ projectMeta.abstract }}
-          </p>
+        <div class="mx-auto max-w-[70rem] space-y-4">
+          <div class="text-center font-display text-[clamp(1.45rem,1.8vw,1.92rem)] font-semibold tracking-[-0.04em] text-slate-950">
+            Abstract
+          </div>
+          <AppCard class="border-slate-200/80 bg-white/84 !p-5 text-left sm:!p-6">
+            <p class="text-base leading-8 text-pretty text-slate-600 sm:text-lg sm:leading-9">
+              {{ projectMeta.abstract }}
+            </p>
+          </AppCard>
         </div>
       </div>
 
