@@ -22,7 +22,7 @@ const navItems = computed(() => [
 const isActive = (path: string) => route.path === path
 
 const contentWidthClass = computed(() =>
-  props.contentWidth === 'wide' ? 'max-w-[2160px]' : 'max-w-7xl',
+  props.contentWidth === 'wide' ? 'max-w-[1680px]' : 'max-w-7xl',
 )
 
 const brandIconUrl = toBasePath('branding/healthflow-icon.svg')
