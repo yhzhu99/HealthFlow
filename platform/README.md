@@ -5,7 +5,7 @@ Two-page frontend for the HealthFlow project:
 - `/` home page
 - `/evaluation` evaluation workspace
 
-The home page is the single paper-facing surface. It now includes the full project title, author and affiliation block, code and paper links, benchmark explanation, and citation instead of splitting those details across several routes.
+The home page is the single manuscript-facing surface. It now includes the full project title, author and affiliation block, primary code and evaluation entry points, and benchmark explanation instead of splitting those details across several routes.
 
 ## Demo Evaluation
 
