@@ -38,6 +38,11 @@ type CaseLoadState = 'idle' | 'loading' | 'ready' | 'error'
 
 type CompareTab =
   | {
+      key: 'task'
+      label: 'Task'
+      kind: 'task'
+    }
+  | {
       key: 'reference'
       label: 'Reference'
       kind: 'reference'
@@ -141,10 +146,6 @@ const currentQuestion = computed(() =>
 
 const currentQuestionLabel = computed(() => currentQuestion.value?.datasetLabel ?? currentQuestionSummary.value?.datasetLabel ?? '')
 const currentQuestionQid = computed(() => currentQuestion.value?.qid ?? currentQuestionSummary.value?.qid ?? '')
-const currentTaskType = computed(() => currentQuestion.value?.taskType ?? currentQuestionSummary.value?.taskType ?? null)
-const currentTaskBrief = computed(() => currentQuestion.value?.taskBrief ?? currentQuestionSummary.value?.taskBrief ?? null)
-const currentPaperTitle = computed(() => currentQuestion.value?.paperTitle ?? currentQuestionSummary.value?.paperTitle ?? null)
-
 const progressPercent = computed(() =>
   benchmarkQuestions.value.length ? (answeredIds.value.size / benchmarkQuestions.value.length) * 100 : 0,
 )
@@ -170,9 +171,17 @@ const questionGridButtonClass = (isCurrent: boolean, isAnswered: boolean) => {
 
 const compareTabClass = (isActive: boolean, kind: CompareTab['kind']) => {
   if (isActive) {
+    if (kind === 'task') {
+      return 'border-emerald-300 bg-emerald-50 text-emerald-900 shadow-[0_10px_24px_rgba(16,185,129,0.14)]'
+    }
+
     return kind === 'reference'
       ? 'border-amber-300 bg-amber-100 text-amber-900 shadow-[0_10px_24px_rgba(245,158,11,0.16)]'
       : 'border-sky-300 bg-sky-50 text-sky-900 shadow-[0_10px_24px_rgba(56,189,248,0.14)]'
+  }
+
+  if (kind === 'task') {
+    return 'border border-emerald-200 bg-emerald-50/70 text-emerald-800 hover:border-emerald-300 hover:bg-emerald-100'
   }
 
   return kind === 'reference'
@@ -203,15 +212,15 @@ const candidateSlots = computed(() => {
 
 const submissionCandidates = computed(() => candidateSlots.value)
 
-const activeRunId = computed(() => {
-  if (!sessionState.value || !activeBenchmarkId.value) return null
-  return sessionState.value.activeRunIdByDataset[activeBenchmarkId.value] ?? benchmarkRuns.value[0]?.id ?? null
-})
-
 const compareTabs = computed<CompareTab[]>(() => {
   if (!currentQuestion.value) return []
 
   return [
+    {
+      key: 'task',
+      label: 'Task',
+      kind: 'task',
+    },
     {
       key: 'reference',
       label: 'Reference',
@@ -232,10 +241,6 @@ const activeCompareKey = computed(() => {
   const storedKey = sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value]
   if (storedKey && compareTabs.value.some((tab) => tab.key === storedKey)) {
     return storedKey
-  }
-
-  if (activeRunId.value && compareTabs.value.some((tab) => tab.key === activeRunId.value)) {
-    return activeRunId.value
   }
 
   return compareTabs.value[0]?.key ?? null
@@ -299,12 +304,7 @@ const ensureActiveCompareTab = () => {
   const currentKey = sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value]
   if (currentKey && compareTabs.value.some((tab) => tab.key === currentKey)) return
 
-  if (activeRunId.value && compareTabs.value.some((tab) => tab.key === activeRunId.value)) {
-    sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value] = activeRunId.value
-    return
-  }
-
-  sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value] = compareTabs.value[0]?.key ?? 'reference'
+  sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value] = compareTabs.value[0]?.key ?? 'task'
 }
 
 const persistSessionState = () => {
@@ -466,7 +466,8 @@ const setActiveRun = (runId: string) => {
 const setActiveCompareTab = (key: string) => {
   if (!activeBenchmarkId.value || !sessionState.value) return
   sessionState.value.activeCompareKeyByDataset[activeBenchmarkId.value] = key
-  if (key !== 'reference') {
+  const targetTab = compareTabs.value.find((tab) => tab.key === key)
+  if (targetTab?.kind === 'candidate') {
     setActiveRun(key)
   } else {
     persistSessionState()
@@ -711,9 +712,6 @@ onMounted(async () => {
         <div class="space-y-4">
           <div class="text-lg font-semibold text-rose-700">Evaluation runtime failed</div>
           <p class="text-sm leading-7 text-rose-700">{{ loadError }}</p>
-          <div class="flex flex-wrap gap-2">
-            <AppButton @click="loadSnapshot">Reload Evaluation Data</AppButton>
-          </div>
         </div>
       </AppCard>
     </div>
@@ -725,7 +723,7 @@ onMounted(async () => {
           <p class="text-base leading-8 text-slate-600">
             The dev server is looking for case directories under
             <code class="rounded bg-slate-100 px-2 py-1 text-sm">{{ diagnostics?.root }}</code>.
-            Fix the listed issues and reload the local evaluation workspace.
+            Fix the listed issues in the local evaluation workspace.
           </p>
           <div class="grid gap-3 lg:grid-cols-3">
             <div class="rounded-[1.4rem] border border-slate-200 bg-slate-50/90 p-4">
@@ -749,9 +747,6 @@ onMounted(async () => {
                 <li v-for="item in diagnostics?.warnings ?? []" :key="`warning-${item}`">{{ item }}</li>
               </ul>
             </div>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <AppButton @click="loadSnapshot">Reload Local Data</AppButton>
           </div>
         </div>
       </AppCard>
@@ -782,7 +777,6 @@ onMounted(async () => {
             <div class="rounded-full border border-sky-200 bg-sky-50/80 px-3 py-1.5 text-xs leading-6 text-sky-800">
               Overall <span class="font-semibold text-slate-900">{{ globalAnsweredCount }}/{{ allQuestionSummaries.length }}</span>
             </div>
-            <AppButton v-if="isDevMode" variant="ghost" @click="loadSnapshot">Reload Local Data</AppButton>
             <AppButton @click="openExportModal">Export JSON</AppButton>
           </div>
         </div>
@@ -862,21 +856,56 @@ onMounted(async () => {
                 <span class="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-900">
                   {{ currentQuestionLabel }} · Q{{ currentQuestionQid }}
                 </span>
-                <span v-if="currentTaskType">{{ currentTaskType }}</span>
-                <span v-if="currentTaskBrief">{{ currentTaskBrief }}</span>
-                <span v-if="currentPaperTitle">{{ currentPaperTitle }}</span>
               </div>
 
-              <div v-if="currentQuestion" class="space-y-3">
-                <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3">
-                  <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Task Description</div>
+              <div class="flex flex-wrap gap-1.5" role="tablist" aria-label="Case content tabs">
+                <button
+                  v-for="tab in compareTabs"
+                  :key="tab.key"
+                  type="button"
+                  role="tab"
+                  :aria-selected="activeCompareKey === tab.key"
+                  class="rounded-full border px-3 py-1.5 text-sm font-semibold transition"
+                  :class="compareTabClass(activeCompareKey === tab.key, tab.kind)"
+                  @click="setActiveCompareTab(tab.key)"
+                >
+                  {{ tab.label }}
+                </button>
+              </div>
 
+              <template v-if="currentQuestion && activeCompareTab">
+                <div v-if="activeCompareTab.kind === 'task'" class="space-y-4">
                   <div
-                    class="prose prose-slate mt-4 max-w-none rounded-[1rem] border border-slate-200/80 bg-white px-4 py-3"
+                    class="prose prose-slate max-w-none rounded-[1.25rem] border border-emerald-200 bg-white px-4 py-3"
                     v-html="renderedTask"
                   />
                 </div>
-              </div>
+
+                <div v-else-if="activeCompareTab.kind === 'candidate' && activeCandidate" class="space-y-4">
+                  <div
+                    class="prose prose-slate max-w-none rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3"
+                    v-html="renderedActiveAnswer"
+                  />
+                  <ArtifactViewer
+                    :artifacts="activeCandidate.artifacts"
+                    :title="`${activeCompareTab.label} Files`"
+                  />
+                </div>
+
+                <div v-else class="space-y-4">
+                  <div
+                    v-if="currentQuestion.reference.text"
+                    class="prose prose-slate max-w-none rounded-[1.25rem] border border-amber-200 bg-white px-4 py-3"
+                    v-html="renderedReferenceText"
+                  />
+
+                  <ArtifactViewer
+                    v-if="currentQuestion.reference.artifacts.length"
+                    :artifacts="currentQuestion.reference.artifacts"
+                    title="Reference Artifacts"
+                  />
+                </div>
+              </template>
 
               <div
                 v-else-if="caseLoadState === 'loading'"
@@ -894,72 +923,6 @@ onMounted(async () => {
                   <AppButton variant="secondary" @click="reloadCurrentQuestion">Reload This Case</AppButton>
                 </div>
               </div>
-
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Compare</div>
-                <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-600">
-                  {{ submissionCandidates.length }} submissions + reference
-                </div>
-              </div>
-
-              <div class="flex flex-wrap gap-1.5">
-                <button
-                  v-for="tab in compareTabs"
-                  :key="tab.key"
-                  type="button"
-                  class="rounded-full border px-3 py-1.5 text-sm font-semibold transition"
-                  :class="compareTabClass(activeCompareKey === tab.key, tab.kind)"
-                  @click="setActiveCompareTab(tab.key)"
-                >
-                  {{ tab.label }}
-                </button>
-              </div>
-
-              <template v-if="currentQuestion && activeCompareTab">
-                <div v-if="activeCompareTab.kind === 'candidate' && activeCandidate" class="space-y-4">
-                  <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                    <span class="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 font-semibold text-sky-900">
-                      {{ activeCompareTab.label }}
-                    </span>
-                    <span
-                      v-if="draftChoice === activeCandidate.runId"
-                      class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700"
-                    >
-                      Selected
-                    </span>
-                  </div>
-
-                  <div
-                    class="prose prose-slate max-w-none rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3"
-                    v-html="renderedActiveAnswer"
-                  />
-
-                  <ArtifactViewer
-                    :artifacts="activeCandidate.artifacts"
-                    :title="`${activeCompareTab.label} Files`"
-                  />
-                </div>
-
-                <div v-else class="space-y-4">
-                  <div class="flex flex-wrap items-center gap-2 text-xs text-amber-800">
-                    <span class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-semibold text-amber-900">
-                      Reference
-                    </span>
-                  </div>
-
-                  <div
-                    v-if="currentQuestion.reference.text"
-                    class="prose prose-slate max-w-none rounded-[1.25rem] border border-amber-200 bg-white px-4 py-3"
-                    v-html="renderedReferenceText"
-                  />
-
-                  <ArtifactViewer
-                    v-if="currentQuestion.reference.artifacts.length"
-                    :artifacts="currentQuestion.reference.artifacts"
-                    title="Reference Artifacts"
-                  />
-                </div>
-              </template>
             </div>
           </AppCard>
 
