@@ -262,6 +262,7 @@ const taskSupportSummary = computed(() => {
 })
 
 const hasSavedResponses = computed(() => answeredIds.value.size > 0)
+const unansweredCount = computed(() => Math.max(benchmarkQuestions.value.length - answeredIds.value.size, 0))
 
 const toggleTaskPanel = () => {
   taskPanelExpanded.value = !taskPanelExpanded.value
@@ -435,6 +436,19 @@ const saveCurrentResponse = () => {
   return true
 }
 
+const autosaveCurrentResponse = () => {
+  if (!currentQuestion.value || !sessionState.value || !draftChoice.value) return
+  saveCurrentResponse()
+}
+
+const selectChoice = (choice: string) => {
+  draftChoice.value = choice
+  if (choice !== 'none') {
+    setActiveCompareTab(choice)
+  }
+  autosaveCurrentResponse()
+}
+
 const setActiveBenchmark = (benchmarkId: BenchmarkId) => {
   if (!sessionState.value) return
   saveCurrentResponse()
@@ -585,6 +599,9 @@ watch(
 
 watch([draftChoice, draftNote, () => currentQuestion.value?.id], () => {
   persistDraft()
+  if (draftChoice.value) {
+    autosaveCurrentResponse()
+  }
 })
 
 const applySnapshot = (loadedSnapshot: EvaluationSnapshot) => {
@@ -802,22 +819,37 @@ onMounted(async () => {
                   <span>{{ currentQuestionIndex + 1 }}/{{ benchmarkQuestions.length }}</span>
                 </div>
 
+                <div class="grid grid-cols-2 gap-2 text-[11px] font-semibold">
+                  <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700">
+                    {{ answeredIds.size }} answered
+                  </div>
+                  <div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">
+                    {{ unansweredCount }} pending
+                  </div>
+                </div>
+
                 <div class="grid grid-cols-3 gap-1.5">
                   <button
                     v-for="(question, index) in benchmarkQuestions"
                     :key="question.id"
                     type="button"
-                    class="rounded-xl px-0 py-2 text-sm font-semibold transition"
+                    class="relative rounded-xl border px-0 py-2 text-sm font-semibold transition"
                     :class="
                       question.id === currentQuestionSummary.id
-                        ? 'bg-slate-950 text-white'
+                        ? answeredIds.has(question.id)
+                          ? 'border-slate-950 bg-slate-950 text-white'
+                          : 'border-amber-300 bg-amber-100 text-amber-900'
                         : answeredIds.has(question.id)
-                          ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          : 'border-dashed border-amber-300 bg-white text-amber-700 hover:bg-amber-50'
                     "
                     @click="selectQuestion(index)"
                   >
                     {{ index + 1 }}
+                    <span
+                      class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full"
+                      :class="answeredIds.has(question.id) ? 'bg-emerald-500' : 'bg-amber-400'"
+                    />
                   </button>
                 </div>
               </div>
@@ -1068,7 +1100,7 @@ onMounted(async () => {
                       ? 'border-slate-950 bg-slate-950 text-white shadow-sm'
                       : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                   "
-                  @click="draftChoice = item.candidate.runId"
+                  @click="selectChoice(item.candidate.runId)"
                 >
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-sm font-semibold">Submission {{ item.slot }}</span>
@@ -1084,7 +1116,7 @@ onMounted(async () => {
                       ? 'border-rose-600 bg-rose-600 text-white shadow-sm'
                       : 'border border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300'
                   "
-                  @click="draftChoice = 'none'"
+                  @click="selectChoice('none')"
                 >
                   No Acceptable Submission
                 </button>
@@ -1111,17 +1143,6 @@ onMounted(async () => {
                 :disabled="!currentQuestion"
                 class="w-full rounded-[1rem] border border-slate-200 bg-white px-3 py-3 text-sm leading-7 text-slate-900 outline-none transition focus:border-slate-950"
               />
-
-              <div class="grid gap-2">
-                <AppButton :disabled="!currentQuestion || !draftChoice" @click="saveCurrentResponse">Save</AppButton>
-                <AppButton
-                  variant="secondary"
-                  :disabled="!currentQuestion || !draftChoice"
-                  @click="saveCurrentResponse(); goToRelativeQuestion(1)"
-                >
-                  Save + Next
-                </AppButton>
-              </div>
 
               <div class="grid grid-cols-2 gap-2">
                 <AppButton variant="ghost" @click="goToRelativeQuestion(-1)">Previous</AppButton>
