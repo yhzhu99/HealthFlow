@@ -124,6 +124,18 @@ export interface DevEvaluationCasePayload {
   question: SnapshotQuestion
 }
 
+export type StaticEvaluationPayload =
+  | {
+      mode: 'live'
+      snapshot: EvaluationSnapshot
+      diagnostics: LiveEvaluationDiagnostics
+    }
+  | {
+      mode: 'diagnostic'
+      snapshot: null
+      diagnostics: DiagnosticEvaluationDiagnostics
+    }
+
 export interface BlindCandidateSlot {
   slot: string
   candidate: SnapshotCandidate

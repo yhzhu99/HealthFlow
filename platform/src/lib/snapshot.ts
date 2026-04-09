@@ -3,6 +3,7 @@ import type {
   DevEvaluationManifestPayload,
   EvaluationSnapshot,
   SnapshotQuestion,
+  StaticEvaluationPayload,
 } from '../domain/evaluation'
 import { toBasePath } from './assets'
 
@@ -23,6 +24,7 @@ export interface LoadLocalEvaluationPayloadOptions {
 }
 
 export const evaluationSnapshotUrl = () => toBasePath('data/evaluation.snapshot.json')
+export const evaluationStaticPayloadUrl = () => toBasePath('data/evaluation.payload.json')
 export const localEvaluationManifestUrl = () => toBasePath('/__eval/manifest')
 export const localEvaluationCaseUrl = (benchmarkId: string, caseId: string) =>
   toBasePath(`${LOCAL_CASE_ROUTE_PREFIX}/${encodeURIComponent(benchmarkId)}/${encodeURIComponent(caseId)}`)
@@ -91,6 +93,44 @@ export const loadEvaluationSnapshot = async (
   }
 
   throw lastError ?? new Error(`Failed to load evaluation snapshot (${url})`)
+}
+
+export const loadStaticEvaluationPayload = async (
+  options: LoadEvaluationSnapshotOptions = {},
+): Promise<StaticEvaluationPayload | null> => {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const retries = options.retries ?? DEFAULT_RETRIES
+  const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
+  const url = evaluationStaticPayloadUrl()
+
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchSnapshotResponse(url, timeoutMs)
+
+      if (response.status === 404) {
+        return null
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load static evaluation payload: ${response.status} ${response.statusText}`)
+      }
+
+      return (await response.json()) as StaticEvaluationPayload
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : String(caughtError)
+      lastError = new Error(`${message} (${url})`)
+
+      if (attempt >= retries) {
+        throw lastError
+      }
+
+      await delay(retryDelayMs)
+    }
+  }
+
+  throw lastError ?? new Error(`Failed to load static evaluation payload (${url})`)
 }
 
 export const loadLocalEvaluationManifest = async (

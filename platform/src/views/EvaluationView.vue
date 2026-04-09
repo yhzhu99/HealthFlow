@@ -29,6 +29,7 @@ import {
   loadEvaluationSnapshot,
   loadLocalEvaluationCase,
   loadLocalEvaluationManifest,
+  loadStaticEvaluationPayload,
   localEvaluationManifestUrl,
 } from '../lib/snapshot'
 import { readJson, writeJson } from '../lib/storage'
@@ -665,11 +666,31 @@ const loadSnapshot = async () => {
       return
     }
 
+    const staticPayload = await loadStaticEvaluationPayload()
+    if (requestId !== loadRequestId) return
+
+    if (staticPayload) {
+      if (staticPayload.mode === 'diagnostic') {
+        snapshot.value = null
+        localManifest.value = null
+        currentQuestionDetail.value = null
+        diagnostics.value = staticPayload.diagnostics
+        sourceWarnings.value = staticPayload.diagnostics.warnings
+        sourceMode.value = 'diagnostic'
+        return
+      }
+
+      diagnostics.value = null
+      sourceWarnings.value = staticPayload.diagnostics.warnings
+      applySnapshot(staticPayload.snapshot)
+      return
+    }
+
     const loadedSnapshot = await loadEvaluationSnapshot()
     if (requestId !== loadRequestId) return
 
     if (!loadedSnapshot) {
-      throw new Error('No build-generated evaluation snapshot was found. Rebuild the app from the local evaluation-data tree.')
+      throw new Error('No build-generated evaluation payload was found. Rebuild the app from the local evaluation-data tree.')
     }
 
     diagnostics.value = null

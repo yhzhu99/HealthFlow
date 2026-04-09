@@ -17,6 +17,7 @@ import type {
   SnapshotQuestion,
   SnapshotReference,
   SnapshotRun,
+  StaticEvaluationPayload,
 } from '../src/domain/evaluation'
 
 type AssetMode = 'dev' | 'static'
@@ -102,26 +103,16 @@ interface ScannedBenchmarkMeta {
   frameworkOrder: Map<string, number>
 }
 
-type EvaluationSnapshotPayload =
-  | {
-      mode: 'live'
-      snapshot: EvaluationSnapshot
-      diagnostics: LiveEvaluationDiagnostics
-    }
-  | {
-      mode: 'diagnostic'
-      snapshot: null
-      diagnostics: DiagnosticEvaluationDiagnostics
-    }
-
 export interface EvaluationSnapshotBundle {
-  payload: EvaluationSnapshotPayload
+  payload: StaticEvaluationPayload
   artifactCopies: ArtifactCopy[]
 }
 
 export interface ExportStaticEvaluationBundleResult {
   outputPath: string
-  snapshot: EvaluationSnapshot
+  payloadOutputPath: string
+  snapshot: EvaluationSnapshot | null
+  mode: StaticEvaluationPayload['mode']
   artifactCount: number
 }
 
@@ -906,33 +897,32 @@ export const exportStaticEvaluationBundle = async ({
     mode: 'static',
   })
 
-  if (bundle.payload.mode !== 'live') {
-    const diagnostics = bundle.payload.diagnostics
-    const issues = [...diagnostics.missing, ...diagnostics.invalid, ...diagnostics.warnings]
-    throw new Error(
-      ['Unable to export evaluation snapshot from platform/evaluation-data.', ...issues].join('\n'),
-    )
-  }
-
-  const snapshot = bundle.payload.snapshot
   const snapshotOutputPath = path.join(outputRoot, 'data', 'evaluation.snapshot.json')
+  const payloadOutputPath = path.join(outputRoot, 'data', 'evaluation.payload.json')
   const artifactRoot = path.join(outputRoot, 'evaluation-assets')
 
   await rm(artifactRoot, { recursive: true, force: true })
-  await mkdir(path.dirname(snapshotOutputPath), { recursive: true })
+  await rm(snapshotOutputPath, { force: true })
+  await mkdir(path.dirname(payloadOutputPath), { recursive: true })
   await mkdir(artifactRoot, { recursive: true })
 
-  for (const artifact of bundle.artifactCopies) {
-    const destinationPath = path.join(outputRoot, artifact.relativePath)
-    await mkdir(path.dirname(destinationPath), { recursive: true })
-    await cp(artifact.sourcePath, destinationPath)
+  if (bundle.payload.mode === 'live') {
+    for (const artifact of bundle.artifactCopies) {
+      const destinationPath = path.join(outputRoot, artifact.relativePath)
+      await mkdir(path.dirname(destinationPath), { recursive: true })
+      await cp(artifact.sourcePath, destinationPath)
+    }
+
+    await writeFile(snapshotOutputPath, JSON.stringify(bundle.payload.snapshot, null, 2))
   }
 
-  await writeFile(snapshotOutputPath, JSON.stringify(snapshot, null, 2))
+  await writeFile(payloadOutputPath, JSON.stringify(bundle.payload, null, 2))
 
   return {
-    outputPath: snapshotOutputPath,
-    snapshot,
+    outputPath: bundle.payload.mode === 'live' ? snapshotOutputPath : payloadOutputPath,
+    payloadOutputPath,
+    snapshot: bundle.payload.snapshot,
+    mode: bundle.payload.mode,
     artifactCount: bundle.artifactCopies.length,
   }
 }

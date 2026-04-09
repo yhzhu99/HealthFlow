@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { evaluationSnapshotUrl, loadEvaluationSnapshot } from '../src/lib/snapshot'
+import {
+  evaluationSnapshotUrl,
+  evaluationStaticPayloadUrl,
+  loadEvaluationSnapshot,
+  loadStaticEvaluationPayload,
+} from '../src/lib/snapshot'
 
 const originalFetch = globalThis.fetch
 
@@ -9,6 +14,17 @@ const mockSnapshot = {
   benchmarks: [],
   runs: [],
   questions: [],
+}
+
+const mockStaticPayload = {
+  mode: 'diagnostic' as const,
+  snapshot: null,
+  diagnostics: {
+    root: '/tmp/evaluation-data',
+    warnings: ['Missing evaluation root'],
+    missing: ['Missing evaluation root: /tmp/evaluation-data'],
+    invalid: [],
+  },
 }
 
 afterEach(() => {
@@ -33,6 +49,23 @@ describe('snapshot loader', () => {
       expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }),
     )
     expect(snapshot?.snapshotVersion).toBe('test-snapshot')
+  })
+
+  it('loads the static evaluation payload and parses json', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify(mockStaticPayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ) as typeof fetch
+
+    const payload = await loadStaticEvaluationPayload({ retries: 0 })
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      evaluationStaticPayloadUrl(),
+      expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }),
+    )
+    expect(payload?.mode).toBe('diagnostic')
   })
 
   it('retries once after a transient fetch failure', async () => {

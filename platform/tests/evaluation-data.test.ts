@@ -242,11 +242,37 @@ describe('evaluation data bundle', () => {
       outputRoot,
     })
 
+    expect(result.mode).toBe('live')
     expect(result.outputPath).toBe(path.join(outputRoot, 'data', 'evaluation.snapshot.json'))
-    expect(result.snapshot.questions).toHaveLength(1)
+    expect(result.payloadOutputPath).toBe(path.join(outputRoot, 'data', 'evaluation.payload.json'))
+    expect(result.snapshot?.questions).toHaveLength(1)
     expect(result.artifactCount).toBe(1)
     expect(await readFile(path.join(outputRoot, 'evaluation-assets', 'demo', '0001', 'alpha', 'report.md'), 'utf-8')).toBe(
       '# Report',
     )
+  })
+
+  it('exports a diagnostic payload instead of failing when evaluation data is missing', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'healthflow-export-diagnostic-'))
+    tempRoots.push(tempRoot)
+
+    const outputRoot = path.join(tempRoot, 'dist')
+    const result = await exportStaticEvaluationBundle({
+      projectRoot: tempRoot,
+      outputRoot,
+    })
+
+    expect(result.mode).toBe('diagnostic')
+    expect(result.outputPath).toBe(path.join(outputRoot, 'data', 'evaluation.payload.json'))
+    expect(result.snapshot).toBeNull()
+    expect(result.artifactCount).toBe(0)
+
+    const payload = JSON.parse(await readFile(path.join(outputRoot, 'data', 'evaluation.payload.json'), 'utf-8')) as {
+      mode: string
+      diagnostics: { missing: string[] }
+    }
+
+    expect(payload.mode).toBe('diagnostic')
+    expect(payload.diagnostics.missing.some((item) => item.includes('Missing evaluation root'))).toBe(true)
   })
 })
