@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="/path/to/repo"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${HEALTHFLOW_ENV_FILE:-$HOME/.config/healthflow/healthflow-web.env}"
 CONFIG_PATH="${HEALTHFLOW_CONFIG_PATH:-$ROOT_DIR/config.toml}"
 SERVER_NAME="${HEALTHFLOW_SERVER_NAME:-127.0.0.1}"
