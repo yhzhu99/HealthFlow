@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import type {
@@ -117,6 +117,12 @@ type EvaluationSnapshotPayload =
 export interface EvaluationSnapshotBundle {
   payload: EvaluationSnapshotPayload
   artifactCopies: ArtifactCopy[]
+}
+
+export interface ExportStaticEvaluationBundleResult {
+  outputPath: string
+  snapshot: EvaluationSnapshot
+  artifactCount: number
 }
 
 const DEFAULT_SNAPSHOT_VERSION = 'healthflow-local-dev'
@@ -782,11 +788,6 @@ export const buildEvaluationManifestPayload = async ({
   const { runs, questions } = buildRunsAndQuestionsFromIndex(index)
   const manifest: DevEvaluationManifest = {
     snapshotVersion: DEFAULT_SNAPSHOT_VERSION,
-    generatedAt: new Date().toISOString(),
-    site: {
-      title: 'HealthFlow Platform',
-      reviewerExportKeyPrefix: 'healthflow:evaluation',
-    },
     benchmarks: index.benchmarks.map((benchmark) => ({
       id: benchmark.id,
       label: benchmark.label,
@@ -878,8 +879,6 @@ export const buildEvaluationSnapshotBundle = async ({
 
   const snapshot: EvaluationSnapshot = {
     snapshotVersion: manifestPayload.manifest.snapshotVersion,
-    generatedAt: new Date().toISOString(),
-    site: manifestPayload.manifest.site,
     benchmarks: manifestPayload.manifest.benchmarks,
     runs: manifestPayload.manifest.runs,
     questions,
@@ -892,5 +891,48 @@ export const buildEvaluationSnapshotBundle = async ({
       diagnostics: manifestPayload.diagnostics,
     },
     artifactCopies,
+  }
+}
+
+export const exportStaticEvaluationBundle = async ({
+  projectRoot,
+  outputRoot,
+}: {
+  projectRoot: string
+  outputRoot: string
+}): Promise<ExportStaticEvaluationBundleResult> => {
+  const bundle = await buildEvaluationSnapshotBundle({
+    projectRoot,
+    mode: 'static',
+  })
+
+  if (bundle.payload.mode !== 'live') {
+    const diagnostics = bundle.payload.diagnostics
+    const issues = [...diagnostics.missing, ...diagnostics.invalid, ...diagnostics.warnings]
+    throw new Error(
+      ['Unable to export evaluation snapshot from platform/evaluation-data.', ...issues].join('\n'),
+    )
+  }
+
+  const snapshot = bundle.payload.snapshot
+  const snapshotOutputPath = path.join(outputRoot, 'data', 'evaluation.snapshot.json')
+  const artifactRoot = path.join(outputRoot, 'evaluation-assets')
+
+  await rm(artifactRoot, { recursive: true, force: true })
+  await mkdir(path.dirname(snapshotOutputPath), { recursive: true })
+  await mkdir(artifactRoot, { recursive: true })
+
+  for (const artifact of bundle.artifactCopies) {
+    const destinationPath = path.join(outputRoot, artifact.relativePath)
+    await mkdir(path.dirname(destinationPath), { recursive: true })
+    await cp(artifact.sourcePath, destinationPath)
+  }
+
+  await writeFile(snapshotOutputPath, JSON.stringify(snapshot, null, 2))
+
+  return {
+    outputPath: snapshotOutputPath,
+    snapshot,
+    artifactCount: bundle.artifactCopies.length,
   }
 }

@@ -4,24 +4,18 @@ import type {
   EvaluationSnapshot,
   SnapshotQuestion,
 } from '../domain/evaluation'
-import { sampleEvaluationSnapshot } from '../content/sample-evaluation'
 import { toBasePath } from './assets'
 
 const DEFAULT_TIMEOUT_MS = 8000
 const DEFAULT_RETRIES = 1
 const DEFAULT_RETRY_DELAY_MS = 350
-const DEFAULT_EMBEDDED_FALLBACK_DELAY_MS = 1500
 const DEFAULT_LOCAL_TIMEOUT_MS = 12000
 const LOCAL_CASE_ROUTE_PREFIX = '/__eval/cases'
-
-export const embeddedEvaluationSnapshot = sampleEvaluationSnapshot as EvaluationSnapshot
 
 export interface LoadEvaluationSnapshotOptions {
   timeoutMs?: number
   retries?: number
   retryDelayMs?: number
-  embeddedFallbackDelayMs?: number
-  forceEmbeddedFallback?: boolean
 }
 
 export interface LoadLocalEvaluationPayloadOptions {
@@ -40,16 +34,6 @@ export const toAssetUrl = (relativePath: string) => {
 }
 
 const delay = async (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
-export const isEmbeddedSnapshotPreferred = (forceEmbeddedFallback = false) => {
-  if (forceEmbeddedFallback) return true
-  const runtimeLocation =
-    typeof globalThis === 'object' && 'location' in globalThis
-      ? (globalThis as typeof globalThis & { location?: { hostname?: string } }).location
-      : undefined
-
-  return ['localhost', '127.0.0.1'].includes(runtimeLocation?.hostname ?? '')
-}
 
 const fetchSnapshotResponse = async (url: string, timeoutMs: number) => {
   const controller = new AbortController()
@@ -71,7 +55,7 @@ const fetchSnapshotResponse = async (url: string, timeoutMs: number) => {
   }
 }
 
-export const loadLiveEvaluationSnapshot = async (
+export const loadEvaluationSnapshot = async (
   options: LoadEvaluationSnapshotOptions = {},
 ): Promise<EvaluationSnapshot | null> => {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -107,36 +91,6 @@ export const loadLiveEvaluationSnapshot = async (
   }
 
   throw lastError ?? new Error(`Failed to load evaluation snapshot (${url})`)
-}
-
-export const loadEvaluationSnapshot = async (
-  options: LoadEvaluationSnapshotOptions = {},
-): Promise<EvaluationSnapshot | null> => {
-  const embeddedFallbackDelayMs = options.embeddedFallbackDelayMs ?? DEFAULT_EMBEDDED_FALLBACK_DELAY_MS
-  const allowEmbeddedFallback = isEmbeddedSnapshotPreferred(options.forceEmbeddedFallback)
-
-  if (!allowEmbeddedFallback) {
-    return await loadLiveEvaluationSnapshot(options)
-  }
-
-  const liveResultPromise = loadLiveEvaluationSnapshot(options)
-    .then((snapshot) => ({ kind: 'live' as const, snapshot }))
-    .catch((error) => ({ kind: 'error' as const, error }))
-
-  const racedResult = await Promise.race([
-    liveResultPromise,
-    delay(embeddedFallbackDelayMs).then(() => ({ kind: 'embedded' as const })),
-  ])
-
-  if (racedResult.kind === 'live') {
-    return racedResult.snapshot
-  }
-
-  if (racedResult.kind === 'embedded') {
-    return embeddedEvaluationSnapshot
-  }
-
-  return embeddedEvaluationSnapshot
 }
 
 export const loadLocalEvaluationManifest = async (
