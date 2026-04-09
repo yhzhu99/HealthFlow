@@ -404,6 +404,9 @@ Optional flags:
 - `--server-name` to change the bind address
 - `--server-port` to change the port
 - `--share` to request a temporary Gradio share link
+- `--root-path` to serve the Gradio UI behind a proxy prefix such as `/app`
+
+For subpath deployments, you can also set `GRADIO_ROOT_PATH=/app` (or `HEALTHFLOW_WEB_ROOT_PATH=/app`) before launching `healthflow web`.
 
 ### Training
 
