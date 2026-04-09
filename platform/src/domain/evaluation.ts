@@ -468,6 +468,11 @@ export const buildEvaluationExportPayload = ({
     .map((question) => sessionState.responses[question.id])
     .filter((item): item is EvaluationResponse => Boolean(item))
 
+  const missingResponseCount = questions.length - orderedResponses.length
+  if (missingResponseCount > 0) {
+    throw new Error(`All questions must be answered before export. ${missingResponseCount} pending.`)
+  }
+
   return {
     participant_name: normalizedParticipantName,
     session_id: sessionState.sessionId,

@@ -76,6 +76,7 @@ const taskPanelExpanded = ref(resolveStoredBoolean(readJson<unknown>(TASK_PANEL_
 const exportModalOpen = ref(false)
 const participantNameDraft = ref('')
 const exportError = ref<string | null>(null)
+const exportGuardMessage = ref<string | null>(null)
 
 const allBenchmarks = computed(() => (sourceMode.value === 'live' && isDevMode ? localManifest.value?.benchmarks : snapshot.value?.benchmarks) ?? [])
 
@@ -130,6 +131,10 @@ const benchmarkRuns = computed(() => {
 
 const answeredIds = computed(() => {
   const questionIds = new Set(benchmarkQuestions.value.map((question) => question.id))
+  return new Set(Object.keys(sessionState.value?.responses ?? {}).filter((questionId) => questionIds.has(questionId)))
+})
+const allAnsweredIds = computed(() => {
+  const questionIds = new Set(allQuestionSummaries.value.map((question) => question.id))
   return new Set(Object.keys(sessionState.value?.responses ?? {}).filter((questionId) => questionIds.has(questionId)))
 })
 
@@ -247,8 +252,9 @@ const taskSupportSummary = computed(() => {
   return summary
 })
 
-const hasSavedResponses = computed(() => answeredIds.value.size > 0)
 const unansweredCount = computed(() => Math.max(benchmarkQuestions.value.length - answeredIds.value.size, 0))
+const globalAnsweredCount = computed(() => allAnsweredIds.value.size)
+const globalUnansweredCount = computed(() => Math.max(allQuestionSummaries.value.length - globalAnsweredCount.value, 0))
 
 const toggleTaskPanel = () => {
   taskPanelExpanded.value = !taskPanelExpanded.value
@@ -481,6 +487,13 @@ const goToRelativeQuestion = (delta: number) => {
 
 const openExportModal = () => {
   if (!sessionState.value) return
+  if (globalUnansweredCount.value > 0) {
+    exportGuardMessage.value = `Finish both datasets before export. ${globalUnansweredCount.value} total questions still pending.`
+    exportModalOpen.value = false
+    return
+  }
+
+  exportGuardMessage.value = null
   participantNameDraft.value = sessionState.value.lastParticipantName
   exportError.value = null
   exportModalOpen.value = true
@@ -503,16 +516,20 @@ const exportResponses = () => {
   sessionState.value.lastParticipantName = participantName
   persistSessionState()
 
-  const payload = buildEvaluationExportPayload({
-    participantName,
-    snapshotVersion: activeSnapshotVersion.value,
-    sessionState: sessionState.value,
-    questions: allQuestionSummaries.value,
-  })
+  try {
+    const payload = buildEvaluationExportPayload({
+      participantName,
+      snapshotVersion: activeSnapshotVersion.value,
+      sessionState: sessionState.value,
+      questions: allQuestionSummaries.value,
+    })
 
-  const filenameStem = participantName.replace(/[^a-z0-9]+/gi, '-').replace(/(^-|-$)/g, '') || 'evaluation'
-  downloadJson(`${filenameStem}_evaluation.json`, payload)
-  closeExportModal()
+    const filenameStem = participantName.replace(/[^a-z0-9]+/gi, '-').replace(/(^-|-$)/g, '') || 'evaluation'
+    downloadJson(`${filenameStem}_evaluation.json`, payload)
+    closeExportModal()
+  } catch (caughtError) {
+    exportError.value = caughtError instanceof Error ? caughtError.message : String(caughtError)
+  }
 }
 
 const loadCurrentQuestion = async () => {
@@ -570,6 +587,12 @@ watch(submissionCandidates, () => {
 
 watch(taskPanelExpanded, (expanded) => {
   writeJson(TASK_PANEL_EXPANDED_KEY, expanded)
+})
+
+watch(globalUnansweredCount, (count) => {
+  if (count === 0) {
+    exportGuardMessage.value = null
+  }
 })
 
 watch(
@@ -770,9 +793,22 @@ onMounted(async () => {
             <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-6 text-slate-600">
               Saved locally in this browser
             </div>
+            <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-6 text-slate-600">
+              Overall <span class="font-semibold text-slate-900">{{ globalAnsweredCount }}/{{ allQuestionSummaries.length }}</span>
+            </div>
             <AppButton v-if="isDevMode" variant="ghost" @click="loadSnapshot">Reload Local Data</AppButton>
-            <AppButton :disabled="!hasSavedResponses" @click="openExportModal">Export JSON</AppButton>
+            <AppButton @click="openExportModal">Export JSON</AppButton>
           </div>
+        </div>
+      </AppCard>
+
+      <AppCard
+        v-if="exportGuardMessage"
+        class="!p-3 border-amber-200/80 bg-amber-50/80"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="text-sm font-semibold text-amber-900">{{ exportGuardMessage }}</div>
+          <div class="text-xs text-amber-800">Export unlocks only after every question across both datasets is answered.</div>
         </div>
       </AppCard>
 

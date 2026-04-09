@@ -269,9 +269,36 @@ describe('evaluation utils', () => {
         participantName: '   ',
         snapshotVersion: 'healthflow-local-dev',
         sessionState,
-        questions: [],
+        questions: [
+          {
+            caseId: '0001',
+            id: 'medagentboard:1',
+            datasetId: 'medagentboard',
+            datasetLabel: 'MedAgentBoard',
+            qid: '1',
+            candidateCount: 2,
+          },
+        ],
       }),
     ).toThrow(/Participant name is required/)
+
+    expect(() =>
+      buildEvaluationExportPayload({
+        participantName: 'Alice',
+        snapshotVersion: 'healthflow-local-dev',
+        sessionState: createEvaluationSessionState('session-missing'),
+        questions: [
+          {
+            caseId: '0001',
+            id: 'medagentboard:1',
+            datasetId: 'medagentboard',
+            datasetLabel: 'MedAgentBoard',
+            qid: '1',
+            candidateCount: 2,
+          },
+        ],
+      }),
+    ).toThrow(/All questions must be answered before export/)
 
     expect(
       buildEvaluationExportPayload({
