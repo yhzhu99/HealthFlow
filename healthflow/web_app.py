@@ -4522,7 +4522,7 @@ def launch_web_app(
             run_overview=run_overview,
         )
 
-    with gr.Blocks(title="HealthFlow Web", fill_width=True, fill_height=True, css=_WEB_APP_CSS, head=_WEB_APP_HEAD) as demo:
+    with gr.Blocks(title="HealthFlow App", fill_width=True, fill_height=True, css=_WEB_APP_CSS, head=_WEB_APP_HEAD) as demo:
         browser_task_id = gr.BrowserState(None, storage_key="healthflow-active-task")
         active_task_state = gr.State(None)
         selected_file_state = gr.State(None)
