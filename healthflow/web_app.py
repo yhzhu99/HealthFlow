@@ -3913,12 +3913,22 @@ def _stream_task_turn(
         closed.set()
 
 
+def _normalized_root_path(root_path: str | None) -> str | None:
+    normalized = str(root_path or "").strip()
+    if not normalized or normalized == "/":
+        return None
+    if "://" in normalized:
+        return normalized.rstrip("/")
+    return "/" + normalized.strip("/")
+
+
 def launch_web_app(
     system_factory: Callable[[], Any],
     *,
     server_name: str = "127.0.0.1",
     server_port: int = 7860,
     share: bool = False,
+    root_path: str | None = None,
 ) -> None:
     try:
         import gradio as gr
@@ -4867,4 +4877,10 @@ def launch_web_app(
             show_progress="hidden",
         )
     demo.queue()
-    demo.launch(server_name=server_name, server_port=server_port, share=share, allowed_paths=allowed_paths)
+    demo.launch(
+        server_name=server_name,
+        server_port=server_port,
+        share=share,
+        allowed_paths=allowed_paths,
+        root_path=_normalized_root_path(root_path),
+    )

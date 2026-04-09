@@ -33,4 +33,5 @@ cd "$ROOT_DIR"
 exec /opt/homebrew/bin/uv run --extra web healthflow web \
   --config "$CONFIG_PATH" \
   --server-name "$SERVER_NAME" \
-  --server-port "$SERVER_PORT"
+  --server-port "$SERVER_PORT" \
+  --root-path "$GRADIO_ROOT_PATH"

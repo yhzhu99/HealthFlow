@@ -418,6 +418,12 @@ def web(
     server_name: str = typer.Option("127.0.0.1", "--server-name", help="Host interface to bind the web app."),
     server_port: int = typer.Option(7860, "--server-port", help="Port to bind the web app."),
     share: bool = typer.Option(False, "--share", help="Create a temporary public Gradio share link."),
+    root_path: str | None = typer.Option(
+        None,
+        "--root-path",
+        envvar=["HEALTHFLOW_WEB_ROOT_PATH", "GRADIO_ROOT_PATH"],
+        help="Serve the web UI behind a proxy prefix such as /app.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
 ):
     """
@@ -438,6 +444,7 @@ def web(
         server_name=server_name,
         server_port=server_port,
         share=share,
+        root_path=root_path,
     )
 
 @app.callback(invoke_without_command=True)
