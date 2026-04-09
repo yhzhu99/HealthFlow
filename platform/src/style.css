@@ -81,6 +81,20 @@ img {
   font-weight: 600;
 }
 
+.prose :where(.katex-display) {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.25rem;
+}
+
+.prose :where(.katex-display > .katex) {
+  min-width: fit-content;
+}
+
+.prose :where(eq, eqn, section.eqno) {
+  color: var(--hf-ink);
+}
+
 .glass-panel {
   border: 1px solid rgba(255, 255, 255, 0.7);
   background: var(--hf-card);

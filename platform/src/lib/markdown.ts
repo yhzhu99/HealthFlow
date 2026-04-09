@@ -1,4 +1,7 @@
 import MarkdownIt from 'markdown-it'
+import katex from 'katex'
+// @ts-expect-error markdown-it-texmath does not ship TypeScript declarations.
+import texmath from 'markdown-it-texmath'
 
 import { toBasePath } from './assets'
 
@@ -7,6 +10,16 @@ const renderer = new MarkdownIt({
   html: false,
   linkify: true,
 })
+  .use(texmath, {
+    engine: katex,
+    delimiters: ['brackets', 'dollars', 'beg_end'],
+    katexOptions: {
+      output: 'html',
+      throwOnError: false,
+      strict: 'ignore',
+      trust: false,
+    },
+  })
 
 export interface RenderMarkdownOptions {
   assetBasePath?: string | null

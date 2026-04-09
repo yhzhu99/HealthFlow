@@ -30,4 +30,18 @@ describe('markdown asset resolution', () => {
     expect(rendered).toContain('src="/evaluation-assets/demo/0001/alpha/figures/model.png"')
     expect(rendered).toContain('href="/evaluation-assets/demo/0001/alpha/tables/metrics.csv"')
   })
+
+  it('renders bracket-delimited formulas with katex output', () => {
+    const rendered = renderMarkdown('The decay is \\(\\beta_n\\).\n\n\\[\nz_n = x_n + y_n\n\\]')
+
+    expect(rendered).toContain('class="katex"')
+    expect(rendered).toContain('β')
+  })
+
+  it('renders dollar-delimited formulas with katex output', () => {
+    const rendered = renderMarkdown('The score is $x^2 + y^2$.')
+
+    expect(rendered).toContain('class="katex"')
+    expect(rendered).toContain('x')
+  })
 })
