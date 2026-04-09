@@ -51,11 +51,6 @@ export const projectMeta = {
       href: '/evaluation',
       kind: 'secondary' as const,
     },
-    {
-      label: 'Citation',
-      href: '#citation',
-      kind: 'ghost' as const,
-    },
   ],
 }
 
@@ -64,7 +59,6 @@ export const sectionNav = [
   { id: 'framework', label: 'Framework' },
   { id: 'benchmarks', label: 'Benchmarks' },
   { id: 'results', label: 'Results' },
-  { id: 'citation', label: 'Citation' },
 ]
 
 export const projectFacts = [
@@ -265,11 +259,3 @@ export const resultDeck = [
     ],
   },
 ]
-
-export const citation = `@misc{zhu2025healthflow,
-  title={HealthFlow: Automating electronic health record analysis via a strategically self-evolving multi-agent framework},
-  author={Yinghao Zhu and Zixiang Wang and Yifan Qi and Lei Gu and Dehao Sui and Haoran Hu and Xichen Zhang and Ziyi He and Yasha Wang and Junjun He and Liantao Ma and Lequan Yu},
-  year={2025},
-  note={Manuscript},
-  url={https://github.com/yhzhu99/HealthFlow},
-}`

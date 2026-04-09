@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import {
   benchmarkDeck,
-  citation,
   frameworkStages,
   projectFacts,
   projectMeta,
@@ -15,7 +14,6 @@ import AppButton from '../components/ui/AppButton.vue'
 import AppCard from '../components/ui/AppCard.vue'
 
 const isExternalLink = (href: string) => href.startsWith('http')
-const isHashLink = (href: string) => href.startsWith('#')
 
 const activeFrameworkId = ref(frameworkStages[0]?.id ?? '')
 const activeBenchmarkId = ref(benchmarkDeck[0]?.id ?? '')
@@ -44,31 +42,6 @@ const formattedAuthors = computed(() =>
     formattedMarks: formatAuthorMarks(author.marks),
   })),
 )
-
-const citationButtonLabel = ref('Copy BibTeX')
-let citationResetTimer: ReturnType<typeof setTimeout> | null = null
-
-const copyCitation = async () => {
-  try {
-    await navigator.clipboard.writeText(citation)
-    citationButtonLabel.value = 'Copied'
-  } catch {
-    citationButtonLabel.value = 'Copy failed'
-  }
-
-  if (citationResetTimer) {
-    clearTimeout(citationResetTimer)
-  }
-  citationResetTimer = setTimeout(() => {
-    citationButtonLabel.value = 'Copy BibTeX'
-  }, 1800)
-}
-
-onBeforeUnmount(() => {
-  if (citationResetTimer) {
-    clearTimeout(citationResetTimer)
-  }
-})
 </script>
 
 <template>
@@ -156,10 +129,10 @@ onBeforeUnmount(() => {
         <div class="flex flex-wrap gap-3">
           <template v-for="link in projectMeta.links" :key="link.href">
             <a
-              v-if="isExternalLink(link.href) || isHashLink(link.href)"
+              v-if="isExternalLink(link.href)"
               :href="link.href"
-              :target="isExternalLink(link.href) ? '_blank' : undefined"
-              :rel="isExternalLink(link.href) ? 'noreferrer' : undefined"
+              target="_blank"
+              rel="noreferrer"
             >
               <AppButton :variant="link.kind">{{ link.label }}</AppButton>
             </a>
@@ -376,35 +349,6 @@ onBeforeUnmount(() => {
               <div class="mt-3 text-2xl font-semibold tracking-[-0.05em] text-slate-950">{{ stat.value }}</div>
             </div>
           </div>
-        </div>
-      </AppCard>
-    </section>
-
-    <section id="citation" class="space-y-5 py-8 sm:py-10">
-      <div class="space-y-3">
-        <div class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">Citation</div>
-        <h2 class="font-display text-[clamp(2.2rem,3.2vw,3.55rem)] leading-[0.95] tracking-[-0.04em] text-slate-950">
-          One clean citation block, no duplicate paper-record language.
-        </h2>
-      </div>
-
-      <AppCard class="border-slate-200/80 bg-white/86">
-        <div class="space-y-5">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="text-sm text-slate-600">
-              Current manuscript metadata and a direct code link.
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <AppButton variant="secondary" @click="copyCitation">
-                {{ citationButtonLabel }}
-              </AppButton>
-              <a href="https://github.com/yhzhu99/HealthFlow" target="_blank" rel="noreferrer">
-                <AppButton variant="ghost">Code Repository</AppButton>
-              </a>
-            </div>
-          </div>
-
-          <pre class="overflow-x-auto rounded-[1.6rem] bg-slate-950 px-5 py-5 text-sm leading-7 text-slate-100"><code>{{ citation }}</code></pre>
         </div>
       </AppCard>
     </section>
