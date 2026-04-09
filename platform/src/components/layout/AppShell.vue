@@ -15,14 +15,14 @@ const props = withDefaults(
 const route = useRoute()
 
 const navItems = computed(() => [
-  { href: '/', label: 'Home', external: false },
-  { href: '/evaluation', label: 'Evaluation', external: false },
-  { href: 'https://healthflow.medx-pku.com/app/', label: 'App', external: true },
+  { path: '/', href: toBasePath('/'), label: 'Home', external: false },
+  { path: '/evaluation', href: toBasePath('/evaluation'), label: 'Evaluation', external: false },
+  { path: null, href: 'https://healthflow.medx-pku.com/app/', label: 'App', external: true },
 ])
 
 const isActive = (path: string) => route.path === path
-const navItemClass = (path: string, external: boolean) =>
-  !external && isActive(path)
+const navItemClass = (path: string | null, external: boolean) =>
+  !external && path && isActive(path)
     ? 'bg-sky-50 text-sky-900 shadow-[0_12px_28px_rgba(56,189,248,0.14)] ring-1 ring-sky-200'
     : 'text-slate-500 hover:bg-white hover:text-slate-950'
 
@@ -51,18 +51,18 @@ const brandIconUrl = toBasePath('branding/healthflow-icon.svg')
         </RouterLink>
 
         <nav class="flex items-center gap-1 rounded-full border border-slate-200/80 bg-slate-50/80 p-1">
-          <component
+          <a
             v-for="item in navItems"
-            :is="item.external ? 'a' : RouterLink"
             :key="item.href"
-            :to="item.external ? undefined : item.href"
-            :href="item.external ? item.href : undefined"
+            :href="item.href"
+            target="_blank"
+            rel="noreferrer"
             class="rounded-full px-4 py-2 text-sm font-semibold tracking-[-0.01em] transition"
-            :aria-current="!item.external && isActive(item.href) ? 'page' : undefined"
-            :class="navItemClass(item.href, item.external)"
+            :aria-current="!item.external && item.path && isActive(item.path) ? 'page' : undefined"
+            :class="navItemClass(item.path, item.external)"
           >
             {{ item.label }}
-          </component>
+          </a>
         </nav>
       </div>
     </header>
