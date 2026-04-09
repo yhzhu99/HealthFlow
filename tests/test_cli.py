@@ -121,10 +121,11 @@ class CliOutputTests(unittest.TestCase):
         system = _FakeSystem()
         captured = {}
 
-        def _fake_launch(system_factory, *, server_name, server_port, share):
+        def _fake_launch(system_factory, *, server_name, server_port, share, root_path):
             captured["server_name"] = server_name
             captured["server_port"] = server_port
             captured["share"] = share
+            captured["root_path"] = root_path
             captured["task_id"] = system_factory().create_task_session().task_id
 
         with patch.object(run_healthflow, "_initialize_system", return_value=system):
@@ -138,6 +139,33 @@ class CliOutputTests(unittest.TestCase):
         self.assertEqual(captured["server_name"], "127.0.0.1")
         self.assertEqual(captured["server_port"], 7861)
         self.assertTrue(captured["share"])
+        self.assertIsNone(captured["root_path"])
+        self.assertEqual(captured["task_id"], "task-1")
+
+    def test_web_command_uses_root_path_env_for_subpath_deployments(self):
+        system = _FakeSystem()
+        captured = {}
+
+        def _fake_launch(system_factory, *, server_name, server_port, share, root_path):
+            captured["server_name"] = server_name
+            captured["server_port"] = server_port
+            captured["share"] = share
+            captured["root_path"] = root_path
+            captured["task_id"] = system_factory().create_task_session().task_id
+
+        with patch.object(run_healthflow, "_initialize_system", return_value=system):
+            with patch.object(run_healthflow, "launch_web_app", side_effect=_fake_launch):
+                result = self.runner.invoke(
+                    run_healthflow.app,
+                    ["web"],
+                    env={"GRADIO_ROOT_PATH": "/app"},
+                )
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(captured["server_name"], "127.0.0.1")
+        self.assertEqual(captured["server_port"], 7860)
+        self.assertFalse(captured["share"])
+        self.assertEqual(captured["root_path"], "/app")
         self.assertEqual(captured["task_id"], "task-1")
 
 

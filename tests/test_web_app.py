@@ -26,6 +26,7 @@ from healthflow.web_app import (
     _history_list_html,
     _main_progress_messages,
     _memory_panel_html,
+    _normalized_root_path,
     _resolved_recent_task_id,
     _restore_main_history,
     _restore_trace_history,
@@ -151,6 +152,16 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(len(summaries), 2)
         self.assertIn("Analyze the uploaded vitals cohort", choices[0][0])
         self.assertIn("Summarize model drift findings", choices[1][0])
+
+    def test_normalized_root_path_handles_proxy_prefixes(self):
+        self.assertIsNone(_normalized_root_path(None))
+        self.assertIsNone(_normalized_root_path("/"))
+        self.assertEqual(_normalized_root_path("app"), "/app")
+        self.assertEqual(_normalized_root_path("/app/"), "/app")
+        self.assertEqual(
+            _normalized_root_path("https://healthflow.medx-pku.com/app/"),
+            "https://healthflow.medx-pku.com/app",
+        )
 
     def test_build_history_entries_formats_status_turns_and_time(self):
         summaries = [
