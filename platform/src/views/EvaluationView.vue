@@ -41,7 +41,7 @@ type CaseLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type CompareTab =
   | {
       key: 'reference'
-      label: 'Reference Foundset'
+      label: 'Reference'
       kind: 'reference'
     }
   | {
@@ -68,15 +68,6 @@ let loadRequestId = 0
 let caseRequestId = 0
 
 const resolveStoredBoolean = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback)
-const compactMarkdown = (value: string) =>
-  value
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
-    .replace(/\[[^\]]*]\([^)]*\)/g, ' ')
-    .replace(/[#>*_\-\|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
 
 const sessionState = ref<EvaluationSessionState | null>(null)
 const draftChoice = ref<string | null>(null)
@@ -188,7 +179,7 @@ const compareTabs = computed<CompareTab[]>(() => {
   return [
     {
       key: 'reference',
-      label: 'Reference Foundset',
+      label: 'Reference',
       kind: 'reference',
     },
     ...submissionCandidates.value.map((item) => ({
@@ -234,11 +225,6 @@ const renderedReferenceText = computed(() => renderMarkdown(currentQuestion.valu
 const renderedActiveAnswer = computed(() =>
   renderMarkdown(activeCandidate.value?.answerText || 'No final answer was recorded.'),
 )
-const taskPreviewText = computed(() => {
-  const compactTask = compactMarkdown(currentQuestion.value?.task ?? '')
-  if (!compactTask) return 'Open the task to review the full prompt.'
-  return compactTask.length > 240 ? `${compactTask.slice(0, 237).trimEnd()}...` : compactTask
-})
 const taskSupportSummary = computed(() => {
   if (!currentQuestion.value) return []
 
@@ -819,11 +805,11 @@ onMounted(async () => {
                   <span>{{ currentQuestionIndex + 1 }}/{{ benchmarkQuestions.length }}</span>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2 text-[11px] font-semibold">
-                  <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700">
+                <div class="flex flex-col gap-1.5 text-[10px] font-semibold sm:text-[11px]">
+                  <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-emerald-700">
                     {{ answeredIds.size }} answered
                   </div>
-                  <div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">
+                  <div class="rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2 text-amber-700">
                     {{ unansweredCount }} pending
                   </div>
                 </div>
@@ -870,16 +856,11 @@ onMounted(async () => {
               <div v-if="currentQuestion" class="space-y-3">
                 <div class="rounded-[1.25rem] border border-slate-200 bg-slate-50/80 p-3">
                   <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div class="space-y-2">
+                    <div>
                       <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Task</div>
-                      <p class="text-sm leading-7 text-slate-600">
-                        {{
-                          taskPanelExpanded
-                            ? 'The full prompt is visible below.'
-                            : taskPreviewText
-                        }}
-                      </p>
-                      <div class="flex flex-wrap gap-2">
+                    </div>
+
+                    <div v-if="taskPanelExpanded" class="flex flex-wrap gap-2 lg:justify-end">
                         <span
                           v-for="item in taskSupportSummary"
                           :key="item"
@@ -887,7 +868,6 @@ onMounted(async () => {
                         >
                           {{ item }}
                         </span>
-                      </div>
                     </div>
 
                     <AppButton
@@ -966,7 +946,7 @@ onMounted(async () => {
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">Compare</div>
                 <div class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-600">
-                  {{ submissionCandidates.length }} submissions + reference foundset
+                  {{ submissionCandidates.length }} submissions + reference
                 </div>
               </div>
 
@@ -1017,7 +997,7 @@ onMounted(async () => {
                   class="rounded-[1.25rem] border border-amber-200 bg-amber-50/90 p-3"
                 >
                   <div class="flex flex-wrap items-center gap-2 text-xs text-amber-800">
-                    <span class="rounded-full bg-white px-3 py-1 font-semibold text-amber-900">Reference Foundset</span>
+                    <span class="rounded-full bg-white px-3 py-1 font-semibold text-amber-900">Reference</span>
                     <span class="rounded-full border border-amber-200 bg-white px-3 py-1">
                       {{ currentQuestion.reference.mode }}
                     </span>
