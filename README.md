@@ -1,6 +1,5 @@
 # HealthFlow: A Self-Evolving MERF Runtime for CodeAct Analysis
 
-[![arXiv](https://img.shields.io/badge/arXiv-2508.02621-b31b1b.svg)](https://arxiv.org/abs/2508.02621)
 [![Project Website](https://img.shields.io/badge/Project%20Website-HealthFlow-0066cc.svg)](https://healthflow-agent.netlify.app)
 
 HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task runtime artifacts, and long-term reflective memory. Dataset preparation and benchmark evaluation workflows can still live in the repository under `data/`, but they are intentionally decoupled from the `healthflow/` runtime package.
@@ -13,7 +12,11 @@ HealthFlow is a research framework for **self-evolving task execution with a fou
 
 HealthFlow compares external coding agents through a shared executor abstraction. The maintained built-in backends are `claude_code`, `codex`, `opencode`, and `pi`, with `opencode` as the default.
 
-The current release surface is intentionally **backend and CLI only**. A frontend is not shipped in this repo at this stage.
+HealthFlow currently ships three user-facing interfaces:
+
+- non-interactive CLI: `healthflow run ...`
+- interactive CLI: `healthflow interactive`
+- web UI: `healthflow web`
 
 ## Core Runtime
 
@@ -40,6 +43,7 @@ The task-level self-correction budget is controlled by `system.max_attempts`, wh
 
 Runtime state lives under `workspace/` by default:
 
+- shared app log: `workspace/healthflow.log`
 - task artifacts: `workspace/tasks/<task_id>/`
 - long-term memory: `workspace/memory/experience.jsonl`
 
@@ -49,6 +53,7 @@ Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
 
 - `sandbox/`
   - executor-visible inputs and produced deliverables only
+  - Pi runs also materialize `.healthflow_pi_agent/` here when that backend is active
 - `runtime/index.json`
 - `runtime/events.jsonl`
 - `runtime/run/summary.json`
@@ -320,7 +325,23 @@ uv run oneehr plot --help
 uv run oneehr convert --help
 ```
 
-### Single Task
+### Three Modes
+
+You can use either invocation style throughout this README:
+
+- packaged CLI: `uv run healthflow ...`
+- direct script: `python run_healthflow.py ...`
+
+#### Non-Interactive CLI
+
+Use this mode for one-shot runs, scripts, and CI. Each invocation creates a fresh task workspace.
+
+```bash
+uv run healthflow run \
+  "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
+  --active-executor opencode \
+  --report
+```
 
 ```bash
 python run_healthflow.py run \
@@ -335,7 +356,14 @@ When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/runtime
 To override the configured runtime models from the CLI, pass any subset of:
 `--planner-llm`, `--evaluator-llm`, `--reflector-llm`, `--executor-llm`.
 
-### Interactive Mode
+#### Interactive CLI
+
+Use this mode when you want a terminal chat workflow. Follow-up prompts stay on the same task until you use `/new`.
+
+```bash
+uv run healthflow interactive \
+  --active-executor opencode
+```
 
 ```bash
 python run_healthflow.py interactive \
@@ -352,6 +380,33 @@ Interactive mode now supports a command-aware shell:
 - Type `/` in column 1 to open slash-command suggestions
 - `Tab`: complete slash commands
 - `ESC ESC`: cancel the current run without leaving the shell
+
+#### Web UI
+
+Use this mode when you want a browser-based task session with uploads, trace streaming, and artifact download links. Follow-up messages stay on the same task until you click `New Task`, and refreshing the page restores that task session.
+
+If you have not installed the web dependency yet, run:
+
+```bash
+uv sync --extra web
+```
+
+```bash
+uv run healthflow web
+```
+
+```bash
+python run_healthflow.py web
+```
+
+Optional flags:
+
+- `--server-name` to change the bind address
+- `--server-port` to change the port
+- `--share` to request a temporary Gradio share link
+- `--root-path` to serve the Gradio UI behind a proxy prefix such as `/app`
+
+For subpath deployments, you can also set `GRADIO_ROOT_PATH=/app` (or `HEALTHFLOW_WEB_ROOT_PATH=/app`) before launching `healthflow web`.
 
 ### Training
 
@@ -395,28 +450,14 @@ Main config sections:
 - `[system]`: workspace and task-attempt settings (`workspace_dir`, `max_attempts`)
 - `[logging]`: log level and log file
 
-By default, `[system].workspace_dir` points to `workspace/tasks`, while CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.
+By default, `[system].workspace_dir` points to `workspace/tasks`, relative `[logging].log_file` values resolve under the workspace root (so `healthflow.log` becomes `workspace/healthflow.log`), and CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.
 
 ## Repository Layout
 
-- `run_healthflow.py`: single-task and interactive CLI
+- `run_healthflow.py`: non-interactive CLI, interactive CLI, and web UI entrypoint
 - `run_training.py`: dataset-style batch runner over task JSONL files
 - `run_benchmark.py`: batch task runner over task JSONL files
 - `healthflow/system.py`: orchestration loop
 - `healthflow/execution/`: executor layer
 - `healthflow/ehr/`: optional EHR specialization helpers kept outside the core loop
 - `healthflow/experience/`: EHR-adaptive memory and retrieval audit
-
-## Citation
-
-```bibtex
-@misc{zhu2025healthflow,
-  title={HealthFlow: A Self-Evolving AI Agent with Meta Planning for Autonomous Healthcare Research},
-  author={Yinghao Zhu and Yifan Qi and Zixiang Wang and Lei Gu and Dehao Sui and Haoran Hu and Xichen Zhang and Ziyi He and and Junjun He and Liantao Ma and Lequan Yu},
-  year={2025},
-  eprint={2508.02621},
-  archivePrefix={arXiv},
-  primaryClass={cs.AI},
-  url={https://arxiv.org/abs/2508.02621},
-}
-```

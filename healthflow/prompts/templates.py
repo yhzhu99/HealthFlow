@@ -54,6 +54,11 @@ Planned execution:
 $plan_markdown
 ---
 
+Task session context:
+---
+$session_context
+---
+
 Execution log:
 ---
 $execution_log

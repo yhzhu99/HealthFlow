@@ -276,12 +276,19 @@ class InteractiveShell:
                 reserve_space_for_menu=4,
             )
 
+    def _session_subtitle(self) -> str:
+        session_label = getattr(self._system, "session_label", None)
+        if session_label:
+            return f"Session {self._session_index} · {session_label}"
+        return f"Session {self._session_index}"
+
     def _render_banner(self) -> None:
-        subtitle = f"Session {self._session_index}"
+        subtitle = self._session_subtitle()
         interrupt_hint = "ESC ESC interrupt" if self._escape_supported else "ESC ESC interrupt (TTY only)"
         body = "\n".join(
             [
-                "[bold]Ready for the next task.[/bold]",
+                "[bold]Interactive CLI mode.[/bold]",
+                "[dim]Follow-up prompts stay on the current task. Use /new to start a fresh one.[/dim]",
                 "[dim]Ask in plain language. Slash suggestions only appear when '/' is the first character.[/dim]",
                 "",
                 "[bold]Quick keys[/bold]",
@@ -308,6 +315,7 @@ class InteractiveShell:
             "[green]exit[/green] / [green]quit[/green]  Exit interactive mode.",
             "",
             "[bold]Usage notes[/bold]",
+            "Each session keeps the same task until /new starts a fresh one.",
             "Slash suggestions only appear when '/' is typed in column 1.",
             "Tab completes commands. ESC ESC interrupts the current run.",
         ]

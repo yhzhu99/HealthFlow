@@ -14,6 +14,22 @@ prompt.md
 *.Zone.Identifier
 .DS_Store
 workspace/
+/deploy/
+
+# HealthFlow platform frontend is committed as source, configs, and bundled assets.
+!platform/
+!platform/**
+!platform/**/*.json
+!platform/**/*.jsonl
+!platform/**/*.lock
+!platform/**/*.pdf
+!platform/**/*.png
+!platform/**/*.csv
+
+# Local-only evaluation data and generated review artifacts.
+platform/evaluation-data/
+platform/public/data/
+platform/public/evaluation-assets/
 
 # Benchmark datasets are local-only artifacts; keep scripts/docs in git.
 data/*/raw/**
@@ -39,6 +55,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+!platform/src/lib/
+!platform/src/lib/**
 parts/
 sdist/
 var/

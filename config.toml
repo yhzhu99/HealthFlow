@@ -156,4 +156,4 @@ success_threshold = 0.8
 # --- Logging Configuration ---
 [logging]
 log_level = "INFO"
-log_file = "healthflow.log"
+log_file = "healthflow.log" # relative paths resolve under the workspace root (workspace/healthflow.log by default)

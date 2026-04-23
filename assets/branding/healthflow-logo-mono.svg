@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 240" role="img" aria-labelledby="healthflowMonoLogoTitle healthflowMonoLogoDesc">
+  <title id="healthflowMonoLogoTitle">HealthFlow monochrome logo</title>
+  <desc id="healthflowMonoLogoDesc">HealthFlow monochrome premium wordmark with a refined rounded medical badge, designed for a bright, modern product interface.</desc>
+  <defs>
+    <linearGradient id="monoBadgeGrad" x1="30" y1="26" x2="198" y2="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#435263"/>
+      <stop offset=".55" stop-color="#263446"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <radialGradient id="monoBadgeGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(88 64) rotate(41) scale(140)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".18"/>
+      <stop offset=".62" stop-color="#FFFFFF" stop-opacity=".05"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="monoArcOuter" x1="56" y1="162" x2="182" y2="72" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D3DCE5"/>
+      <stop offset=".52" stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <linearGradient id="monoArcInner" x1="170" y1="90" x2="84" y2="170" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D5DEE8"/>
+    </linearGradient>
+    <linearGradient id="monoPulseGrad" x1="82" y1="102" x2="142" y2="132" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E5ECF3"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <filter id="monoBadgeShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#0F172A" flood-opacity=".18"/>
+    </filter>
+  </defs>
+  <g filter="url(#monoBadgeShadow)">
+    <rect x="24" y="24" width="192" height="192" rx="58" fill="url(#monoBadgeGrad)"/>
+  </g>
+  <rect x="24" y="24" width="192" height="192" rx="58" fill="url(#monoBadgeGlow)"/>
+  <rect x="28" y="28" width="184" height="184" rx="54" fill="none" stroke="#FFFFFF" stroke-opacity=".12"/>
+  <path
+    d="M58 150 A70 70 0 1 1 176 76"
+    fill="none"
+    stroke="url(#monoArcOuter)"
+    stroke-width="18"
+    stroke-linecap="round"
+    opacity=".96"
+  />
+  <path
+    d="M166 96 A58 58 0 1 1 82 170"
+    fill="none"
+    stroke="url(#monoArcInner)"
+    stroke-width="10"
+    stroke-linecap="round"
+    opacity=".84"
+  />
+  <circle cx="176" cy="76" r="7" fill="#FFFFFF"/>
+  <circle cx="58" cy="150" r="5" fill="#E7EEF5"/>
+  <g>
+    <rect x="98" y="74" width="44" height="92" rx="22" fill="#FFFFFF"/>
+    <rect x="74" y="98" width="92" height="44" rx="22" fill="#FFFFFF"/>
+  </g>
+  <path
+    d="M84 120h14l9-18 12 33 10-21h17"
+    fill="none"
+    stroke="url(#monoPulseGrad)"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <g transform="translate(256 120)" font-family="SF Pro Display, SF Pro Text, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" text-rendering="geometricPrecision" font-kerning="normal">
+    <text
+      x="0"
+      y="0"
+      dominant-baseline="middle"
+      fill="#111827"
+      font-size="96"
+      font-weight="600"
+      letter-spacing="-4"
+    >Health</text>
+    <text
+      x="272"
+      y="0"
+      dominant-baseline="middle"
+      fill="#4B5A6B"
+      font-size="96"
+      font-weight="500"
+      letter-spacing="-3.8"
+    >Flow</text>
+  </g>
+</svg>

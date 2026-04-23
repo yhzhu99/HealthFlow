@@ -272,23 +272,27 @@ reasoning_effort = "medium"
         self.assertEqual(environment["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
 
     def test_default_backend_environment_includes_project_venv_bin(self):
-        for backend_name, backend_config in default_executor_backends().items():
-            resolved_config = backend_config
-            if backend_name == "pi" and backend_config.model is None:
-                resolved_config = backend_config.model_copy(update={"model": "openai/gpt-5.4"})
-            executor = create_executor_adapter(backend_name, resolved_config)
-            with patch.dict(
-                "os.environ",
-                {"HOME": "/tmp/demo", "PATH": "/usr/bin:/bin", "ZENMUX_API_KEY": "demo-key"},
-                clear=True,
-            ):
-                environment = executor._build_environment(Path.cwd())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            working_dir = Path(tmpdir)
+            for backend_name, backend_config in default_executor_backends().items():
+                resolved_config = backend_config
+                if backend_name == "pi" and backend_config.model is None:
+                    resolved_config = backend_config.model_copy(update={"model": "openai/gpt-5.4"})
+                executor = create_executor_adapter(backend_name, resolved_config)
+                with patch.dict(
+                    "os.environ",
+                    {"HOME": "/tmp/demo", "PATH": "/usr/bin:/bin", "ZENMUX_API_KEY": "demo-key"},
+                    clear=True,
+                ):
+                    environment = executor._build_environment(working_dir)
 
-            path_entries = environment["PATH"].split(":")
-            self.assertEqual(path_entries[0], str(Path.cwd() / ".venv" / "bin"))
-            self.assertTrue(shutil.which("sh", path=environment["PATH"]))
-            self.assertTrue(shutil.which("oneehr", path=environment["PATH"]))
-            self.assertTrue(shutil.which("tu", path=environment["PATH"]))
+                path_entries = environment["PATH"].split(":")
+                self.assertEqual(path_entries[0], str(Path.cwd() / ".venv" / "bin"))
+                self.assertTrue(shutil.which("sh", path=environment["PATH"]))
+                self.assertTrue(shutil.which("oneehr", path=environment["PATH"]))
+                self.assertTrue(shutil.which("tu", path=environment["PATH"]))
+                if backend_name == "pi":
+                    self.assertFalse(Path(environment["PI_CODING_AGENT_DIR"]).exists())
 
     def test_pi_executor_writes_runtime_models_json(self):
         executor = PiExecutor(
@@ -309,6 +313,10 @@ reasoning_effort = "medium"
         with tempfile.TemporaryDirectory() as tmpdir:
             working_dir = Path(tmpdir)
             environment = executor._build_environment(working_dir)
+            agent_dir = Path(environment["PI_CODING_AGENT_DIR"])
+            self.assertFalse(agent_dir.exists())
+
+            environment = executor._materialize_environment(environment, working_dir)
             agent_dir = Path(environment["PI_CODING_AGENT_DIR"])
             models_json = json.loads((agent_dir / "models.json").read_text(encoding="utf-8"))
 
@@ -337,6 +345,10 @@ reasoning_effort = "medium"
         with tempfile.TemporaryDirectory() as tmpdir:
             working_dir = Path(tmpdir)
             environment = executor._build_environment(working_dir)
+            agent_dir = Path(environment["PI_CODING_AGENT_DIR"])
+            self.assertFalse(agent_dir.exists())
+
+            environment = executor._materialize_environment(environment, working_dir)
             agent_dir = Path(environment["PI_CODING_AGENT_DIR"])
             models_json = json.loads((agent_dir / "models.json").read_text(encoding="utf-8"))
 

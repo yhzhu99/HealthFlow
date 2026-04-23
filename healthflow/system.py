@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import shutil
 import time
 import uuid
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from loguru import logger
 from rich.live import Live
@@ -27,6 +28,7 @@ from .experience.experience_manager import ExperienceManager
 from .experience.experience_models import RetrievalContext
 from .reporting import generate_task_report
 from .runtime_artifacts import AttemptPaths, TaskRuntimePaths
+from .session import HealthFlowProgressEvent, SessionPromptContext, TaskSessionState, TaskSessionSummary, TaskTurnRecord
 
 _STEP_FINISH_REASON_RE = re.compile(r"reason=([^\s]+)")
 _CONTENT_TOKEN_RE = re.compile(r"[a-z0-9']+")
@@ -120,6 +122,192 @@ class HealthFlowSystem:
         self.workspace_dir = Path(config.system.workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
+    def create_task_session(self, task_id: str | None = None, *, original_goal: str = "") -> TaskSessionState:
+        resolved_task_id = task_id or str(uuid.uuid4())
+        task_workspace = self.workspace_dir / resolved_task_id
+        paths = TaskRuntimePaths.build(task_workspace)
+        paths.ensure_base_dirs()
+        session_path = self._session_state_path(task_workspace)
+        if session_path.exists():
+            return self.load_task_session(resolved_task_id)
+
+        now = self._utc_now()
+        state = TaskSessionState(
+            task_id=resolved_task_id,
+            task_root=str(task_workspace),
+            created_at_utc=now,
+            updated_at_utc=now,
+            original_goal=original_goal.strip(),
+            display_title="",
+            turn_count=0,
+            latest_turn_number=0,
+            latest_turn_status=None,
+        )
+        self._write_json(session_path, state.to_dict())
+        history_path = self._session_history_path(task_workspace)
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        history_path.touch(exist_ok=True)
+        return state
+
+    def load_task_session(self, task_id: str) -> TaskSessionState:
+        task_workspace = self.workspace_dir / task_id
+        session_path = self._session_state_path(task_workspace)
+        if not session_path.exists():
+            raise FileNotFoundError(f"Task session '{task_id}' does not exist.")
+        payload = self._read_json(session_path)
+        return TaskSessionState.from_dict(payload)
+
+    def load_task_history(self, task_id: str) -> list[TaskTurnRecord]:
+        task_workspace = self.workspace_dir / task_id
+        return self._read_session_history(task_workspace)
+
+    def list_task_sessions(self, limit: int = 20) -> list[TaskSessionSummary]:
+        summaries: list[TaskSessionSummary] = []
+        for task_workspace in sorted(self.workspace_dir.iterdir()) if self.workspace_dir.exists() else []:
+            if not task_workspace.is_dir():
+                continue
+            session_path = self._session_state_path(task_workspace)
+            if not session_path.exists():
+                continue
+            try:
+                state = TaskSessionState.from_dict(self._read_json(session_path))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+            history = self._read_session_history(task_workspace)
+            title = self._task_session_title(state, history)
+            summaries.append(
+                TaskSessionSummary(
+                    task_id=state.task_id,
+                    title=title,
+                    updated_at_utc=state.updated_at_utc,
+                    created_at_utc=state.created_at_utc,
+                    turn_count=state.turn_count,
+                    latest_turn_status=state.latest_turn_status,
+                )
+            )
+        summaries.sort(key=self._task_session_sort_key, reverse=True)
+        if limit > 0:
+            return summaries[:limit]
+        return summaries
+
+    def rename_task_session(self, task_id: str, display_title: str) -> TaskSessionState:
+        state = self.load_task_session(task_id)
+        task_workspace = self._task_workspace_path(task_id)
+        updated_state = TaskSessionState(
+            task_id=state.task_id,
+            task_root=state.task_root,
+            created_at_utc=state.created_at_utc,
+            updated_at_utc=self._utc_now(),
+            original_goal=state.original_goal,
+            display_title=display_title.strip(),
+            turn_count=state.turn_count,
+            latest_turn_number=state.latest_turn_number,
+            latest_turn_status=state.latest_turn_status,
+        )
+        self._write_json(self._session_state_path(task_workspace), updated_state.to_dict())
+        return updated_state
+
+    def delete_task_session(self, task_id: str) -> None:
+        task_workspace = self._task_workspace_path(task_id)
+        session_path = self._session_state_path(task_workspace)
+        if not session_path.exists():
+            raise FileNotFoundError(f"Task session '{task_id}' does not exist.")
+        shutil.rmtree(task_workspace)
+
+    def clear_task_sessions(self) -> None:
+        if not self.workspace_dir.exists():
+            return
+        for task_workspace in self.workspace_dir.iterdir():
+            if task_workspace.is_dir():
+                shutil.rmtree(task_workspace)
+
+    async def run_task_turn(
+        self,
+        task_id: str,
+        user_message: str,
+        uploaded_files: Optional[Dict[str, bytes]] = None,
+        report_requested: bool = False,
+        progress_callback: Callable[[HealthFlowProgressEvent], None] | None = None,
+        live: Optional[Live] = None,
+        spinner: Optional[Spinner] = None,
+    ) -> dict[str, Any]:
+        task_workspace = self.workspace_dir / task_id
+        root_paths = TaskRuntimePaths.build(task_workspace)
+        root_paths.ensure_base_dirs()
+        session_state = self.create_task_session(task_id, original_goal=user_message)
+        turn_number = session_state.turn_count + 1
+        turn_runtime_dir = self._turn_runtime_dir(root_paths, turn_number)
+        turn_paths = TaskRuntimePaths.build(
+            task_workspace,
+            sandbox_dir=root_paths.sandbox_dir,
+            runtime_dir=turn_runtime_dir,
+        )
+        turn_paths.ensure_base_dirs()
+
+        uploaded_file_records = self._store_turn_uploads(
+            task_workspace=task_workspace,
+            sandbox_dir=root_paths.sandbox_dir,
+            turn_number=turn_number,
+            uploaded_files=uploaded_files or {},
+        )
+        session_context = self._build_session_prompt_context(
+            task_workspace=task_workspace,
+            session_state=session_state,
+            turn_number=turn_number,
+            user_message=user_message,
+            uploaded_file_records=uploaded_file_records,
+        )
+        allow_direct_response = turn_number == 1 and not uploaded_file_records
+        result = await self._execute_task_run(
+            task_id=task_id,
+            task_workspace=task_workspace,
+            paths=turn_paths,
+            user_request=user_message,
+            live=live,
+            spinner=spinner,
+            uploaded_files=None,
+            report_requested=report_requested,
+            has_uploaded_files=bool(uploaded_file_records),
+            allow_direct_response=allow_direct_response,
+            session_context=session_context,
+            progress_callback=progress_callback,
+        )
+        self._mirror_latest_runtime(root_paths=root_paths, turn_paths=turn_paths, report_generated=result.get("report_generated", False))
+        root_index_result = dict(result)
+        root_index_result["report_path"] = str(root_paths.report_path) if result.get("report_generated") else None
+        self._write_runtime_index(
+            root_paths,
+            task_id,
+            user_message,
+            float(result.get("execution_time") or 0.0),
+            root_index_result,
+        )
+        self._append_aggregate_events(root_paths.events_path, turn_paths.events_path)
+        turn_record = TaskTurnRecord(
+            turn_number=turn_number,
+            user_message=user_message,
+            answer=str(result.get("answer") or ""),
+            status=str(result.get("evaluation_status") or ("cancelled" if result.get("cancelled") else "unknown")),
+            runtime_dir=str(turn_paths.runtime_dir),
+            report_path=result.get("report_path"),
+            evaluation_feedback=result.get("final_summary"),
+            uploaded_files=uploaded_file_records,
+            created_at_utc=self._utc_now(),
+        )
+        self._append_session_history(task_workspace, turn_record)
+        self._update_task_session_state(
+            task_workspace=task_workspace,
+            session_state=session_state,
+            turn_number=turn_number,
+            turn_status=turn_record.status,
+        )
+        result["task_id"] = task_id
+        result["turn_number"] = turn_number
+        result["session_path"] = str(self._session_state_path(task_workspace))
+        result["session_history_path"] = str(self._session_history_path(task_workspace))
+        result["uploaded_files"] = uploaded_file_records
+        return result
+
     async def run_task(
         self,
         user_request: str,
@@ -132,7 +320,38 @@ class HealthFlowSystem:
         task_workspace = self.workspace_dir / task_id
         paths = TaskRuntimePaths.build(task_workspace)
         paths.ensure_base_dirs()
+        self.create_task_session(task_id, original_goal=user_request)
+        return await self._execute_task_run(
+            task_id=task_id,
+            task_workspace=task_workspace,
+            paths=paths,
+            user_request=user_request,
+            live=live,
+            spinner=spinner,
+            uploaded_files=uploaded_files,
+            report_requested=report_requested,
+            has_uploaded_files=bool(uploaded_files),
+            allow_direct_response=True,
+            session_context=None,
+            progress_callback=None,
+        )
 
+    async def _execute_task_run(
+        self,
+        *,
+        task_id: str,
+        task_workspace: Path,
+        paths: TaskRuntimePaths,
+        user_request: str,
+        live: Optional[Live],
+        spinner: Optional[Spinner],
+        uploaded_files: Optional[Dict[str, bytes]],
+        report_requested: bool,
+        has_uploaded_files: bool,
+        allow_direct_response: bool,
+        session_context: SessionPromptContext | None,
+        progress_callback: Callable[[HealthFlowProgressEvent], None] | None,
+    ) -> dict[str, Any]:
         if self.config.memory.write_policy == "reset_before_run":
             await self.experience_manager.reset()
 
@@ -154,6 +373,10 @@ class HealthFlowSystem:
                 spinner,
                 report_requested,
                 uploaded_files=uploaded_files,
+                has_uploaded_files=has_uploaded_files,
+                allow_direct_response=allow_direct_response,
+                session_context=session_context,
+                progress_callback=progress_callback,
             )
         except ExecutionCancelledError as exc:
             logger.warning("[{}] Task cancelled during execution.", task_id)
@@ -164,12 +387,30 @@ class HealthFlowSystem:
                 execution_result=exc.result,
                 cancel_reason=exc.cancel_reason,
             )
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="turn_cancelled",
+                    stage="run",
+                    status="cancelled",
+                    message=exc.cancel_reason,
+                ),
+            )
         except asyncio.CancelledError:
             logger.warning("[{}] Task cancelled before completion.", task_id)
             result = self._build_cancelled_task_result(
                 task_id=task_id,
                 paths=paths,
                 user_request=user_request,
+            )
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="turn_cancelled",
+                    stage="run",
+                    status="cancelled",
+                    message="Task cancelled before completion.",
+                ),
             )
         execution_time = round(time.time() - start_time, 2)
         result["execution_time"] = execution_time
@@ -202,7 +443,11 @@ class HealthFlowSystem:
 
         if report_requested and not result.get("cancelled", False):
             try:
-                report_path = generate_task_report(task_workspace)
+                report_path = generate_task_report(
+                    task_workspace,
+                    runtime_dir=paths.runtime_dir,
+                    report_path=paths.report_path,
+                )
                 result["report_generated"] = True
                 result["report_path"] = str(report_path)
             except Exception as exc:
@@ -211,6 +456,20 @@ class HealthFlowSystem:
                 result["report_path"] = None
                 result["report_error"] = str(exc)
             self._write_runtime_index(paths, task_id, user_request, execution_time, result)
+
+        self._emit_progress(
+            progress_callback,
+            HealthFlowProgressEvent(
+                kind="turn_finished",
+                stage="run",
+                status="completed" if result.get("success") else ("cancelled" if result.get("cancelled") else "failed"),
+                message=str(result.get("final_summary") or ""),
+                metadata={
+                    "runtime_path": str(paths.runtime_dir),
+                    "report_path": result.get("report_path"),
+                },
+            ),
+        )
         return result
 
     async def _run_task_flow(
@@ -222,11 +481,17 @@ class HealthFlowSystem:
         spinner: Optional[Spinner],
         report_requested: bool,
         uploaded_files: Optional[Dict[str, bytes]] = None,
+        has_uploaded_files: bool = False,
+        allow_direct_response: bool = True,
+        session_context: SessionPromptContext | None = None,
+        progress_callback: Callable[[HealthFlowProgressEvent], None] | None = None,
     ) -> Dict[str, Any]:
-        direct_response = await self.direct_response_router.maybe_build_direct_response(
-            user_request,
-            has_uploaded_files=bool(uploaded_files),
-        )
+        direct_response = None
+        if allow_direct_response:
+            direct_response = await self.direct_response_router.maybe_build_direct_response(
+                user_request,
+                has_uploaded_files=has_uploaded_files or bool(uploaded_files),
+            )
         if direct_response is not None:
             return await self._run_direct_response_flow(
                 task_id=task_id,
@@ -242,6 +507,8 @@ class HealthFlowSystem:
             live,
             spinner,
             report_requested,
+            session_context=session_context,
+            progress_callback=progress_callback,
         )
 
     async def _run_direct_response_flow(
@@ -432,9 +699,20 @@ class HealthFlowSystem:
         live: Optional[Live],
         spinner: Optional[Spinner],
         report_requested: bool,
+        session_context: SessionPromptContext | None = None,
+        progress_callback: Callable[[HealthFlowProgressEvent], None] | None = None,
     ) -> Dict[str, Any]:
         if spinner and live:
             spinner.text = "Profiling task state and preparing memory retrieval..."
+        self._emit_progress(
+            progress_callback,
+            HealthFlowProgressEvent(
+                kind="stage_started",
+                stage="run",
+                status="running",
+                message="Profiling task state and preparing memory retrieval.",
+            ),
+        )
 
         data_profile = profile_workspace_data(paths.sandbox_dir, user_request)
         risk_findings = detect_risk_findings(user_request, data_profile)
@@ -477,6 +755,17 @@ class HealthFlowSystem:
             "risk_findings": task_state["risk_findings"],
             "attempts": [],
         }
+        if session_context is not None:
+            trajectory["session_context"] = {
+                "task_id": session_context.task_id,
+                "turn_number": session_context.turn_number,
+                "original_goal": session_context.original_goal,
+                "previous_answer": session_context.previous_answer,
+                "previous_feedback": session_context.previous_feedback,
+                "recent_turns": session_context.recent_turns,
+                "sandbox_artifacts": session_context.sandbox_artifacts,
+                "current_uploads": session_context.current_uploads,
+            }
 
         is_success = False
         final_answer = "No answer generated."
@@ -497,6 +786,18 @@ class HealthFlowSystem:
             attempt_paths = paths.attempt(attempt_num)
             attempt_paths.ensure_dirs()
             previous_feedback = self._feedback_from_attempt(trajectory["attempts"][-1]) if attempt_num > 1 else None
+            if previous_feedback is None and session_context is not None:
+                previous_feedback = session_context.previous_feedback
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="stage_started",
+                    stage="memory",
+                    status="running",
+                    attempt=attempt_num,
+                    message=f"Attempt {attempt_num}: retrieving memory.",
+                ),
+            )
             retrieval_context = self._build_retrieval_context(
                 data_profile=data_profile,
                 risk_findings=risk_findings,
@@ -530,9 +831,29 @@ class HealthFlowSystem:
                     "skipped": retrieval_audit.get("skipped", False),
                 },
             )
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="stage_finished",
+                    stage="memory",
+                    status="completed",
+                    attempt=attempt_num,
+                    metadata={"selected_count": len(retrieval_audit.get("selected", []))},
+                ),
+            )
 
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Planning..."
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="stage_started",
+                    stage="planner",
+                    status="running",
+                    attempt=attempt_num,
+                    message=f"Attempt {attempt_num}: planning.",
+                ),
+            )
 
             plan = await self.meta_agent.generate_plan(
                 user_request=user_request,
@@ -544,6 +865,7 @@ class HealthFlowSystem:
                 available_project_cli_tools=available_project_cli_tools,
                 workflow_recommendations=workflow_recommendations,
                 previous_feedback=previous_feedback,
+                session_context=session_context,
             )
             planning_usage = self._capture_agent_usage(self.meta_agent, "planner")
             plan_markdown = plan.to_markdown()
@@ -571,6 +893,25 @@ class HealthFlowSystem:
                     "planner_call": paths.relative_path(attempt_paths.planner_call_path),
                 },
             )
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="stage_finished",
+                    stage="planner",
+                    status="completed",
+                    attempt=attempt_num,
+                    message=plan.objective,
+                    metadata={
+                        "plan_path": str(attempt_paths.planner_plan_markdown_path),
+                        "objective": plan.objective,
+                        "assumptions_to_check": list(plan.assumptions_to_check),
+                        "recommended_steps": list(plan.recommended_steps),
+                        "recommended_workflows": list(plan.recommended_workflows),
+                        "avoidances": list(plan.avoidances),
+                        "success_signals": list(plan.success_signals),
+                    },
+                ),
+            )
 
             execution_context = ExecutionContext(
                 user_request=user_request,
@@ -585,10 +926,23 @@ class HealthFlowSystem:
                 code_snippet_memory=self._format_memory_lines(code_snippet_experiences),
                 prior_feedback=previous_feedback,
                 executor_artifact_dir=attempt_paths.executor_dir,
+                session_context=session_context.execution_block() if session_context is not None else None,
+                progress_callback=progress_callback,
+                turn_number=session_context.turn_number if session_context is not None else None,
             )
 
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Executing with {self.config.active_executor_name}..."
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="stage_started",
+                    stage="executor",
+                    status="running",
+                    attempt=attempt_num,
+                    message=f"Attempt {attempt_num}: executing with {self.config.active_executor_name}.",
+                ),
+            )
             execution_result = await self.executor.execute(
                 execution_context,
                 paths.sandbox_dir,
@@ -642,15 +996,50 @@ class HealthFlowSystem:
                     "cancelled": execution_result.cancelled,
                 },
             )
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="log_chunk",
+                    stage="executor",
+                    status="completed" if execution_result.success else "failed",
+                    attempt=attempt_num,
+                    message=execution_result.log[-4000:],
+                    metadata={"backend": execution_result.backend},
+                ),
+            )
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="artifact_delta",
+                    stage="executor",
+                    status="completed" if execution_result.success else "failed",
+                    attempt=attempt_num,
+                    metadata={
+                        "artifacts": workspace_artifacts,
+                        "generated_answer": generated_answer,
+                    },
+                ),
+            )
 
             if spinner and live:
                 spinner.text = f"Attempt {attempt_num}: Evaluating..."
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="stage_started",
+                    stage="evaluator",
+                    status="running",
+                    attempt=attempt_num,
+                    message=f"Attempt {attempt_num}: evaluating.",
+                ),
+            )
             verdict = await self.evaluator.evaluate(
                 user_request=user_request,
                 plan=plan,
                 execution_log=execution_result.log,
                 workspace_artifacts=workspace_artifacts,
                 generated_answer=generated_answer,
+                session_context=session_context,
             )
             verdict = self._normalize_evaluation_verdict(verdict)
             evaluation_usage = self._capture_agent_usage(self.evaluator, "evaluator")
@@ -679,6 +1068,20 @@ class HealthFlowSystem:
                     "failure_type": verdict.failure_type,
                     "retry_recommended": verdict.retry_recommended,
                 },
+            )
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="stage_finished",
+                    stage="evaluator",
+                    status=verdict.status,
+                    attempt=attempt_num,
+                    message=verdict.feedback,
+                    metadata={
+                        "score": verdict.score,
+                        "failure_type": verdict.failure_type,
+                    },
+                ),
             )
 
             attempt_history = {
@@ -788,6 +1191,15 @@ class HealthFlowSystem:
         if should_write_memory:
             if spinner and live:
                 spinner.text = "Synthesizing memory..."
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="stage_started",
+                    stage="reflection",
+                    status="running",
+                    message="Synthesizing memory.",
+                ),
+            )
             reflection_output = await self.reflector.synthesize_experience(
                 trajectory,
                 final_verdict=final_verdict,
@@ -832,6 +1244,18 @@ class HealthFlowSystem:
                     "new_experiences": len(new_experiences),
                     "memory_updates": len(memory_updates),
                 },
+            )
+            self._emit_progress(
+                progress_callback,
+                HealthFlowProgressEvent(
+                    kind="stage_finished",
+                    stage="reflection",
+                    status="completed",
+                    metadata={
+                        "new_experiences": len(new_experiences),
+                        "memory_updates": len(memory_updates),
+                    },
+                ),
             )
         if reflection_usage:
             trajectory["reflection"] = reflection_usage
@@ -1541,6 +1965,13 @@ class HealthFlowSystem:
         tags.extend(f"column:{item}" for item in data_profile.time_columns[:3])
         return list(dict.fromkeys(tags))
 
+    def _utc_now(self) -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def _read_json(self, path: Path) -> dict[str, Any]:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+
     def _write_json(self, path: Path, payload: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as handle:
@@ -1573,6 +2004,190 @@ class HealthFlowSystem:
         self._write_json(call_path, trace.get("call", {}))
         self._write_json(repair_trace_path, trace.get("repair_trace", {}))
 
+    def _emit_progress(
+        self,
+        progress_callback: Callable[[HealthFlowProgressEvent], None] | None,
+        event: HealthFlowProgressEvent,
+    ) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(event)
+        except Exception as exc:
+            logger.debug("HealthFlow progress callback failed: {}", exc)
+
+    def _session_state_path(self, task_workspace: Path) -> Path:
+        return task_workspace / "runtime" / "session.json"
+
+    def _session_history_path(self, task_workspace: Path) -> Path:
+        return task_workspace / "runtime" / "history.jsonl"
+
+    def _turn_runtime_dir(self, root_paths: TaskRuntimePaths, turn_number: int) -> Path:
+        return root_paths.runtime_dir / "turns" / f"turn_{turn_number:03d}"
+
+    def _turn_upload_dir(self, task_workspace: Path, turn_number: int) -> Path:
+        return task_workspace / "uploads" / f"turn_{turn_number:03d}"
+
+    def _store_turn_uploads(
+        self,
+        *,
+        task_workspace: Path,
+        sandbox_dir: Path,
+        turn_number: int,
+        uploaded_files: dict[str, bytes],
+    ) -> list[dict[str, str]]:
+        if not uploaded_files:
+            return []
+        upload_dir = self._turn_upload_dir(task_workspace, turn_number)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        sandbox_dir.mkdir(parents=True, exist_ok=True)
+        records: list[dict[str, str]] = []
+        for fallback_index, (filename, content) in enumerate(uploaded_files.items(), start=1):
+            safe_name = Path(filename).name.strip() or f"upload_{fallback_index}"
+            upload_path = self._unique_child_path(upload_dir, safe_name)
+            upload_path.write_bytes(content)
+            sandbox_path = self._unique_child_path(sandbox_dir, safe_name)
+            sandbox_path.write_bytes(content)
+            records.append(
+                {
+                    "original_name": filename,
+                    "upload_path": str(upload_path.relative_to(task_workspace)),
+                    "sandbox_path": str(sandbox_path.relative_to(task_workspace)),
+                    "sandbox_name": sandbox_path.name,
+                }
+            )
+        return records
+
+    def _unique_child_path(self, directory: Path, filename: str) -> Path:
+        candidate = directory / filename
+        if not candidate.exists():
+            return candidate
+        stem = candidate.stem or "upload"
+        suffix = candidate.suffix
+        counter = 2
+        while True:
+            candidate = directory / f"{stem}_{counter}{suffix}"
+            if not candidate.exists():
+                return candidate
+            counter += 1
+
+    def _read_session_history(self, task_workspace: Path) -> list[TaskTurnRecord]:
+        history_path = self._session_history_path(task_workspace)
+        if not history_path.exists():
+            return []
+        records: list[TaskTurnRecord] = []
+        for line in history_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            records.append(TaskTurnRecord.from_dict(json.loads(line)))
+        return records
+
+    def _append_session_history(self, task_workspace: Path, turn_record: TaskTurnRecord) -> None:
+        history_path = self._session_history_path(task_workspace)
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(history_path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(turn_record.to_dict(), cls=DateTimeEncoder) + "\n")
+
+    def _update_task_session_state(
+        self,
+        *,
+        task_workspace: Path,
+        session_state: TaskSessionState,
+        turn_number: int,
+        turn_status: str,
+    ) -> TaskSessionState:
+        updated_state = TaskSessionState(
+            task_id=session_state.task_id,
+            task_root=session_state.task_root,
+            created_at_utc=session_state.created_at_utc,
+            updated_at_utc=self._utc_now(),
+            original_goal=session_state.original_goal,
+            display_title=session_state.display_title,
+            turn_count=turn_number,
+            latest_turn_number=turn_number,
+            latest_turn_status=turn_status,
+        )
+        self._write_json(self._session_state_path(task_workspace), updated_state.to_dict())
+        return updated_state
+
+    def _build_session_prompt_context(
+        self,
+        *,
+        task_workspace: Path,
+        session_state: TaskSessionState,
+        turn_number: int,
+        user_message: str,
+        uploaded_file_records: list[dict[str, str]],
+    ) -> SessionPromptContext:
+        history = self._read_session_history(task_workspace)
+        recent_turns = [{"user": item.user_message, "assistant": item.answer} for item in history[-3:]]
+        previous_answer = history[-1].answer if history else None
+        previous_feedback = history[-1].evaluation_feedback if history else None
+        original_goal = session_state.original_goal.strip() or (history[0].user_message if history else user_message)
+        return SessionPromptContext(
+            task_id=session_state.task_id,
+            turn_number=turn_number,
+            original_goal=original_goal,
+            latest_user_message=user_message,
+            previous_answer=previous_answer,
+            previous_feedback=previous_feedback,
+            recent_turns=recent_turns,
+            sandbox_artifacts=self._workspace_artifact_paths(task_workspace / "sandbox"),
+            current_uploads=uploaded_file_records,
+        )
+
+    def _task_session_sort_key(self, summary: TaskSessionSummary) -> tuple[str, str]:
+        return (summary.updated_at_utc or "", summary.created_at_utc or "")
+
+    def _task_workspace_path(self, task_id: str) -> Path:
+        task_workspace = (self.workspace_dir / task_id).resolve()
+        workspace_root = self.workspace_dir.resolve()
+        if task_workspace == workspace_root or workspace_root not in task_workspace.parents:
+            raise ValueError(f"Task session '{task_id}' resolves outside the workspace.")
+        return task_workspace
+
+    def _task_session_title(self, state: TaskSessionState, history: list[TaskTurnRecord]) -> str:
+        return (
+            state.display_title.strip()
+            or state.original_goal.strip()
+            or (history[0].user_message.strip() if history else "")
+            or "Untitled task"
+        )
+
+    def _mirror_latest_runtime(
+        self,
+        *,
+        root_paths: TaskRuntimePaths,
+        turn_paths: TaskRuntimePaths,
+        report_generated: bool,
+    ) -> None:
+        self._copy_tree_contents(turn_paths.run_dir, root_paths.run_dir)
+        self._copy_tree_contents(turn_paths.attempts_dir, root_paths.attempts_dir)
+        self._copy_tree_contents(turn_paths.reflection_dir, root_paths.reflection_dir)
+        if turn_paths.final_evaluation_path.exists():
+            root_paths.final_evaluation_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(turn_paths.final_evaluation_path, root_paths.final_evaluation_path)
+        if report_generated and turn_paths.report_path.exists():
+            root_paths.report_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(turn_paths.report_path, root_paths.report_path)
+        elif root_paths.report_path.exists():
+            root_paths.report_path.unlink()
+
+    def _copy_tree_contents(self, source_dir: Path, target_dir: Path) -> None:
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        if source_dir.exists():
+            shutil.copytree(source_dir, target_dir)
+        else:
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+    def _append_aggregate_events(self, aggregate_path: Path, turn_events_path: Path) -> None:
+        if not turn_events_path.exists():
+            return
+        aggregate_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(aggregate_path, "a", encoding="utf-8") as aggregate_handle:
+            aggregate_handle.write(turn_events_path.read_text(encoding="utf-8"))
+
     def _append_runtime_event(
         self,
         paths: TaskRuntimePaths,
@@ -1590,7 +2205,7 @@ class HealthFlowSystem:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         event_payload = {
-            "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+            "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "task_id": paths.task_root.name,
             "attempt": attempt,
             "stage": stage,

@@ -4,7 +4,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 from ..core.config import EnvironmentConfig
 from ..core.contracts import ExecutionPlan
@@ -25,6 +25,9 @@ class ExecutionContext:
     prior_feedback: Optional[str] = None
     executor_artifact_dir: Path | None = None
     prompt_style: Literal["healthflow", "bare"] = "healthflow"
+    session_context: str | None = None
+    progress_callback: Callable[[Any], None] | None = None
+    turn_number: int | None = None
 
     def render_prompt(self) -> str:
         if self.prompt_style == "bare":
@@ -55,6 +58,8 @@ class ExecutionContext:
         has_prior_feedback = bool(self.prior_feedback and self.prior_feedback.strip())
         if has_prior_feedback:
             prompt.extend(["", "## Feedback from Previous Attempt", self.prior_feedback.strip()])
+        if self.session_context and self.session_context.strip():
+            prompt.extend(["", "## Task Session Context", self.session_context.strip()])
         prompt.extend(["", self.plan.to_markdown(title_level=2)])
         rules = [
             "Inspect the workspace and any task inputs before committing to an implementation path.",

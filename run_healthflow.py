@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 import typer
 from loguru import logger
@@ -14,10 +15,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from healthflow.system import HealthFlowSystem
 from healthflow.core.config import get_config, setup_logging
+from healthflow.session_client import TaskSessionClient
+from healthflow.web_app import launch_web_app
 
 app = typer.Typer(
     name="healthflow",
-    help="A Self-Evolving Meta-System for Orchestrating Agentic Coders in Healthcare.",
+    help=(
+        "HealthFlow has three modes: `run` for non-interactive one-shot tasks, "
+        "`interactive` for the terminal chat shell, and `web` for the browser UI."
+    ),
     add_completion=False,
 )
 console = Console()
@@ -123,8 +129,40 @@ def _display_task_result(result: dict, *, verbose: bool = False, chat_mode: bool
 """
     console.print(Panel(final_report, title=panel_title, border_style=panel_border_style))
 
+def _spinner_progress_callback(spinner: Spinner):
+    def _handle(event) -> None:
+        message = event.message or f"{event.stage}: {event.status}"
+        if event.kind == "artifact_delta":
+            artifacts = event.metadata.get("artifacts") if isinstance(event.metadata, dict) else None
+            if artifacts:
+                spinner.text = f"{event.stage}: {len(artifacts)} artifact(s) available"
+                return
+        spinner.text = message
+
+    return _handle
+
+
+async def _run_task_like(
+    target: Any,
+    task: str,
+    *,
+    live: Live | None,
+    spinner: Spinner | None,
+    report_requested: bool,
+):
+    if hasattr(target, "run_turn"):
+        return await target.run_turn(
+            task,
+            live=live,
+            spinner=spinner,
+            report_requested=report_requested,
+            progress_callback=_spinner_progress_callback(spinner) if spinner is not None else None,
+        )
+    return await target.run_task(task, live, spinner, report_requested=report_requested)
+
+
 async def execute_task_with_spinner(
-    system: HealthFlowSystem,
+    system: Any,
     task: str,
     report_requested: bool = False,
     *,
@@ -137,14 +175,20 @@ async def execute_task_with_spinner(
 
     spinner = Spinner("dots", text="HealthFlow is orchestrating...")
     with Live(spinner, console=console, transient=True, refresh_per_second=20) as live:
-        result = await system.run_task(task, live, spinner, report_requested=report_requested)
+        result = await _run_task_like(
+            system,
+            task,
+            live=live,
+            spinner=spinner,
+            report_requested=report_requested,
+        )
 
     _display_task_result(result, verbose=verbose, chat_mode=chat_mode)
     return result
 
 
 async def run_single_task_flow(
-    system: HealthFlowSystem,
+    system: Any,
     task: str,
     report_requested: bool = False,
     *,
@@ -167,9 +211,19 @@ async def run_single_task_flow(
     return result
 
 
-async def main_interactive_loop(system: HealthFlowSystem, *, verbose: bool = False):
+async def main_interactive_loop(system: Any, *, verbose: bool = False):
     """Runs the basic interactive loop used for non-TTY or fallback sessions."""
-    console.print(Panel("[bold green]HealthFlow Interactive Mode[/bold green]", subtitle="Type 'exit' or 'quit' to end the session.", border_style="green"))
+    session = system if isinstance(system, TaskSessionClient) else TaskSessionClient(system)
+    console.print(
+        Panel(
+            (
+                "[bold green]HealthFlow Interactive CLI[/bold green]\n\n"
+                "[dim]Follow-up prompts stay on the same task session. Use /new to start a fresh task.[/dim]"
+            ),
+            subtitle=f"{session.session_label} · Type 'exit' or 'quit' to end the session.",
+            border_style="green",
+        )
+    )
     while True:
         try:
             task_input = console.input("\n[bold magenta]HealthFlow > [/bold magenta]").strip()
@@ -178,7 +232,14 @@ async def main_interactive_loop(system: HealthFlowSystem, *, verbose: bool = Fal
             if task_input.lower() in ["exit", "quit"]:
                 console.print("[yellow]Exiting interactive mode.[/yellow]")
                 break
-            await run_single_task_flow(system, task_input, verbose=verbose, chat_mode=True)
+            if task_input == "/new":
+                session.new_task()
+                console.print(f"[yellow]Started a new task session: {session.task_id}[/yellow]")
+                continue
+            if task_input == "/clear":
+                console.clear()
+                continue
+            await run_single_task_flow(session, task_input, verbose=verbose, chat_mode=True)
         except (KeyboardInterrupt, EOFError):
             console.print("\n[yellow]Exiting interactive mode.[/yellow]")
             break
@@ -258,7 +319,7 @@ def run(
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
 ):
     """
-    Run a single task through the HealthFlow system.
+    Run one task non-interactively. Best for scripts, CI, and one-shot analyses.
     """
     system = _initialize_system(
         config_path,
@@ -284,7 +345,7 @@ def interactive(
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
 ):
     """
-    Starts HealthFlow in an interactive, chat-like mode for multiple tasks.
+    Start the interactive CLI. Follow-up prompts stay on the same task until /new.
     """
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         system = _initialize_system(
@@ -316,7 +377,7 @@ def interactive(
         asyncio.run(main_interactive_loop(system, verbose=verbose))
         return
 
-    system_factory = _build_system_factory(
+    base_system_factory = _build_system_factory(
         config_path,
         experience_path,
         planner_llm,
@@ -326,8 +387,9 @@ def interactive(
         active_executor,
         verbose=verbose,
     )
+    system_factory = lambda: TaskSessionClient(base_system_factory())
 
-    async def _interactive_runner(system: HealthFlowSystem, task: str) -> dict:
+    async def _interactive_runner(system: Any, task: str) -> dict:
         return await execute_task_with_spinner(
             system,
             task,
@@ -343,18 +405,69 @@ def interactive(
     )
     asyncio.run(shell.run())
 
+
+@app.command()
+def web(
+    config_path: Path = typer.Option("config.toml", "--config", "-c", help="Path to the configuration file."),
+    experience_path: Path = typer.Option("workspace/memory/experience.jsonl", "--experience-path", help="Path to the experience knowledge base file."),
+    planner_llm: str = typer.Option(None, "--planner-llm", help="Override runtime.planner_llm from config.toml."),
+    evaluator_llm: str = typer.Option(None, "--evaluator-llm", help="Override runtime.evaluator_llm from config.toml."),
+    reflector_llm: str = typer.Option(None, "--reflector-llm", help="Override runtime.reflector_llm from config.toml."),
+    executor_llm: str = typer.Option(None, "--executor-llm", help="Override runtime.executor_llm from config.toml."),
+    active_executor: str = typer.Option(None, "--active-executor", help="The executor backend to use (e.g., claude_code, opencode, pi)."),
+    server_name: str = typer.Option("127.0.0.1", "--server-name", help="Host interface to bind the web app."),
+    server_port: int = typer.Option(7860, "--server-port", help="Port to bind the web app."),
+    share: bool = typer.Option(False, "--share", help="Create a temporary public Gradio share link."),
+    root_path: str | None = typer.Option(
+        None,
+        "--root-path",
+        envvar=["HEALTHFLOW_WEB_ROOT_PATH", "GRADIO_ROOT_PATH"],
+        help="Serve the web UI behind a proxy prefix such as /app.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
+):
+    """
+    Launch the browser UI. Web follow-ups stay on the same task until New Task.
+    """
+    system_factory = _build_system_factory(
+        config_path,
+        experience_path,
+        planner_llm,
+        evaluator_llm,
+        reflector_llm,
+        executor_llm,
+        active_executor,
+        verbose=verbose,
+    )
+    launch_web_app(
+        system_factory,
+        server_name=server_name,
+        server_port=server_port,
+        share=share,
+        root_path=root_path,
+    )
+
 @app.callback(invoke_without_command=True)
 def main_entry(ctx: typer.Context):
     """
     Main entry point for the CLI. Shows help by default.
     """
     if ctx.invoked_subcommand is None:
-        console.print(Panel("[bold cyan]Welcome to HealthFlow[/bold cyan]",
-                            subtitle="A Self-Evolving Meta-System for Agentic AI in Healthcare",
-                            border_style="cyan"))
-        console.print("\nRun `[bold]python run_healthflow.py --help[/bold]` for commands.")
-        console.print("  - `[bold]run \"<your task>\"[/bold]` to execute a single task.")
-        console.print("  - `[bold]interactive[/bold]` to start a chat-like session.")
+        console.print(
+            Panel(
+                "[bold cyan]Welcome to HealthFlow[/bold cyan]",
+                subtitle="Choose the interface that matches how you want to work",
+                border_style="cyan",
+            )
+        )
+        console.print("\nHealthFlow exposes three modes:")
+        console.print("  - `[bold]run[/bold]`: non-interactive CLI for a single task, scripts, and CI.")
+        console.print("  - `[bold]interactive[/bold]`: terminal chat shell that keeps the same task until `/new`.")
+        console.print("  - `[bold]web[/bold]`: browser UI that keeps the same task until `New Task`.")
+        console.print(
+            "\nRun `[bold]uv run healthflow --help[/bold]` or "
+            "`[bold]python run_healthflow.py --help[/bold]` for full command details."
+        )
 
 if __name__ == "__main__":
     app()

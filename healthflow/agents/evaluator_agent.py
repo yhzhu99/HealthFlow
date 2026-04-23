@@ -4,6 +4,7 @@ from loguru import logger
 from ..core.contracts import EvaluationVerdict, ExecutionPlan
 from ..core.llm_provider import LLMProvider, LLMMessage, StructuredResponseError, parse_json_content
 from ..prompts.templates import get_prompt, render_prompt
+from ..session import SessionPromptContext
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
 
@@ -27,6 +28,7 @@ class EvaluatorAgent:
         execution_log: str,
         workspace_artifacts: list[str],
         generated_answer: str,
+        session_context: SessionPromptContext | None = None,
     ) -> EvaluationVerdict:
         """
         Evaluate an execution attempt and return a structured verdict.
@@ -37,6 +39,7 @@ class EvaluatorAgent:
             "evaluator_user",
             user_request=user_request,
             plan_markdown=plan.to_markdown(),
+            session_context=(session_context.evaluator_block() if session_context is not None else "No prior session context."),
             execution_log=sanitized_execution_log,
             workspace_artifacts="\n".join(f"- {item}" for item in workspace_artifacts) or "- No workspace artifacts found.",
             generated_answer=generated_answer or "No final answer was extracted.",

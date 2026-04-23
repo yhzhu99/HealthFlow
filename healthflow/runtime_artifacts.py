@@ -123,9 +123,15 @@ class TaskRuntimePaths:
     reflection_repair_trace_path: Path
 
     @classmethod
-    def build(cls, task_root: Path) -> "TaskRuntimePaths":
-        sandbox_dir = task_root / "sandbox"
-        runtime_dir = task_root / "runtime"
+    def build(
+        cls,
+        task_root: Path,
+        *,
+        sandbox_dir: Path | None = None,
+        runtime_dir: Path | None = None,
+    ) -> "TaskRuntimePaths":
+        sandbox_dir = sandbox_dir or task_root / "sandbox"
+        runtime_dir = runtime_dir or task_root / "runtime"
         attempts_dir = runtime_dir / "attempts"
         run_dir = runtime_dir / "run"
         reflection_dir = runtime_dir / "reflection"

@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
 
+from .artifacts import (
+    artifact_category as shared_artifact_category,
+    artifact_descriptor as shared_artifact_descriptor,
+    collect_report_deliverables,
+)
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
 _REPORT_EXTENSIONS = {".md", ".txt", ".pdf", ".rst", ".doc", ".docx"}
@@ -32,8 +38,13 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _PATH_LIKE_RE = re.compile(r"(?<!\w)(?:\./|\.\./|/)[^\s`]+")
 
 
-def generate_task_report(task_workspace: Path) -> Path:
-    runtime_dir = task_workspace / "runtime"
+def generate_task_report(
+    task_workspace: Path,
+    *,
+    runtime_dir: Path | None = None,
+    report_path: Path | None = None,
+) -> Path:
+    runtime_dir = runtime_dir or (task_workspace / "runtime")
     sandbox_dir = task_workspace / "sandbox"
     index = _read_json(runtime_dir / "index.json")
     run_summary = _read_json(runtime_dir / "run" / "summary.json")
@@ -41,7 +52,8 @@ def generate_task_report(task_workspace: Path) -> Path:
     evaluation = _read_json(runtime_dir / "run" / "final_evaluation.json")
     cost_analysis = _read_json(runtime_dir / "run" / "costs.json")
 
-    deliverables = _collect_deliverables(sandbox_dir)
+    resolved_report_path = report_path or (runtime_dir / "report.md")
+    deliverables = _collect_deliverables(sandbox_dir, resolved_report_path)
     report_markdown = _render_report(
         task_workspace=task_workspace,
         index=index,
@@ -52,7 +64,7 @@ def generate_task_report(task_workspace: Path) -> Path:
         deliverables=deliverables,
     )
 
-    report_path = runtime_dir / "report.md"
+    report_path = resolved_report_path
     temp_path = report_path.with_suffix(".md.tmp")
     temp_path.write_text(report_markdown, encoding="utf-8")
     temp_path.replace(report_path)
@@ -919,54 +931,12 @@ def _audit_rows(run_summary: dict[str, Any], latest_attempt: dict[str, Any]) -> 
     return audit_rows
 
 
-def _collect_deliverables(sandbox_dir: Path) -> list[dict[str, Any]]:
-    deliverables: list[dict[str, Any]] = []
-    if not sandbox_dir.exists():
-        return deliverables
-    for path in sorted(sandbox_dir.rglob("*")):
-        if not path.is_file():
-            continue
-        relative_path = path.relative_to(sandbox_dir).as_posix()
-        if _is_runtime_path(relative_path):
-            continue
-        deliverables.append(
-            {
-                "path": (Path("..") / "sandbox" / relative_path).as_posix(),
-                "sandbox_relative_path": relative_path,
-                "source_path": path,
-                "category": _categorize_artifact(path),
-                "descriptor": _artifact_descriptor(path),
-                "size_bytes": path.stat().st_size,
-            }
-        )
-    return deliverables
+def _collect_deliverables(sandbox_dir: Path, report_path: Path) -> list[dict[str, Any]]:
+    return collect_report_deliverables(sandbox_dir, report_path)
 
 
 def _artifact_descriptor(path: Path) -> str:
-    if path.suffix.lower() == ".md":
-        heading = _first_markdown_heading(path)
-        if heading:
-            return heading
-    if path.suffix.lower() == ".json":
-        json_descriptor = _json_descriptor(path)
-        if json_descriptor:
-            return json_descriptor
-    if path.suffix.lower() in {".csv", ".tsv"}:
-        csv_descriptor = _csv_descriptor(path)
-        if csv_descriptor:
-            return csv_descriptor
-    if path.suffix.lower() == ".ipynb":
-        notebook_descriptor = _notebook_descriptor(path)
-        if notebook_descriptor:
-            return notebook_descriptor
-    if path.suffix.lower() == ".py":
-        python_descriptor = _python_descriptor(path)
-        if python_descriptor:
-            return python_descriptor
-    text_descriptor = _text_descriptor(path)
-    if text_descriptor:
-        return text_descriptor
-    return _generic_descriptor(path)
+    return shared_artifact_descriptor(path)
 
 
 def _first_markdown_heading(path: Path) -> str | None:
@@ -1108,16 +1078,7 @@ def _generic_descriptor(path: Path) -> str:
 
 
 def _categorize_artifact(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix in _IMAGE_EXTENSIONS:
-        return "images"
-    if suffix in _CODE_EXTENSIONS:
-        return "code/notebooks"
-    if suffix in _DATA_EXTENSIONS:
-        return "tables/data"
-    if suffix in _REPORT_EXTENSIONS:
-        return "reports/docs"
-    return "other outputs"
+    return shared_artifact_category(path)
 
 
 def _artifact_link(relative_path: str) -> str:

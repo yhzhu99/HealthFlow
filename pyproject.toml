@@ -41,6 +41,11 @@ dependencies = [
 [project.scripts]
 healthflow = "run_healthflow:app"
 
+[project.optional-dependencies]
+web = [
+    "gradio>=5.0,<6.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3.5",
