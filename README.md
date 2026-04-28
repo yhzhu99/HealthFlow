@@ -1,463 +1,245 @@
-# HealthFlow: A Self-Evolving MERF Runtime for CodeAct Analysis
+# HealthFlow
 
-[![Project Website](https://img.shields.io/badge/Project%20Website-HealthFlow-0066cc.svg)](https://healthflow-agent.netlify.app)
+[![Project Website](https://img.shields.io/badge/Project-HealthFlow-0066cc.svg)](https://healthflow.medx-pku.com/)
+[![Online App](https://img.shields.io/badge/App-healthflow.medx--pku.com%2Fapp-0f766e.svg)](https://healthflow.medx-pku.com/app)
+[![Datasets](https://img.shields.io/badge/Data-GitHub%20Releases-7c3aed.svg)](https://github.com/yhzhu99/HealthFlow/releases/tag/datasets)
 
-HealthFlow is a research framework for **self-evolving task execution with a four-stage Meta -> Executor -> Evaluator -> Reflector loop**. The core runtime is organized around planning, CodeAct-style execution, structured evaluation, per-task runtime artifacts, and long-term reflective memory. Dataset preparation and benchmark evaluation workflows can still live in the repository under `data/`, but they are intentionally decoupled from the `healthflow/` runtime package.
+HealthFlow is a strategically self-evolving multi-agent framework for automating electronic health record (EHR) analysis. It turns a clinical analysis request into a governed workflow that plans, executes, evaluates, repairs, and writes back reusable experience for later tasks.
 
-- structured `Meta` planning with EHR-adaptive memory retrieval
-- `Executor` as a CodeAct runtime over external executor backends
-- `Evaluator`-driven retry and failure diagnosis
-- `Reflector` writeback from both successful and failed trajectories
-- inspectable workspace artifacts and run telemetry
+The system is organized around four agents:
 
-HealthFlow compares external coding agents through a shared executor abstraction. The maintained built-in backends are `claude_code`, `codex`, `opencode`, and `pi`, with `opencode` as the default.
+- **Meta agent**: profiles the task, retrieves bounded EHR-aware experience, and produces an attempt-specific plan.
+- **Executor agent**: turns the plan into code, tool calls, and analytical artifacts through an external coding-agent backend.
+- **Evaluator agent**: reviews execution traces and artifacts for runtime failures and EHR validity risks.
+- **Reflector agent**: synthesizes reusable safeguards, workflows, dataset anchors, and code snippets from completed trajectories.
 
-HealthFlow currently ships three user-facing interfaces:
+Useful links:
 
-- non-interactive CLI: `healthflow run ...`
-- interactive CLI: `healthflow interactive`
-- web UI: `healthflow web`
+- Project website: <https://healthflow.medx-pku.com/>
+- Public app: <https://healthflow.medx-pku.com/app>
+- Human evaluation platform: <https://healthflow.medx-pku.com/evaluation>
+- Code repository: <https://github.com/yhzhu99/HealthFlow>
+- Dataset release: <https://github.com/yhzhu99/HealthFlow/releases/tag/datasets>
 
-## Core Runtime
+## Paper
 
-HealthFlow runs a lean **Meta -> Executor -> Evaluator -> Reflector** loop.
+**HealthFlow: Automating electronic health record analysis via a strategically self-evolving multi-agent framework**
 
-1. **Meta**: retrieve relevant safeguards, dataset anchors, workflows, and code snippets, then emit a structured execution plan.
-2. **Executor**: interpret the plan as a CodeAct brief and act through code, commands, and workspace artifacts using whatever tools are already configured in the outer executor.
-3. **Evaluator**: review the execution trace and produced artifacts, classify the outcome as `success`, `needs_retry`, or `failed`, and provide repair instructions for the next attempt.
-4. **Reflector**: synthesize reusable safeguards, workflows, dataset anchors, or code snippets from the full trajectory after the task session ends.
+Authors:
+Yinghao Zhu, Zixiang Wang, Yifan Qi, Lei Gu, Dehao Sui, Haoran Hu, Xichen Zhang, Ziyi He, Yasha Wang, Junjun He, Liantao Ma, and Lequan Yu.
 
-The task-level self-correction budget is controlled by `system.max_attempts`, which counts total full attempts through the loop rather than "retries plus one".
+Affiliations:
 
-## What HealthFlow Contributes
+1. National Engineering Research Center for Software Engineering, Peking University, Beijing, China, 100871
+2. School of Computing and Data Science, The University of Hong Kong, Hong Kong SAR, China, 999077
+3. Department of Computer Science and Engineering, The Hong Kong University of Science and Technology, Hong Kong SAR, China, 999077
+4. Shanghai Artificial Intelligence Laboratory, Shanghai, China, 200232
 
-- **MERF core runtime**: the framework definition is the four-stage Meta, Executor, Evaluator, Reflector loop rather than an outer benchmark-evaluation pipeline.
-- **Lean execution contract**: HealthFlow defines workspace rules, execution-environment defaults, and workflow recommendations without becoming a tool-hosting framework.
-- **Inspectable memory**: safeguards, workflows, dataset anchors, and code snippets are stored in JSONL, retrieved through bounded adaptive per-type ranges, and exposed through a saved retrieval audit.
-- **Evaluator-centered recovery**: retries are driven by structured failure diagnosis and repair instructions instead of a single scalar score alone.
-- **Reproducibility contract**: every task workspace writes structured runtime artifacts instead of only human-readable logs.
-- **Executor telemetry**: run artifacts capture executor metadata, backend versions when available, LLM usage, executor usage, and stage-level estimated cost summaries.
-- **Role-specific runtime models**: planner, evaluator, reflector, and executor can be configured against different model entries to reduce single-model coupling.
+Equal contribution: Yinghao Zhu, Zixiang Wang, and Yifan Qi.
 
-## Workspace Artifacts
+Correspondence: `malt@pku.edu.cn`, `lqyu@hku.hk`.
 
-Runtime state lives under `workspace/` by default:
+The paper introduces HealthFlow and EHRFlowBench, a benchmark of realistic EHR analysis tasks derived from 51,280 peer-reviewed papers. Across EHRFlowBench and four established benchmarks, HealthFlow improves full-cycle EHR workflow completion by reusing prior analytical experience under dataset-specific and methodological constraints.
 
-- shared app log: `workspace/healthflow.log`
-- task artifacts: `workspace/tasks/<task_id>/`
-- long-term memory: `workspace/memory/experience.jsonl`
+## Data Availability
 
-Dataset preparation and benchmark evaluation assets remain under `data/`; they are outside the `healthflow/` package boundary.
+The benchmark data are available in the GitHub Releases Zone:
 
-Each task creates a workspace under `workspace/tasks/<task_id>/` and writes:
+- Release page: <https://github.com/yhzhu99/HealthFlow/releases/tag/datasets>
+- Direct asset: <https://github.com/yhzhu99/HealthFlow/releases/download/datasets/healthflow_datasets.zip>
 
-- `sandbox/`
-  - executor-visible inputs and produced deliverables only
-  - Pi runs also materialize `.healthflow_pi_agent/` here when that backend is active
-- `runtime/index.json`
-- `runtime/events.jsonl`
-- `runtime/run/summary.json`
-- `runtime/run/trajectory.json`
-- `runtime/run/costs.json`
-- `runtime/run/final_evaluation.json`
-- `runtime/attempts/attempt_*/`
-  - `planner/`: input messages, raw output, parsed output, call metadata, repair trace, plan markdown
-  - `executor/`: prompt, command, stdout, stderr, combined log, telemetry, usage, artifact index
-  - `evaluator/`: input messages, raw output, parsed output, call metadata, repair trace
+The release contains the curated benchmark assets for:
 
-When `healthflow run ... --report` is enabled, the same workspace also writes:
+- EHRFlowBench
+- MedAgentBoard
+- MedAgentsBench
+- HLE
+- CureBench
 
-- `runtime/report.md`
+Download and extract the release archive from the repository root:
 
-These files are the main source of truth for rebuttal-oriented inspection.
-`runtime/report.md` is a HealthFlow-generated markdown report designed for end users such as Health Data Scientists. It renders the run as a short-paper-style narrative with sections such as Abstract, Problem, HealthFlow Analysis, Execution, Results, and Conclusion, while keeping runtime JSON/log links in a compact audit appendix.
+```bash
+curl -L -o healthflow_datasets.zip \
+  https://github.com/yhzhu99/HealthFlow/releases/download/datasets/healthflow_datasets.zip
 
-## Runtime Boundary
+unzip -q healthflow_datasets.zip -d data -x "__MACOSX/*" "*/.DS_Store"
+```
 
-- **Core runtime**: the MERF loop in `healthflow/system.py`.
-- **Domain specialization**: EHR-specific helpers under `healthflow/ehr/`.
-- **Dataset prep and benchmark evaluation**: repository-level workflows under `data/`, intentionally decoupled from `healthflow/`.
+Dataset `raw/` and `processed/` directories are intentionally ignored by git. The committed `data/*/README.md` files and scripts document how each benchmark subset is prepared and evaluated.
 
-The framework package is focused on taking a task, executing it, improving task success rate across attempts, and writing inspectable artifacts and reports for each task run.
-
-## Memory Behavior
-
-HealthFlow uses four first-class memory classes:
-
-- `safeguard`
-- `workflow`
-- `dataset_anchor`
-- `code_snippet`
-
-Retrieval is inspectable:
-
-- retrieval is conditioned on task family, dataset signature, schema tags, and EHR risk tags
-- retrieval uses bounded per-type ranges instead of a fixed top-k lane layout
-- safeguards are retrieved only when their `risk_tags` match current actionable EHR risks
-- dataset anchors are retrieved only under exact dataset match
-- workflows and code snippets are retrieved by task-family, schema, category, and implementation relevance
-- contradictions are mitigated by suppressing only same-kind memories that share the same category and scope
-- complementary memories across kinds can coexist, with safeguards taking precedence only if execution behavior conflicts
-- the retrieval audit is saved per attempt under `runtime/attempts/attempt_*/memory/retrieval_result.json`
-
-Writeback behavior:
-
-- successful tasks can write `workflow`, `dataset_anchor`, and `code_snippet` memory
-- recovered tasks can write one `safeguard`, plus one corrected reusable `workflow` or `code_snippet`
-- failed tasks write `safeguard` memory only
-- safeguard writeback is reserved for EHR risk-prevention knowledge such as cohort definition, temporal leakage, patient linkage, identifier misuse, unsafe missingness handling, clinically implausible aggregation, and analysis-contract violations
-- retrieved memories can be explicitly `validate`d or `retire`d based on later trajectories
-- memories are not retired automatically by retrieval-time competition; retirement requires explicit later evidence
-
-## Supported Execution Backends
-
-HealthFlow keeps the executor layer backend-agnostic, but the public surface is intentionally small:
-
-- `opencode` (default)
-- `claude_code`
-- `codex`
-- `pi`
-
-You can still define additional CLI backends in `config.toml`, but the harness logic stays in HealthFlow rather than being baked into one external backend.
-Executor-specific repository instruction files are intentionally avoided at the repo root so backend comparisons use the same injected prompt guidance.
-
-## External CLI Workflows
-
-HealthFlow does not implement an internal MCP registry, plugin framework, or large CLI catalog. Tool availability belongs to the outer executor layer such as Claude Code, OpenCode, Pi, or Codex.
-
-HealthFlow only supplies:
-
-- a lightweight execution-environment contract
-- small workflow recommendations
-- documentation recipes for selected external CLIs
-
-When external CLIs are part of the supported workflow, prefer declaring them in this project's `pyproject.toml` and installing them into the shared repo `.venv`. Executor backends should use that same project environment rather than ad hoc global tool installs.
-
-Executor defaults are configured for normal text output. HealthFlow does not require external backends to finish in JSON. Structured event streams remain optional backend-specific telemetry modes.
-
-`run_benchmark.py` always forces `memory.write_policy = "freeze"` so benchmark evaluation remains decoupled from the framework's self-evolving writeback behavior.
+Original public data sources used by the paper include the MIMIC-IV Public Demo Release on PhysioNet, the TJH dataset from `HAIRLAB/Pre_Surv_COVID_19`, MedAgentsBench, Humanity's Last Exam, and CureBench. Follow the usage terms of each upstream provider.
 
 ## Quick Start
 
-### Prerequisites
+Prerequisites:
 
 - Python 3.12+
 - `uv`
-- one execution backend available in `PATH`
+- one executor backend available in `PATH`
   - default: `opencode`
   - alternatives: `claude`, `codex`, `pi`
 
-### Setup
+Install dependencies:
 
 ```bash
 uv sync
 source .venv/bin/activate
+```
+
+Set the API keys required by the default `config.toml`:
+
+```bash
 export ZENMUX_API_KEY="your_zenmux_key_here"
 export DEEPSEEK_API_KEY="your_deepseek_key_here"
 ```
 
-The repo already ships a ready-to-edit [`config.toml`](/home/yhzhu/projects/HealthFlow/config.toml). Update that file with the model entries you want to expose to HealthFlow. If you prefer to write your own from scratch, use the same shape and keep secrets in `api_key_env`:
-
-```toml
-[llm."deepseek/deepseek-chat"]
-api_key_env = "DEEPSEEK_API_KEY"
-base_url = "https://api.deepseek.com"
-model_name = "deepseek-chat"
-executor_model_name = "deepseek-chat"
-executor_provider = "deepseek"
-executor_provider_base_url = "https://api.deepseek.com/anthropic"
-executor_provider_api = "anthropic-messages"
-executor_provider_api_key_env = "DEEPSEEK_API_KEY"
-input_cost_per_million_tokens = 0.28
-output_cost_per_million_tokens = 0.43
-
-[llm."deepseek/deepseek-reasoner"]
-api_key_env = "DEEPSEEK_API_KEY"
-base_url = "https://api.deepseek.com"
-model_name = "deepseek-reasoner"
-reasoning_effort = "high"
-executor_model_name = "deepseek-reasoner"
-executor_provider = "deepseek"
-executor_provider_base_url = "https://api.deepseek.com/anthropic"
-executor_provider_api = "anthropic-messages"
-executor_provider_api_key_env = "DEEPSEEK_API_KEY"
-
-[llm."openai/gpt-5.4"]
-api_key_env = "ZENMUX_API_KEY"
-base_url = "https://zenmux.ai/api/v1"
-model_name = "openai/gpt-5.4"
-input_cost_per_million_tokens = 2.50
-output_cost_per_million_tokens = 15.00
-
-[llm."google/gemini-3-flash-preview"]
-api_key_env = "ZENMUX_API_KEY"
-base_url = "https://zenmux.ai/api/v1"
-model_name = "google/gemini-3-flash-preview"
-input_cost_per_million_tokens = 0.50
-output_cost_per_million_tokens = 3.00
-
-[runtime]
-planner_llm = "deepseek/deepseek-chat"
-evaluator_llm = "openai/gpt-5.4"
-reflector_llm = "google/gemini-3-flash-preview"
-executor_llm = "deepseek/deepseek-chat"
-```
-
-`api_key` still works for inline secrets, but `api_key_env` is the recommended path. Use quoted TOML table names for model keys that contain `/`.
-
-If you want estimated LLM cost summaries in run artifacts, set `input_cost_per_million_tokens` and `output_cost_per_million_tokens` for any model entry used by the planner, evaluator, or reflector in `config.toml`. If those fields are omitted, HealthFlow skips cost estimation for that model. `opencode` executor runs also record per-step executor token usage and estimated executor cost when the CLI returns structured telemetry.
-
-By default, the active executor inherits the same `model_name` as the selected `runtime.executor_llm`, except for `codex`, which is pinned to `openai/gpt-5.4` in the repo defaults because that is the only Codex model/provider path currently verified in this setup. Override the executor-side model only if you explicitly want the planner/evaluator model and the backend model to diverge for an experiment.
-
-For official DeepSeek models, HealthFlow also inherits executor-specific routing fields. `opencode` uses its builtin `deepseek` provider directly, so no custom provider override is required if your DeepSeek credential is already configured in `opencode`. `pi` and `claude_code` inherit the same DeepSeek model but route through DeepSeek's Anthropic-compatible endpoint.
-
-The built-in executor defaults also enable reasoning-oriented modes out of the box:
-- `opencode`: `--variant high --format json`
-- `codex`: `model_reasoning_effort="high"` and `model_reasoning_summary="detailed"`
-- `pi`: `--thinking high`
-- `claude_code`: `--effort high`
-
-These are still ordinary backend settings in `config.toml`, so you can override them per executor for large experiment sweeps.
-
-Example executor configuration with ZenMux-backed defaults:
-
-```toml
-[executor.backends.opencode]
-binary = "opencode"
-args = ["run", "--variant", "$reasoning_effort", "--format", "json"]
-reasoning_effort = "high"
-model_flag = "-m"
-model_template = "$provider/$model"
-provider = "zenmux"
-
-[executor.backends.codex]
-binary = "codex"
-args = ["exec", "--skip-git-repo-check", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
-arg_templates = ["-c", "model_provider=\"$provider\"", "-c", "model_providers.$provider={name=\"ZenMux\", base_url=\"$provider_base_url\", env_key=\"$provider_api_key_env\", wire_api=\"responses\"}", "-c", "model_reasoning_effort=\"$reasoning_effort\"", "-c", "model_reasoning_summary=\"detailed\""]
-reasoning_effort = "high"
-model = "openai/gpt-5.4"
-model_flag = "-m"
-inherit_executor_llm = false
-provider = "zenmux"
-provider_base_url = "https://zenmux.ai/api/v1"
-provider_api_key_env = "ZENMUX_API_KEY"
-
-[executor.backends.pi]
-binary = "pi"
-args = ["--print", "--thinking", "$reasoning_effort"]
-reasoning_effort = "high"
-provider_flag = "--provider"
-model_flag = "--model"
-provider = "zenmux"
-provider_base_url = "https://zenmux.ai/api/v1"
-provider_api = "openai-completions"
-provider_api_key_env = "ZENMUX_API_KEY"
-
-[executor.backends.claude_code]
-binary = "claude"
-args = ["--bare", "--setting-sources", "local", "--dangerously-skip-permissions", "--print", "--output-format", "text", "--effort", "$reasoning_effort"]
-reasoning_effort = "high"
-env = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1" }
-model_flag = "--model"
-provider = "zenmux"
-provider_base_url = "https://zenmux.ai/api/anthropic"
-provider_api = "anthropic-messages"
-provider_api_key_env = "ZENMUX_API_KEY"
-```
-
-HealthFlow also exposes a small execution-environment contract:
-
-```toml
-[environment]
-python_version = "3.12"
-package_manager = "uv"
-install_command = "uv add"
-run_prefix = "uv run"
-```
-
-To select explicit runtime models, set:
-
-```toml
-[runtime]
-planner_llm = "deepseek/deepseek-chat"
-evaluator_llm = "openai/gpt-5.4"
-reflector_llm = "google/gemini-3-flash-preview"
-executor_llm = "deepseek/deepseek-chat"
-```
-
-Any model named in `[runtime]` must also be declared under `[llm]`.
-
-CLI flags override `config.toml` for the matching role:
-- `--planner-llm`
-- `--evaluator-llm`
-- `--reflector-llm`
-- `--executor-llm`
-
-Legacy tool-registration sections are intentionally unsupported. If you previously configured CLI or MCP tools inside HealthFlow, move that setup into the outer executor and keep only the environment defaults above in HealthFlow.
-
-### External CLI Recipes
-
-HealthFlow may surface selected external CLIs when they are available in the project environment, but it does not install, register, or invoke them directly.
-In orchestrated runs, the planner and executor prompts receive the applicable local CLI contracts that HealthFlow can resolve from the project environment today, such as `oneehr` or `tu` / `tooluniverse`.
-Applicability still matters: `oneehr` is mainly useful for EHR workflows, while ToolUniverse is mainly useful for biomedical tool lookup and execution.
-
-ToolUniverse CLI examples:
-
-```bash
-uv run tu list
-uv run tu find "pathway analysis"
-uv run tu info <tool-name>
-uv run tu run <tool-name> --help
-uv run tu status
-uv run tu serve
-```
-
-ToolUniverse also supports a local `.tooluniverse/profile.yaml` workspace and can launch its own MCP server with `tu serve`, but HealthFlow does not manage that MCP surface.
-
-OneEHR CLI examples:
-
-```bash
-uv run oneehr preprocess --help
-uv run oneehr train --help
-uv run oneehr test --help
-uv run oneehr analyze --help
-uv run oneehr plot --help
-uv run oneehr convert --help
-```
-
-### Three Modes
-
-You can use either invocation style throughout this README:
-
-- packaged CLI: `uv run healthflow ...`
-- direct script: `python run_healthflow.py ...`
-
-#### Non-Interactive CLI
-
-Use this mode for one-shot runs, scripts, and CI. Each invocation creates a fresh task workspace.
+Run a one-shot task:
 
 ```bash
 uv run healthflow run \
-  "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
+  "Analyze the uploaded EHR data and write a concise report with methods, results, and limitations." \
   --active-executor opencode \
   --report
 ```
 
-```bash
-python run_healthflow.py run \
-  "Analyze the uploaded sales.csv and summarize the top 3 drivers of revenue decline." \
-  --active-executor opencode \
-  --report
-```
+HealthFlow writes each task workspace under `workspace/tasks/<task_id>/`. When `--report` is enabled, the final markdown report is written to `workspace/tasks/<task_id>/runtime/report.md`.
 
-The same CLI can also run EHR-focused prompts used in the paper and arbitrary external-CLI-driven workflows.
-When `--report` is enabled, HealthFlow writes `workspace/tasks/<task_id>/runtime/report.md` after the run finishes, even for failed runs, so a reviewer can inspect the task outcome from a single paper-style markdown artifact before exporting it to PDF or other formats.
+## Run HealthFlow
 
-To override the configured runtime models from the CLI, pass any subset of:
-`--planner-llm`, `--evaluator-llm`, `--reflector-llm`, `--executor-llm`.
+HealthFlow exposes three user-facing modes.
 
-#### Interactive CLI
-
-Use this mode when you want a terminal chat workflow. Follow-up prompts stay on the same task until you use `/new`.
+Non-interactive CLI:
 
 ```bash
-uv run healthflow interactive \
-  --active-executor opencode
+uv run healthflow run "Your analysis task here" --active-executor opencode --report
 ```
+
+Interactive terminal:
 
 ```bash
-python run_healthflow.py interactive \
-  --active-executor opencode
+uv run healthflow interactive --active-executor opencode
 ```
 
-Interactive mode now supports a command-aware shell:
-
-- `/help`: show commands and keyboard hints
-- `/clear`: clear the terminal and redraw the session banner
-- `/new`: start a fresh local session while preserving `workspace/memory/experience.jsonl`
-- `/exit`: exit interactive mode
-- `exit` / `quit`: aliases for `/exit`
-- Type `/` in column 1 to open slash-command suggestions
-- `Tab`: complete slash commands
-- `ESC ESC`: cancel the current run without leaving the shell
-
-#### Web UI
-
-Use this mode when you want a browser-based task session with uploads, trace streaming, and artifact download links. Follow-up messages stay on the same task until you click `New Task`, and refreshing the page restores that task session.
-
-If you have not installed the web dependency yet, run:
+Browser UI:
 
 ```bash
 uv sync --extra web
+uv run healthflow web --server-port 7860
 ```
 
+The same entrypoints can also be run directly:
+
 ```bash
-uv run healthflow web
+python run_healthflow.py run "Your analysis task here" --active-executor opencode --report
+python run_healthflow.py interactive --active-executor opencode
+python run_healthflow.py web --server-port 7860
 ```
 
+Common runtime overrides:
+
+- `--config`: path to `config.toml`
+- `--experience-path`: path to the long-term memory JSONL file
+- `--planner-llm`: override `runtime.planner_llm`
+- `--evaluator-llm`: override `runtime.evaluator_llm`
+- `--reflector-llm`: override `runtime.reflector_llm`
+- `--executor-llm`: override `runtime.executor_llm`
+- `--active-executor`: executor backend, such as `opencode`, `claude_code`, `codex`, or `pi`
+
+## Benchmarks and Evaluation
+
+HealthFlow was evaluated on five benchmark suites:
+
+- **EHRFlowBench**: 100 open-ended EHR analysis tasks derived from peer-reviewed literature and instantiated on TJH and the MIMIC-IV Public Demo Release.
+- **MedAgentBoard**: 100 executable workflow tasks spanning data extraction, predictive modeling, and visualization.
+- **MedAgentsBench**: deterministic multiple-choice medical reasoning evaluation.
+- **HLE**: selected Biology and Medicine questions from Humanity's Last Exam.
+- **CureBench**: deterministic biomedical decision-making evaluation.
+
+Run HealthFlow over a JSONL benchmark file:
+
 ```bash
-python run_healthflow.py web
-```
-
-Optional flags:
-
-- `--server-name` to change the bind address
-- `--server-port` to change the port
-- `--share` to request a temporary Gradio share link
-- `--root-path` to serve the Gradio UI behind a proxy prefix such as `/app`
-
-For subpath deployments, you can also set `GRADIO_ROOT_PATH=/app` (or `HEALTHFLOW_WEB_ROOT_PATH=/app`) before launching `healthflow web`.
-
-### Training
-
-Training data must be JSONL with `qid`, `task`, and `answer`.
-
-```bash
-python run_training.py data/train_set.jsonl ehrflow_train \
+python run_benchmark.py data/ehrflowbench/processed/test.jsonl ehrflowbench \
   --active-executor opencode
 ```
 
-### Benchmarking
+Results are written under:
 
-Benchmarking is just batch task execution over the same JSONL task shape used elsewhere in the runtime.
-Dataset construction, benchmark-specific preparation, and benchmark-side evaluation are not part of the `healthflow/` package and should be handled under `data/` or other repo-level tooling.
-
-```bash
-python run_benchmark.py path/to/tasks.jsonl experiment_name \
-  --active-executor opencode
+```text
+benchmark_results/<dataset>/<executor>/<runtime_selection>/
 ```
 
-Results are written under `benchmark_results/<dataset>/<executor>/<runtime_selection>/` with per-task copies of the workspace artifacts and dataset-level summary JSON.
-
-For a minimal executor smoke test, use [executor_smoke.jsonl](/home/yhzhu/projects/HealthFlow/data/examples/processed/executor_smoke.jsonl) with any built-in backend.
-
-## Benchmark Framing
-
-- **EHRFlowBench** is a paper-derived **proxy benchmark**. The canonical source of truth is the locally rebuilt task prompt plus `processed/expected/<qid>/`, not the original paper metric table.
-- `data/ehrflowbench/processed/paper_map.csv` is a local rebuild artifact that records provenance, proxy linkage mode, source-task eligibility, and review status for every canonical task.
-- **MedAgentBoard** is a deterministic workflow benchmark grounded in local TJH and MIMIC demo data prepared under `data/medagentboard/`.
-
-## Configuration
-
-Main config sections:
-
-- `[llm.*]`: model registry entries, with either `api_key` or `api_key_env`
-- `[runtime]`: planner/evaluator/reflector/executor model selection
-- `[executor]`: default backend and CLI backend definitions
-- `[environment]`: lightweight runtime defaults such as preferred Python version and `uv` command prefixes
-- `[memory]`: runtime write policy only (`append`, `freeze`, or `reset_before_run`)
-- `[evaluation]`: evaluator success threshold
-- `[system]`: workspace and task-attempt settings (`workspace_dir`, `max_attempts`)
-- `[logging]`: log level and log file
-
-By default, `[system].workspace_dir` points to `workspace/tasks`, relative `[logging].log_file` values resolve under the workspace root (so `healthflow.log` becomes `workspace/healthflow.log`), and CLI entrypoints use `workspace/memory/experience.jsonl` for shared long-term memory unless overridden.
+The benchmark runner freezes memory writeback during batch evaluation so benchmark execution remains separate from online self-evolving memory updates.
 
 ## Repository Layout
 
-- `run_healthflow.py`: non-interactive CLI, interactive CLI, and web UI entrypoint
-- `run_training.py`: dataset-style batch runner over task JSONL files
-- `run_benchmark.py`: batch task runner over task JSONL files
-- `healthflow/system.py`: orchestration loop
-- `healthflow/execution/`: executor layer
-- `healthflow/ehr/`: optional EHR specialization helpers kept outside the core loop
-- `healthflow/experience/`: EHR-adaptive memory and retrieval audit
+```text
+healthflow/                 Core runtime package
+  agents/                   Meta, evaluator, and reflector support
+  core/                     Configuration, LLM provider, and direct responses
+  ehr/                      EHR task profiling and domain helpers
+  execution/                Executor backend adapters
+  experience/               Governed experience memory and retrieval
+  prompts/                  Prompt templates
+data/                       Benchmark preparation and evaluation scripts
+platform/                   Public website and blinded evaluation frontend
+run_healthflow.py           CLI, interactive shell, and web app entrypoint
+run_benchmark.py            Batch benchmark runner
+run_training.py             Training-style batch runner
+config.toml                 Default model, executor, memory, and runtime config
+```
+
+## Runtime Architecture
+
+HealthFlow runs a four-stage loop for each task attempt:
+
+1. **Planning**: the meta agent builds an EHR-aware task context, retrieves compatible memory, and emits a structured execution plan.
+2. **Execution**: the executor backend implements the plan in a sandboxed workspace using code, shell commands, and available external tools.
+3. **Evaluation**: the evaluator checks artifacts, traces, and methodological validity, then returns a verdict and targeted repair guidance.
+4. **Reflection**: after task termination, the reflector updates long-term memory with validated safeguards, workflows, dataset anchors, and code snippets.
+
+Long-term memory lives at `workspace/memory/experience.jsonl` by default. Retrieval is conditioned on task family, dataset signature, schema tags, and EHR risk tags. Dataset anchors require exact dataset match, and safeguards require risk-tag overlap.
+
+Key runtime artifacts:
+
+```text
+workspace/healthflow.log
+workspace/memory/experience.jsonl
+workspace/tasks/<task_id>/sandbox/
+workspace/tasks/<task_id>/runtime/index.json
+workspace/tasks/<task_id>/runtime/events.jsonl
+workspace/tasks/<task_id>/runtime/run/summary.json
+workspace/tasks/<task_id>/runtime/run/trajectory.json
+workspace/tasks/<task_id>/runtime/run/costs.json
+workspace/tasks/<task_id>/runtime/run/final_evaluation.json
+workspace/tasks/<task_id>/runtime/report.md
+```
+
+## Configuration
+
+The default `config.toml` defines:
+
+- `[llm.*]`: model registry entries and API-key environment variables
+- `[runtime]`: planner, evaluator, reflector, and executor model choices
+- `[executor]`: active backend and backend-specific CLI settings
+- `[environment]`: lightweight execution environment defaults
+- `[system]`: workspace directory and maximum attempts
+- `[memory]`: write policy, such as `append`, `freeze`, or `reset_before_run`
+- `[evaluation]`: evaluator success threshold
+- `[logging]`: log level and log file
+
+The default configuration uses DeepSeek for planning/execution, GPT-5.4 for evaluation, Gemini 3 Flash Preview for reflection, and OpenCode as the executor backend. You can swap these by editing `config.toml` or by passing the CLI override flags listed above.
+
+External tools such as OneEHR and ToolUniverse are installed through the project environment and surfaced to the executor through HealthFlow's execution contract. HealthFlow does not host its own MCP registry or plugin catalog.
+
+## Citation
+
+Publication details are pending. For now, cite the manuscript as:
+
+```bibtex
+@misc{zhu2026healthflow,
+  title = {HealthFlow: Automating electronic health record analysis via a strategically self-evolving multi-agent framework},
+  author = {Zhu, Yinghao and Wang, Zixiang and Qi, Yifan and Gu, Lei and Sui, Dehao and Hu, Haoran and Zhang, Xichen and He, Ziyi and Wang, Yasha and He, Junjun and Ma, Liantao and Yu, Lequan},
+  year = {2026},
+  note = {Manuscript}
+}
+```
