@@ -63,9 +63,9 @@ export const sectionNav = [
 
 export const projectFacts = [
   {
-    label: 'Runtime',
-    value: 'Meta -> Executor -> Evaluator -> Reflector',
-    note: 'Four-agent loop that plans, executes, critiques, and writes back governed experience.',
+    label: 'Framework',
+    value: 'Meta, Executor, Evaluator, Reflector',
+    note: 'Four-agent coordination for planning, execution, evaluation, and governed memory writeback.',
   },
   {
     label: 'Benchmarks',
@@ -73,7 +73,7 @@ export const projectFacts = [
     note: 'EHRFlowBench, MedAgentBoard, MedAgentsBench, HLE, and CureBench.',
   },
   {
-    label: 'Comparison set',
+    label: 'Baselines',
     value: 'HealthFlow + 15 baselines',
     note: 'The overall comparison spans general LLMs, medical LLMs, collaborative medical agents, general agents, and biomedical agents.',
   },
@@ -102,10 +102,10 @@ export const frameworkStages = [
     id: 'evaluator',
     shortLabel: 'Evaluator',
     title: 'Evaluator agent',
-    kicker: 'Artifact-and-trace critique',
+    kicker: 'Artifact-and-trace evaluation',
     description:
-      'Reviews runtime traces and generated outputs so the system can repair hidden methodological errors instead of only catching crashes.',
-    outputs: ['Success verdict', 'Violated constraints', 'Targeted repair guidance'],
+      'Reviews runtime traces and generated artifacts to identify execution errors and EHR methodological risks.',
+    outputs: ['Validity verdict', 'Constraint violations', 'Repair guidance'],
   },
   {
     id: 'reflector',
@@ -132,10 +132,10 @@ export const benchmarkDeck = [
       { label: 'Final tasks', value: '100' },
     ],
     bullets: [
-      'Collect 51,280 papers from major AI and data mining venues between 2020 and 2025.',
-      'Filter to 162 EHR-relevant candidates, then manually retain 118 seed papers.',
-      'Generate 236 dataset-grounded tasks paired across TJH and the MIMIC-IV public sample release.',
-      'Sample a balanced 100-task benchmark with 50 TJH tasks and 50 MIMIC-IV tasks.',
+      'Started from 51,280 papers from major AI and data mining venues between 2020 and 2025.',
+      'Identified 162 EHR-relevant candidates and manually retained 118 seed papers.',
+      'Constructed 236 dataset-grounded candidate tasks across TJH and the MIMIC-IV public sample release.',
+      'Sampled a balanced 100-task benchmark with 50 TJH tasks and 50 MIMIC-IV tasks.',
     ],
   },
   {
@@ -144,33 +144,33 @@ export const benchmarkDeck = [
     kicker: 'Executable artifact benchmark',
     title: 'Workflow-grounded review of data, models, and visualizations.',
     body:
-      'MedAgentBoard complements EHRFlowBench with a more deterministic task surface spanning data processing, predictive modeling, and visualization, making artifact quality directly inspectable.',
+      'MedAgentBoard complements EHRFlowBench with executable workflow tasks spanning data processing, predictive modeling, and visualization.',
     metrics: [
       { label: 'Executable tasks', value: '100' },
       { label: 'Datasets', value: 'TJH + MIMIC-IV public sample release' },
       { label: 'Task families', value: '3' },
     ],
     bullets: [
-      'Balanced over 50 TJH tasks and 50 MIMIC-IV tasks.',
-      'Targets data processing, predictive modeling, and visualization in equal proportion.',
-      'Supports artifact-first review through images, CSV files, markdown, and reports.',
+      'Includes 50 TJH tasks and 50 MIMIC-IV tasks.',
+      'Covers data processing, predictive modeling, and visualization workflows.',
+      'Evaluates generated artifacts including images, CSV files, markdown, and reports.',
     ],
   },
   {
     id: 'medagentsbench',
     label: 'MedAgentsBench',
     kicker: 'Deterministic reasoning benchmark',
-    title: 'Hard-set medical knowledge and reasoning.',
+    title: 'Medical knowledge and reasoning on the hard set.',
     body:
-      'Used to measure whether stronger workflow performance still preserves strong medical reasoning on deterministic multiple-choice questions.',
+      'MedAgentsBench measures medical knowledge and reasoning through deterministic multiple-choice questions.',
     metrics: [
       { label: 'Format', value: 'Multiple choice' },
       { label: 'Focus', value: 'Medical reasoning' },
-      { label: 'Role', value: 'Knowledge floor' },
+      { label: 'Role', value: 'Medical QA' },
     ],
     bullets: [
-      'Evaluates hard medical QA rather than open-ended execution.',
-      'Acts as a reasoning anchor beside workflow-heavy evaluations.',
+      'Uses hard-set questions from established medical QA datasets.',
+      'Provides a deterministic reasoning benchmark alongside workflow-heavy evaluations.',
     ],
   },
   {
@@ -179,32 +179,32 @@ export const benchmarkDeck = [
     kicker: 'External benchmark coverage',
     title: 'Selected Biology and Medicine questions from Humanity’s Last Exam.',
     body:
-      'Adds broader scientific reasoning pressure so the evaluation suite is not limited to EHR-native tasks alone.',
+      'HLE adds broader biology and medicine questions to assess scientific reasoning beyond EHR-native workflows.',
     metrics: [
       { label: 'Source', value: 'Humanity’s Last Exam' },
       { label: 'Subset', value: 'Biology + Medicine' },
-      { label: 'Role', value: 'Cross-domain pressure' },
+      { label: 'Role', value: 'Scientific reasoning' },
     ],
     bullets: [
-      'Tests broader science reasoning under deterministic evaluation.',
-      'Helps separate workflow gains from general question-answering ability.',
+      'Uses text-only multiple-choice questions from the Biology and Medicine subset.',
+      'Provides an external check on broader scientific reasoning.',
     ],
   },
   {
     id: 'curebench',
     label: 'CureBench',
     kicker: 'Biomedical decision-making',
-    title: 'Tool-augmented biomedical reasoning under controlled grading.',
+    title: 'Biomedical reasoning under controlled grading.',
     body:
-      'Adds a biomedical decision-making benchmark so the suite covers not only workflow orchestration but also practical biomedical reasoning with structured answers.',
+      'CureBench evaluates biomedical decision-making with deterministic answer normalization and grading.',
     metrics: [
       { label: 'Format', value: 'Deterministic subset' },
       { label: 'Focus', value: 'Biomedical decisions' },
-      { label: 'Role', value: 'Practical reasoning' },
+      { label: 'Role', value: 'Biomedical QA' },
     ],
     bullets: [
-      'Used as a deterministic external check on biomedical reasoning.',
-      'Completes the five-benchmark evaluation surface reported in the manuscript.',
+      'Uses a selected deterministic subset for controlled comparison.',
+      'Complements the EHR workflow benchmarks with biomedical reasoning tasks.',
     ],
   },
 ]
@@ -213,49 +213,49 @@ export const resultDeck = [
   {
     id: 'open-ended',
     label: 'Open-ended EHR',
-    title: 'HealthFlow leads on the hardest open-ended workflows.',
+    title: 'HealthFlow leads on open-ended EHR workflow tasks.',
     summary:
-      'On EHRFlowBench, HealthFlow reaches an LLM score of 4.01 +/- 0.12, ahead of the strongest baseline, Biomni, at 3.76 +/- 0.16.',
+      'On EHRFlowBench, HealthFlow reaches an LLM score of 4.01 ± 0.12, ahead of the strongest baseline, Biomni, at 3.76 ± 0.16.',
     stats: [
-      { label: 'HealthFlow', value: '4.01 +/- 0.12' },
-      { label: 'Best baseline', value: '3.76 +/- 0.16' },
+      { label: 'HealthFlow', value: '4.01 ± 0.12' },
+      { label: 'Best baseline', value: '3.76 ± 0.16' },
       { label: 'Benchmark tasks', value: '100' },
     ],
   },
   {
     id: 'artifacts',
     label: 'Artifacts',
-    title: 'Artifact-heavy workflow tasks show the clearest executable gains.',
+    title: 'HealthFlow improves executable workflow completion.',
     summary:
-      'On MedAgentBoard, HealthFlow reaches 63.05% +/- 4.78 success, compared with 50.10% +/- 5.01 for the strongest baseline.',
+      'On MedAgentBoard, HealthFlow reaches 63.05% ± 4.78 success, compared with 50.10% ± 5.01 for the strongest baseline.',
     stats: [
-      { label: 'HealthFlow', value: '63.05% +/- 4.78' },
-      { label: 'Best baseline', value: '50.10% +/- 5.01' },
+      { label: 'HealthFlow', value: '63.05% ± 4.78' },
+      { label: 'Best baseline', value: '50.10% ± 5.01' },
       { label: 'Task families', value: '3' },
     ],
   },
   {
     id: 'reasoning',
     label: 'Reasoning',
-    title: 'The benchmark suite still checks medical reasoning, not only execution.',
+    title: 'HealthFlow also leads on deterministic reasoning benchmarks.',
     summary:
-      'HealthFlow also leads the deterministic reasoning benchmarks, reaching 32.40% on MedAgentsBench, 10.20% on HLE, and 93.02% on CureBench.',
+      'On deterministic reasoning benchmarks, HealthFlow reaches 32.40% on MedAgentsBench, 10.20% on HLE, and 93.02% on CureBench.',
     stats: [
-      { label: 'MedAgentsBench', value: '32.40% +/- 4.56' },
-      { label: 'HLE', value: '10.20% +/- 2.98' },
-      { label: 'CureBench', value: '93.02% +/- 2.53' },
+      { label: 'MedAgentsBench', value: '32.40% ± 4.56' },
+      { label: 'HLE', value: '10.20% ± 2.98' },
+      { label: 'CureBench', value: '93.02% ± 2.53' },
     ],
   },
   {
     id: 'human-eval',
     label: 'Human evaluation',
-    title: 'Blinded expert review favors HealthFlow outputs.',
+    title: 'Blinded expert review assesses practical utility.',
     summary:
-      'Twelve domain experts reviewed 20 tasks in a blinded online interface and consistently preferred HealthFlow, with 71.54% average pairwise inter-rater agreement.',
+      'Twelve domain experts reviewed the same 20 randomly selected EHRFlowBench reports in a blinded online interface and selected the best complete response for each case.',
     stats: [
       { label: 'Experts', value: '12' },
       { label: 'Tasks', value: '20' },
-      { label: 'Agreement', value: '71.54%' },
+      { label: 'Decisions', value: '240' },
     ],
   },
 ]

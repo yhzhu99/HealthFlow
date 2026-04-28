@@ -152,10 +152,10 @@ const formattedAuthors = computed(() =>
         <div class="mx-auto max-w-[58rem] space-y-3 text-center">
           <div class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">Framework</div>
           <h2 class="font-display text-[clamp(2.2rem,3.2vw,3.55rem)] leading-[0.95] tracking-[-0.04em] text-slate-950">
-            A governed four-agent loop instead of a single opaque prompt.
+            A governed four-agent loop for autonomous EHR analysis.
           </h2>
           <p class="text-base leading-8 text-slate-600 sm:text-lg">
-            HealthFlow keeps planning, execution, critique, and memory writeback explicit. The homepage now mirrors that structure directly through a stage switcher instead of a static list.
+            HealthFlow coordinates task profiling, execution, evaluation, and reflection so prior analytical experience can be reused under explicit dataset and validity constraints.
           </p>
         </div>
 
@@ -221,10 +221,10 @@ const formattedAuthors = computed(() =>
         <div class="mx-auto max-w-[58rem] space-y-3 text-center">
           <div class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">Benchmarks</div>
           <h2 class="font-display text-[clamp(2.2rem,3.2vw,3.55rem)] leading-[0.95] tracking-[-0.04em] text-slate-950">
-            Five benchmarks, with EHRFlowBench as the primary open-ended testbed.
+            A five-benchmark evaluation suite centered on EHR analysis.
           </h2>
           <p class="text-base leading-8 text-slate-600 sm:text-lg">
-            Instead of flattening everything into two cards, the homepage now lets each benchmark speak in its own panel, including the full EHRFlowBench construction pipeline.
+            The evaluation combines open-ended EHR workflow tasks, executable artifact generation, deterministic medical reasoning, and biomedical decision-making benchmarks.
           </p>
         </div>
 
@@ -302,10 +302,10 @@ const formattedAuthors = computed(() =>
         <div class="mx-auto max-w-[58rem] space-y-3 text-center">
           <div class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">Results</div>
           <h2 class="font-display text-[clamp(2.2rem,3.2vw,3.55rem)] leading-[0.95] tracking-[-0.04em] text-slate-950">
-            Interactive summary of the manuscript’s main takeaways.
+            Benchmark results across workflow and reasoning tasks.
           </h2>
           <p class="text-base leading-8 text-slate-600 sm:text-lg">
-            The homepage now exposes open-ended workflow performance, executable artifact quality, five-benchmark coverage, and blinded human review as separate switchable views.
+            The results summarize overall benchmark performance, fine-grained workflow behavior, and blinded expert preference evaluation.
           </p>
         </div>
 
@@ -443,7 +443,7 @@ const formattedAuthors = computed(() =>
                     >
                       <span>{{ cell.value }}</span>
                       <span v-if="cell.std" class="ml-1 whitespace-nowrap text-[0.76rem] font-medium text-slate-500">
-                        +/- {{ cell.std }}
+                        ± {{ cell.std }}
                       </span>
                     </td>
                   </tr>
