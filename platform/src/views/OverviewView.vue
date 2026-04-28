@@ -7,6 +7,7 @@ import {
   projectFacts,
   projectMeta,
   resultDeck,
+  resultTables,
   sectionNav,
 } from '../content/site'
 import AppShell from '../components/layout/AppShell.vue'
@@ -15,6 +16,7 @@ import AppCard from '../components/ui/AppCard.vue'
 const activeFrameworkId = ref(frameworkStages[0]?.id ?? '')
 const activeBenchmarkId = ref(benchmarkDeck[0]?.id ?? '')
 const activeResultId = ref(resultDeck[0]?.id ?? '')
+const activeResultTableId = ref(resultTables[0]?.id ?? '')
 
 const switcherButtonClass = (isActive: boolean) =>
   isActive
@@ -31,6 +33,9 @@ const activeBenchmark = computed(
   () => benchmarkDeck.find((benchmark) => benchmark.id === activeBenchmarkId.value) ?? benchmarkDeck[0],
 )
 const activeResult = computed(() => resultDeck.find((item) => item.id === activeResultId.value) ?? resultDeck[0])
+const activeResultTable = computed(
+  () => resultTables.find((item) => item.id === activeResultTableId.value) ?? resultTables[0],
+)
 
 const isNumericAuthorMark = (mark: string) => /^\d+$/.test(mark)
 const formatAuthorMarks = (marks: string[]) => {
@@ -349,6 +354,104 @@ const formattedAuthors = computed(() =>
             </div>
           </div>
         </AppCard>
+
+        <div class="space-y-4 pt-2">
+          <div class="mx-auto max-w-[58rem] space-y-2 text-center">
+            <div class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">Detailed Tables</div>
+            <h3 class="font-display text-[clamp(1.6rem,2.2vw,2.55rem)] leading-[0.98] tracking-[-0.04em] text-slate-950">
+              Manuscript performance results.
+            </h3>
+          </div>
+
+          <div class="overflow-x-auto pb-1">
+            <div class="flex w-max gap-2 md:mx-auto" role="tablist" aria-label="Result table sections">
+              <button
+                v-for="table in resultTables"
+                :key="table.id"
+                :id="`result-table-tab-${table.id}`"
+                :aria-selected="activeResultTableId === table.id"
+                type="button"
+                role="tab"
+                class="rounded-full border px-4 py-2 text-sm font-semibold transition"
+                :class="switcherButtonClass(activeResultTableId === table.id)"
+                @click="activeResultTableId = table.id"
+              >
+                {{ table.label }}
+              </button>
+            </div>
+          </div>
+
+          <AppCard
+            class="border-slate-200/80 bg-white/86 !p-0"
+            role="tabpanel"
+            :aria-labelledby="`result-table-tab-${activeResultTable.id}`"
+          >
+            <div class="space-y-4 p-4 sm:p-5">
+              <div class="max-w-[66rem] space-y-2">
+                <h4 class="text-xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-2xl">
+                  {{ activeResultTable.title }}
+                </h4>
+                <p class="text-sm leading-7 text-slate-600 sm:text-base">
+                  {{ activeResultTable.description }}
+                </p>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto border-t border-slate-200/80">
+              <table class="min-w-[1180px] w-full border-collapse text-left text-sm">
+                <caption class="sr-only">
+                  {{ activeResultTable.title }}
+                </caption>
+                <thead class="bg-slate-950 text-white">
+                  <tr>
+                    <th scope="col" class="w-[12rem] px-4 py-3 text-xs font-semibold tracking-[0.12em] uppercase">
+                      Category
+                    </th>
+                    <th scope="col" class="w-[12rem] px-4 py-3 text-xs font-semibold tracking-[0.12em] uppercase">
+                      Method
+                    </th>
+                    <th
+                      v-for="column in activeResultTable.columns"
+                      :key="`${activeResultTable.id}-${column}`"
+                      scope="col"
+                      class="min-w-[9.6rem] px-4 py-3 text-xs font-semibold tracking-[0.08em] uppercase"
+                    >
+                      {{ column }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                  <tr
+                    v-for="row in activeResultTable.rows"
+                    :key="`${activeResultTable.id}-${row.category}-${row.method}`"
+                    :class="row.highlight ? 'bg-sky-50/80' : 'bg-white/70'"
+                  >
+                    <td class="px-4 py-3 align-top text-xs font-semibold tracking-[0.1em] text-slate-500 uppercase">
+                      {{ row.category }}
+                    </td>
+                    <td
+                      class="px-4 py-3 align-top font-semibold"
+                      :class="row.highlight ? 'text-sky-950' : 'text-slate-900'"
+                    >
+                      {{ row.method }}
+                    </td>
+                    <td
+                      v-for="(cell, index) in row.cells"
+                      :key="`${activeResultTable.id}-${row.method}-${index}`"
+                      class="px-4 py-3 align-top"
+                      :class="cell.muted ? 'text-slate-400' : row.highlight ? 'font-semibold text-sky-950' : 'text-slate-700'"
+                    >
+                      <span>{{ cell.value }}</span>
+                      <span v-if="cell.std" class="ml-1 whitespace-nowrap text-[0.76rem] font-medium text-slate-500">
+                        +/- {{ cell.std }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </AppCard>
+        </div>
       </div>
     </section>
   </AppShell>
