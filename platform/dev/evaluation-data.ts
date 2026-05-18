@@ -867,10 +867,11 @@ export const buildEvaluationSnapshotBundle = async ({
   mode: AssetMode
 }): Promise<EvaluationSnapshotBundle> => {
   const manifestPayload = await buildEvaluationManifestPayload({ projectRoot })
-  const diagnostics =
-    mode === 'static' ? staticEvaluationDiagnostics(manifestPayload.diagnostics) : manifestPayload.diagnostics
 
   if (manifestPayload.mode !== 'live') {
+    const diagnostics =
+      mode === 'static' ? staticEvaluationDiagnostics(manifestPayload.diagnostics) : manifestPayload.diagnostics
+
     return {
       payload: {
         mode: 'diagnostic',
@@ -881,6 +882,8 @@ export const buildEvaluationSnapshotBundle = async ({
     }
   }
 
+  const diagnostics =
+    mode === 'static' ? staticEvaluationDiagnostics(manifestPayload.diagnostics) : manifestPayload.diagnostics
   const artifactCopies: ArtifactCopy[] = []
   const questions: SnapshotQuestion[] = []
 
