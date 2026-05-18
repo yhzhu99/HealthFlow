@@ -39,11 +39,11 @@ For production, deploy the frontend with Cloudflare Pages and expose the R2 buck
 /evaluation-data/
 ```
 
-This repo includes a Cloudflare Pages Function at `functions/evaluation-data/[[path]].js` to serve that route from R2. Configure an R2 binding named `EVALUATION_DATA_BUCKET` for the Pages project. The function also accepts the fallback binding name `DATA_BUCKET`.
+This repo includes a Cloudflare Pages Function at `functions/evaluation-data/[[path]].js` to serve that route from R2. `public/_routes.json` includes `/evaluation-data/*` so Pages routes those requests to the function. Configure an R2 binding named `EVALUATION_DATA_BUCKET` for the Pages project. The function also accepts the fallback binding name `DATA_BUCKET`.
 
-If the files live under a prefix inside the bucket, set `EVALUATION_DATA_BUCKET_PREFIX`. Leave it unset when the R2 keys start directly with `data/` and `benchmarks/`.
+The default R2 key prefix is `evaluation-data`, matching a bucket layout where uploaded keys start with `evaluation-data/data/...` and `evaluation-data/benchmarks/...`. If the files live under a different prefix inside the bucket, set `EVALUATION_DATA_BUCKET_PREFIX`.
 
-Upload the raw evaluation tree to R2 with the same structure shown above. Also upload a generated payload to:
+Upload the raw evaluation tree to R2 with the same structure shown above. Also upload a generated payload so it is reachable at:
 
 ```text
 /evaluation-data/data/evaluation.payload.json
@@ -66,7 +66,7 @@ npm install
 npm run build
 ```
 
-The build emits `dist/data/evaluation.payload.json` and `dist/data/evaluation.snapshot.json` when local data exists. Upload the payload JSON to the R2 key `data/evaluation.payload.json`. Artifact files are not copied into `dist`; they are expected to be served from R2 under `/evaluation-data/`.
+The build emits `dist/data/evaluation.payload.json` and `dist/data/evaluation.snapshot.json` when local data exists. Upload the payload JSON to the R2 key `evaluation-data/data/evaluation.payload.json` for the default bucket layout. Artifact files are not copied into `dist`; they are expected to be served from R2 under `/evaluation-data/`.
 
 If Cloudflare Pages builds without a local `evaluation-data` directory, the build still succeeds and writes a diagnostic bundled payload. The browser will still prefer the R2 payload at `/evaluation-data/data/evaluation.payload.json`.
 

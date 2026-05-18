@@ -24,7 +24,7 @@ const contentTypeFor = (key) => {
 }
 
 const joinKey = (prefix, relativePath) => {
-  const normalizedPrefix = (prefix ?? '').replace(/^\/+|\/+$/g, '')
+  const normalizedPrefix = (prefix ?? 'evaluation-data').replace(/^\/+|\/+$/g, '')
   return normalizedPrefix ? `${normalizedPrefix}/${relativePath}` : relativePath
 }
 
