@@ -422,7 +422,7 @@ def web(
         None,
         "--root-path",
         envvar=["HEALTHFLOW_WEB_ROOT_PATH", "GRADIO_ROOT_PATH"],
-        help="Serve the web UI behind a proxy prefix such as /app.",
+        help="Serve the web UI behind a proxy prefix such as /run.",
     ),
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed runtime metadata in the terminal output."),
 ):

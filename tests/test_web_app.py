@@ -156,11 +156,11 @@ class WebAppTests(unittest.TestCase):
     def test_normalized_root_path_handles_proxy_prefixes(self):
         self.assertIsNone(_normalized_root_path(None))
         self.assertIsNone(_normalized_root_path("/"))
-        self.assertEqual(_normalized_root_path("app"), "/app")
-        self.assertEqual(_normalized_root_path("/app/"), "/app")
+        self.assertEqual(_normalized_root_path("run"), "/run")
+        self.assertEqual(_normalized_root_path("/run/"), "/run")
         self.assertEqual(
-            _normalized_root_path("https://healthflow.medx-pku.com/app/"),
-            "https://healthflow.medx-pku.com/app",
+            _normalized_root_path("https://healthflow.medx-pku.com/run/"),
+            "https://healthflow.medx-pku.com/run",
         )
 
     def test_build_history_entries_formats_status_turns_and_time(self):

@@ -158,14 +158,14 @@ class CliOutputTests(unittest.TestCase):
                 result = self.runner.invoke(
                     run_healthflow.app,
                     ["web"],
-                    env={"GRADIO_ROOT_PATH": "/app"},
+                    env={"GRADIO_ROOT_PATH": "/run"},
                 )
 
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(captured["server_name"], "127.0.0.1")
         self.assertEqual(captured["server_port"], 7860)
         self.assertFalse(captured["share"])
-        self.assertEqual(captured["root_path"], "/app")
+        self.assertEqual(captured["root_path"], "/run")
         self.assertEqual(captured["task_id"], "task-1")
 
 
