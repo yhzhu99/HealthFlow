@@ -7,8 +7,7 @@ ENV_FILE="${HEALTHFLOW_ENV_FILE:-$HOME/.config/healthflow/healthflow-web.env}"
 CONFIG_PATH="${HEALTHFLOW_CONFIG_PATH:-$ROOT_DIR/config.toml}"
 SERVER_NAME="${HEALTHFLOW_SERVER_NAME:-127.0.0.1}"
 SERVER_PORT="${HEALTHFLOW_SERVER_PORT:-7860}"
-GRADIO_ROOT_PATH="${GRADIO_ROOT_PATH:-/}"
-export GRADIO_ROOT_PATH
+GRADIO_ROOT_PATH="${GRADIO_ROOT_PATH:-}"
 
 if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
@@ -31,8 +30,17 @@ fi
 
 cd "$ROOT_DIR"
 
+if [ -n "${GRADIO_ROOT_PATH:-}" ] && [ "${GRADIO_ROOT_PATH}" != "/" ]; then
+  exec /opt/homebrew/bin/uv run --extra web healthflow web \
+    --config "$CONFIG_PATH" \
+    --server-name "$SERVER_NAME" \
+    --server-port "$SERVER_PORT" \
+    --root-path "$GRADIO_ROOT_PATH"
+fi
+
+unset GRADIO_ROOT_PATH HEALTHFLOW_WEB_ROOT_PATH
+
 exec /opt/homebrew/bin/uv run --extra web healthflow web \
   --config "$CONFIG_PATH" \
   --server-name "$SERVER_NAME" \
-  --server-port "$SERVER_PORT" \
-  --root-path "$GRADIO_ROOT_PATH"
+  --server-port "$SERVER_PORT"
