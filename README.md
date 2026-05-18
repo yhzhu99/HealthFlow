@@ -17,7 +17,7 @@ Useful links:
 
 - Project website: <https://healthflow.medx-pku.com/>
 - Static app demo: <https://healthflow.medx-pku.com/app>
-- Live runtime: <https://healthflow.medx-pku.com/run>
+- Live runtime: <https://healthflow-app.medx-pku.com/>
 - Human evaluation platform: <https://healthflow.medx-pku.com/evaluation>
 - Code repository: <https://github.com/yhzhu99/HealthFlow>
 - Dataset release: <https://github.com/yhzhu99/HealthFlow/releases/tag/datasets>

@@ -15,11 +15,11 @@ import {
 const readPlatformFile = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
 
 describe('app demo content', () => {
-  it('points the live runtime action at the planned run route', () => {
+  it('points the live runtime action at the dedicated runtime hostname', () => {
     const runtimeUrl = new URL(liveRuntimeUrl)
 
-    expect(runtimeUrl.origin).toBe('https://healthflow.medx-pku.com')
-    expect(runtimeUrl.pathname).toBe('/run')
+    expect(runtimeUrl.origin).toBe('https://healthflow-app.medx-pku.com')
+    expect(runtimeUrl.pathname).toBe('/')
   })
 
   it('keeps the demo prompt and input cohort available as static content', () => {

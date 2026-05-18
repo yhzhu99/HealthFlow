@@ -115,7 +115,7 @@ export interface AppDemoChatMessage {
   attachments?: string[]
 }
 
-export const liveRuntimeUrl = 'https://healthflow.medx-pku.com/run'
+export const liveRuntimeUrl = 'https://healthflow-app.medx-pku.com'
 
 export const appDemoTitle = 'ICU Mortality Risk Modeling'
 

@@ -6,7 +6,7 @@ Static Vue frontend for the HealthFlow project:
 - `/app` static app demo
 - `/evaluation` evaluation workspace
 
-The home page is the manuscript-facing surface. The app page is a frontend-only demo suitable for Cloudflare Pages, with a link to the live runtime at `https://healthflow.medx-pku.com/run`. The evaluation workspace is a blinded local review tool backed by `platform/evaluation-data`.
+The home page is the manuscript-facing surface. The app page is a frontend-only demo suitable for Cloudflare Pages, with a link to the live runtime at `https://healthflow-app.medx-pku.com`. The evaluation workspace is a blinded local review tool backed by `platform/evaluation-data`.
 
 ## App Demo
 
