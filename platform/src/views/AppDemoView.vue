@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 
 import {
   appDemoArtifacts,
@@ -28,6 +29,13 @@ interface WorkspaceRow {
 const selectedArtifactId = ref('report')
 const selectedPanel = ref<DetailPanel>('workspace')
 
+const siteNavItems = [
+  { path: '/', label: 'Home' },
+  { path: '/evaluation', label: 'Evaluation' },
+  { path: '/app', label: 'App' },
+]
+
+const brandIconUrl = computed(() => toBasePath('branding/healthflow-icon.svg'))
 const logoUrl = computed(() => toBasePath('branding/healthflow-logo.svg'))
 const inputFileHref = computed(() => toBasePath(appDemoInputFile.href))
 const selectedArtifact = computed(() => resolveAppDemoArtifact(selectedArtifactId.value) ?? appDemoArtifacts[0])
@@ -141,8 +149,30 @@ const barHeight = (bar: AppDemoChartBar, bars: AppDemoChartBar[]) => `${Math.max
 </script>
 
 <template>
-  <div class="hf-app-demo">
-    <aside class="hf-sidebar" aria-label="History">
+  <div class="hf-app-page">
+    <header class="hf-app-topbar">
+      <RouterLink to="/" class="hf-topbar-brand">
+        <img :src="brandIconUrl" alt="" />
+        <span>HealthFlow</span>
+      </RouterLink>
+
+      <nav class="hf-topbar-nav" aria-label="Site navigation">
+        <RouterLink
+          v-for="item in siteNavItems"
+          :key="item.path"
+          :to="item.path"
+          class="hf-topbar-link"
+          :class="{ 'is-active': item.path === '/app' }"
+        >
+          {{ item.label }}
+        </RouterLink>
+      </nav>
+
+      <a class="hf-topbar-live" :href="liveRuntimeUrl" target="_blank" rel="noreferrer">Live runtime</a>
+    </header>
+
+    <div class="hf-app-demo">
+      <aside class="hf-sidebar" aria-label="History">
       <section class="hf-sidebar-brand" aria-label="HealthFlow brand">
         <img :src="logoUrl" alt="HealthFlow" />
       </section>
@@ -526,12 +556,13 @@ const barHeight = (bar: AppDemoChartBar, bars: AppDemoChartBar[]) => `${Math.max
           </section>
         </aside>
       </section>
-    </main>
+      </main>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.hf-app-demo {
+.hf-app-page {
   --hf-border: rgba(15, 23, 42, 0.12);
   --hf-border-strong: rgba(15, 86, 140, 0.28);
   --hf-surface: #f4f8fb;
@@ -546,18 +577,91 @@ const barHeight = (bar: AppDemoChartBar, bars: AppDemoChartBar[]) => `${Math.max
   --hf-radius-panel: 4px;
   --hf-radius-control: 3px;
   --hf-radius-chip: 2px;
-  display: grid;
-  grid-template-columns: 336px minmax(0, 1fr);
-  gap: 0.85rem;
-  width: 100%;
-  height: 100dvh;
-  padding: 0.42rem;
+  min-height: 100dvh;
   overflow: hidden;
   background:
     radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 28%),
     linear-gradient(180deg, #f6fbff 0%, #f2f7fb 45%, #f7fafc 100%);
   color: var(--hf-text);
   font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+}
+
+.hf-app-topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.85rem;
+  height: 4.2rem;
+  padding: 0.55rem 0.65rem 0.45rem;
+}
+
+.hf-topbar-brand,
+.hf-topbar-live,
+.hf-topbar-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.hf-topbar-brand {
+  justify-self: start;
+  gap: 0.62rem;
+  padding: 0 0.95rem 0 0.55rem;
+  color: #0f172a;
+}
+
+.hf-topbar-brand img {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  padding: 0.38rem;
+}
+
+.hf-topbar-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.25rem;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.hf-topbar-link {
+  min-width: 5.8rem;
+  padding: 0 0.95rem;
+  color: #526171;
+}
+
+.hf-topbar-link:hover,
+.hf-topbar-link.is-active {
+  background: #ffffff;
+  color: var(--hf-accent);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.hf-topbar-live {
+  justify-self: end;
+  padding: 0 1rem;
+  border: 1px solid rgba(15, 107, 220, 0.18);
+  background: linear-gradient(135deg, var(--hf-accent) 0%, var(--hf-accent-strong) 100%);
+  color: #ffffff;
+}
+
+.hf-app-demo {
+  display: grid;
+  grid-template-columns: 336px minmax(0, 1fr);
+  gap: 0.85rem;
+  width: 100%;
+  height: calc(100dvh - 4.2rem);
+  padding: 0 0.42rem 0.42rem;
+  overflow: hidden;
 }
 
 .hf-sidebar,
@@ -685,7 +789,7 @@ const barHeight = (bar: AppDemoChartBar, bars: AppDemoChartBar[]) => `${Math.max
 .hf-content-shell {
   min-width: 0;
   min-height: 0;
-  height: calc(100dvh - 0.84rem);
+  height: 100%;
 }
 
 .hf-main {
@@ -1662,9 +1766,35 @@ const barHeight = (bar: AppDemoChartBar, bars: AppDemoChartBar[]) => `${Math.max
 }
 
 @media (max-width: 900px) {
+  .hf-app-page {
+    overflow: auto;
+  }
+
+  .hf-app-topbar {
+    grid-template-columns: 1fr;
+    height: auto;
+    align-items: stretch;
+  }
+
+  .hf-topbar-brand,
+  .hf-topbar-live,
+  .hf-topbar-nav {
+    justify-self: stretch;
+  }
+
+  .hf-topbar-nav {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .hf-topbar-link {
+    flex: 1 0 auto;
+    min-width: 0;
+  }
+
   .hf-app-demo {
     height: auto;
-    min-height: 100dvh;
+    min-height: calc(100dvh - 10rem);
     grid-template-columns: 1fr;
     overflow: auto;
   }
