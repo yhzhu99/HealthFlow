@@ -4,6 +4,7 @@
 assets/
 GEMINI.md
 AGENTS.md
+CLAUDE.md
 debug.*
 TASK.md
 *.json
@@ -15,6 +16,8 @@ prompt.md
 .DS_Store
 workspace/
 /deploy/
+healthflow_datasets.zip
+__MACOSX
 
 # HealthFlow platform frontend is committed as source, configs, and bundled assets.
 !platform/
