@@ -180,9 +180,6 @@ const evaluationBuildPlugin = (): Plugin => {
 
 export default defineConfig(({ command }) => ({
   plugins: [vue(), tailwindcss(), command === 'serve' ? evaluationDevPlugin() : evaluationBuildPlugin()].filter(Boolean),
-  preview: {
-    allowedHosts: ['healthflow.medx-pku.com', 'platform.medx-pku.com'],
-  },
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
