@@ -56,6 +56,33 @@ describe('evaluation-data R2 Pages Function', () => {
     expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8')
   })
 
+  it('accepts the generic BUCKET binding name', async () => {
+    const { onRequestGet } = await loadPagesFunction()
+    const bucket = {
+      get: vi.fn(async () => createR2Object('{"mode":"live"}')),
+    }
+
+    const response = await onRequestGet({
+      env: { BUCKET: bucket },
+      params: { path: ['data', 'evaluation.payload.json'] },
+    })
+
+    expect(response.status).toBe(200)
+    expect(bucket.get).toHaveBeenCalledWith('evaluation-data/data/evaluation.payload.json')
+  })
+
+  it('returns a clear 500 when no R2 binding is configured', async () => {
+    const { onRequestGet } = await loadPagesFunction()
+
+    const response = await onRequestGet({
+      env: {},
+      params: { path: ['data', 'evaluation.payload.json'] },
+    })
+
+    expect(response.status).toBe(500)
+    expect(await response.text()).toContain('Missing R2 binding')
+  })
+
   it('rejects unknown roots and traversal segments', async () => {
     const { onRequestGet } = await loadPagesFunction()
     const bucket = {

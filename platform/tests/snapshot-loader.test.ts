@@ -144,4 +144,12 @@ describe('snapshot loader', () => {
     await vi.advanceTimersByTimeAsync(25)
     await loadingPromise
   })
+
+  it('includes server response text when the static payload request fails', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('Missing R2 binding. Configure one of: EVALUATION_DATA_BUCKET', { status: 500 })) as typeof fetch
+
+    await expect(loadStaticEvaluationPayload({ retries: 0 })).rejects.toThrow(
+      /Failed to load static evaluation payload: 500 Missing R2 binding/,
+    )
+  })
 })

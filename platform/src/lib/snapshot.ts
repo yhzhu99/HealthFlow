@@ -60,6 +60,16 @@ const fetchSnapshotResponse = async (url: string, timeoutMs: number) => {
   }
 }
 
+const responseErrorDetail = async (response: Response) => {
+  const fallback = `${response.status} ${response.statusText}`.trim()
+  try {
+    const text = (await response.text()).trim()
+    return text ? `${response.status} ${text}` : fallback
+  } catch {
+    return fallback
+  }
+}
+
 export const loadEvaluationSnapshot = async (
   options: LoadEvaluationSnapshotOptions = {},
 ): Promise<EvaluationSnapshot | null> => {
@@ -79,7 +89,7 @@ export const loadEvaluationSnapshot = async (
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to load evaluation snapshot: ${response.status} ${response.statusText}`)
+        throw new Error(`Failed to load evaluation snapshot: ${await responseErrorDetail(response)}`)
       }
 
       return (await response.json()) as EvaluationSnapshot
@@ -119,7 +129,7 @@ export const loadStaticEvaluationPayload = async (
         }
 
         if (!response.ok) {
-          throw new Error(`Failed to load static evaluation payload: ${response.status} ${response.statusText}`)
+          throw new Error(`Failed to load static evaluation payload: ${await responseErrorDetail(response)}`)
         }
 
         return (await response.json()) as StaticEvaluationPayload
