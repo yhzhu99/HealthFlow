@@ -12,6 +12,7 @@ const DEFAULT_RETRIES = 1
 const DEFAULT_RETRY_DELAY_MS = 350
 const DEFAULT_LOCAL_TIMEOUT_MS = 12000
 const LOCAL_CASE_ROUTE_PREFIX = '/__eval/cases'
+const EVALUATION_DATA_ROUTE_PREFIX = '/evaluation-data'
 
 export interface LoadEvaluationSnapshotOptions {
   timeoutMs?: number
@@ -24,13 +25,15 @@ export interface LoadLocalEvaluationPayloadOptions {
 }
 
 export const evaluationSnapshotUrl = () => toBasePath('data/evaluation.snapshot.json')
-export const evaluationStaticPayloadUrl = () => toBasePath('data/evaluation.payload.json')
+export const evaluationStaticPayloadUrl = () => `${EVALUATION_DATA_ROUTE_PREFIX}/data/evaluation.payload.json`
+export const bundledEvaluationStaticPayloadUrl = () => toBasePath('data/evaluation.payload.json')
 export const localEvaluationManifestUrl = () => toBasePath('/__eval/manifest')
 export const localEvaluationCaseUrl = (benchmarkId: string, caseId: string) =>
   toBasePath(`${LOCAL_CASE_ROUTE_PREFIX}/${encodeURIComponent(benchmarkId)}/${encodeURIComponent(caseId)}`)
 
 export const toAssetUrl = (relativePath: string) => {
   if (!relativePath) return relativePath
+  if (relativePath.startsWith('/')) return relativePath
   if (/^(?:[a-z]+:)?\/\//i.test(relativePath)) return relativePath
   return toBasePath(relativePath)
 }
@@ -101,36 +104,43 @@ export const loadStaticEvaluationPayload = async (
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const retries = options.retries ?? DEFAULT_RETRIES
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS
-  const url = evaluationStaticPayloadUrl()
+  const urls = [evaluationStaticPayloadUrl(), bundledEvaluationStaticPayloadUrl()]
 
   let lastError: Error | null = null
 
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    try {
-      const response = await fetchSnapshotResponse(url, timeoutMs)
+  for (const url of urls) {
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        const response = await fetchSnapshotResponse(url, timeoutMs)
 
-      if (response.status === 404) {
-        return null
+        if (response.status === 404) {
+          lastError = null
+          break
+        }
+
+        if (!response.ok) {
+          throw new Error(`Failed to load static evaluation payload: ${response.status} ${response.statusText}`)
+        }
+
+        return (await response.json()) as StaticEvaluationPayload
+      } catch (caughtError) {
+        const message = caughtError instanceof Error ? caughtError.message : String(caughtError)
+        lastError = new Error(`${message} (${url})`)
+
+        if (attempt >= retries) {
+          throw lastError
+        }
+
+        await delay(retryDelayMs)
       }
-
-      if (!response.ok) {
-        throw new Error(`Failed to load static evaluation payload: ${response.status} ${response.statusText}`)
-      }
-
-      return (await response.json()) as StaticEvaluationPayload
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : String(caughtError)
-      lastError = new Error(`${message} (${url})`)
-
-      if (attempt >= retries) {
-        throw lastError
-      }
-
-      await delay(retryDelayMs)
     }
   }
 
-  throw lastError ?? new Error(`Failed to load static evaluation payload (${url})`)
+  if (!lastError) {
+    return null
+  }
+
+  throw lastError
 }
 
 export const loadLocalEvaluationManifest = async (

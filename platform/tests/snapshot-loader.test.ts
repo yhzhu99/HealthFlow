@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  bundledEvaluationStaticPayloadUrl,
   evaluationSnapshotUrl,
   evaluationStaticPayloadUrl,
   loadEvaluationSnapshot,
@@ -51,7 +52,7 @@ describe('snapshot loader', () => {
     expect(snapshot?.snapshotVersion).toBe('test-snapshot')
   })
 
-  it('loads the static evaluation payload and parses json', async () => {
+  it('loads the R2 static evaluation payload and parses json', async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify(mockStaticPayload), {
         status: 200,
@@ -63,6 +64,33 @@ describe('snapshot loader', () => {
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       evaluationStaticPayloadUrl(),
+      expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }),
+    )
+    expect(payload?.mode).toBe('diagnostic')
+  })
+
+  it('falls back to the bundled static evaluation payload when the R2 payload is missing', async () => {
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === evaluationStaticPayloadUrl()) {
+        return new Response('', { status: 404 })
+      }
+
+      return new Response(JSON.stringify(mockStaticPayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const payload = await loadStaticEvaluationPayload({ retries: 0 })
+
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      1,
+      evaluationStaticPayloadUrl(),
+      expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }),
+    )
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      2,
+      bundledEvaluationStaticPayloadUrl(),
       expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }),
     )
     expect(payload?.mode).toBe('diagnostic')
