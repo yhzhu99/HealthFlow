@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import type {
@@ -121,6 +121,7 @@ const EVALUATION_ROUTE_PREFIX = '/__eval'
 const EVALUATION_ARTIFACT_ROUTE_PREFIX = `${EVALUATION_ROUTE_PREFIX}/artifacts`
 const EVALUATION_MANIFEST_ROUTE = `${EVALUATION_ROUTE_PREFIX}/manifest`
 const EVALUATION_CASE_ROUTE_PREFIX = `${EVALUATION_ROUTE_PREFIX}/cases`
+const EVALUATION_DATA_ROUTE_PREFIX = '/evaluation-data'
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'])
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.log', '.rst'])
@@ -236,10 +237,25 @@ const listFilesRecursive = async (rootPath: string): Promise<string[]> => {
   return files
 }
 
+const staticEvaluationArtifactRouteFromSegments = (routeSegments: string[]) => {
+  const [benchmarkId, caseId, scope, ...artifactSegments] = routeSegments
+  const caseRoute = path.posix.join(EVALUATION_DATA_ROUTE_PREFIX, 'benchmarks', benchmarkId ?? '', 'cases', caseId ?? '')
+
+  if (!benchmarkId || !caseId || !scope || artifactSegments.length === 0) {
+    return path.posix.join(EVALUATION_DATA_ROUTE_PREFIX, ...routeSegments)
+  }
+
+  if (scope === 'reference') {
+    return path.posix.join(caseRoute, 'reference', 'files', ...artifactSegments)
+  }
+
+  return path.posix.join(caseRoute, 'frameworks', scope, 'files', ...artifactSegments)
+}
+
 const artifactRelativePath = (mode: AssetMode, routeSegments: string[]) =>
   mode === 'dev'
     ? evaluationArtifactRouteFromSegments(routeSegments)
-    : path.posix.join('evaluation-assets', ...routeSegments)
+    : staticEvaluationArtifactRouteFromSegments(routeSegments)
 
 const createArtifact = ({
   mode,
@@ -900,20 +916,13 @@ export const exportStaticEvaluationBundle = async ({
 
   const snapshotOutputPath = path.join(outputRoot, 'data', 'evaluation.snapshot.json')
   const payloadOutputPath = path.join(outputRoot, 'data', 'evaluation.payload.json')
-  const artifactRoot = path.join(outputRoot, 'evaluation-assets')
+  const legacyArtifactRoot = path.join(outputRoot, 'evaluation-assets')
 
-  await rm(artifactRoot, { recursive: true, force: true })
+  await rm(legacyArtifactRoot, { recursive: true, force: true })
   await rm(snapshotOutputPath, { force: true })
   await mkdir(path.dirname(payloadOutputPath), { recursive: true })
-  await mkdir(artifactRoot, { recursive: true })
 
   if (bundle.payload.mode === 'live') {
-    for (const artifact of bundle.artifactCopies) {
-      const destinationPath = path.join(outputRoot, artifact.relativePath)
-      await mkdir(path.dirname(destinationPath), { recursive: true })
-      await cp(artifact.sourcePath, destinationPath)
-    }
-
     await writeFile(snapshotOutputPath, JSON.stringify(bundle.payload.snapshot, null, 2))
   }
 

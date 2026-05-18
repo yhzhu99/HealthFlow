@@ -41,7 +41,8 @@ export const resolveMarkdownAssetUrl = (target: string, assetBasePath?: string |
     return target
   }
 
-  const baseUrl = new URL(toBasePath(normalizedBasePath), 'https://healthflow.local')
+  const basePath = normalizedBasePath.startsWith('/') ? normalizedBasePath : toBasePath(normalizedBasePath)
+  const baseUrl = new URL(basePath, 'https://healthflow.local')
   const resolvedUrl = new URL(target, baseUrl)
   return `${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}`
 }

@@ -196,9 +196,11 @@ describe('evaluation data bundle', () => {
     }
 
     expect(bundle.payload.snapshot.questions[0]?.candidates[0]?.artifacts[0]?.relativePath).toBe(
-      'evaluation-assets/demo/0001/alpha/report.md',
+      '/evaluation-data/benchmarks/demo/cases/0001/frameworks/alpha/files/report.md',
     )
-    expect(bundle.artifactCopies[0]?.relativePath).toBe('evaluation-assets/demo/0001/alpha/report.md')
+    expect(bundle.artifactCopies[0]?.relativePath).toBe(
+      '/evaluation-data/benchmarks/demo/cases/0001/frameworks/alpha/files/report.md',
+    )
   })
 
   it('exports a static evaluation bundle into a build output directory', async () => {
@@ -248,9 +250,17 @@ describe('evaluation data bundle', () => {
     expect(result.payloadOutputPath).toBe(path.join(outputRoot, 'data', 'evaluation.payload.json'))
     expect(result.snapshot?.questions).toHaveLength(1)
     expect(result.artifactCount).toBe(1)
-    expect(await readFile(path.join(outputRoot, 'evaluation-assets', 'demo', '0001', 'alpha', 'report.md'), 'utf-8')).toBe(
-      '# Report',
+
+    const payload = JSON.parse(await readFile(result.payloadOutputPath, 'utf-8')) as {
+      mode: 'live'
+      snapshot: { questions: Array<{ candidates: Array<{ artifacts: Array<{ relativePath: string }> }> }> }
+    }
+    expect(payload.snapshot.questions[0]?.candidates[0]?.artifacts[0]?.relativePath).toBe(
+      '/evaluation-data/benchmarks/demo/cases/0001/frameworks/alpha/files/report.md',
     )
+    await expect(
+      readFile(path.join(outputRoot, 'evaluation-assets', 'demo', '0001', 'alpha', 'report.md'), 'utf-8'),
+    ).rejects.toThrow()
   })
 
   it('exports a diagnostic payload instead of failing when evaluation data is missing', async () => {
