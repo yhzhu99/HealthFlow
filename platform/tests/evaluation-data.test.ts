@@ -195,6 +195,7 @@ describe('evaluation data bundle', () => {
       throw new Error('Expected live payload')
     }
 
+    expect(bundle.payload.diagnostics.root).toBe('/evaluation-data')
     expect(bundle.payload.snapshot.questions[0]?.candidates[0]?.artifacts[0]?.relativePath).toBe(
       '/evaluation-data/benchmarks/demo/cases/0001/frameworks/alpha/files/report.md',
     )
@@ -280,10 +281,11 @@ describe('evaluation data bundle', () => {
 
     const payload = JSON.parse(await readFile(path.join(outputRoot, 'data', 'evaluation.payload.json'), 'utf-8')) as {
       mode: string
-      diagnostics: { missing: string[] }
+      diagnostics: { root: string; missing: string[] }
     }
 
     expect(payload.mode).toBe('diagnostic')
-    expect(payload.diagnostics.missing.some((item) => item.includes('Missing evaluation root'))).toBe(true)
+    expect(payload.diagnostics.root).toBe('/evaluation-data')
+    expect(payload.diagnostics.missing).toContain('Missing evaluation root: /evaluation-data')
   })
 })

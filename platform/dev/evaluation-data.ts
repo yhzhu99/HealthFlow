@@ -341,6 +341,19 @@ const buildLiveDiagnostics = (root: string, warnings: string[]): LiveEvaluationD
   warnings,
 })
 
+const staticEvaluationDiagnostics = <T extends LiveEvaluationDiagnostics | DiagnosticEvaluationDiagnostics>(diagnostics: T): T => {
+  const localRoot = diagnostics.root
+  const rewritePath = (value: string) => value.split(localRoot).join(EVALUATION_DATA_ROUTE_PREFIX)
+
+  return {
+    ...diagnostics,
+    root: EVALUATION_DATA_ROUTE_PREFIX,
+    warnings: diagnostics.warnings.map(rewritePath),
+    ...('missing' in diagnostics ? { missing: diagnostics.missing.map(rewritePath) } : {}),
+    ...('invalid' in diagnostics ? { invalid: diagnostics.invalid.map(rewritePath) } : {}),
+  } as T
+}
+
 const defaultQuestionId = (benchmarkId: string, qid: string) => `${benchmarkId}:${qid}`
 
 const buildQuestionSummary = ({
@@ -854,13 +867,15 @@ export const buildEvaluationSnapshotBundle = async ({
   mode: AssetMode
 }): Promise<EvaluationSnapshotBundle> => {
   const manifestPayload = await buildEvaluationManifestPayload({ projectRoot })
+  const diagnostics =
+    mode === 'static' ? staticEvaluationDiagnostics(manifestPayload.diagnostics) : manifestPayload.diagnostics
 
   if (manifestPayload.mode !== 'live') {
     return {
       payload: {
         mode: 'diagnostic',
         snapshot: null,
-        diagnostics: manifestPayload.diagnostics,
+        diagnostics,
       },
       artifactCopies: [],
     }
@@ -896,7 +911,7 @@ export const buildEvaluationSnapshotBundle = async ({
     payload: {
       mode: 'live',
       snapshot,
-      diagnostics: manifestPayload.diagnostics,
+      diagnostics,
     },
     artifactCopies,
   }
