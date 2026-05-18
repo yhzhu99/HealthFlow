@@ -1,11 +1,16 @@
 # HealthFlow Platform
 
-Two-page frontend for the HealthFlow project:
+Static Vue frontend for the HealthFlow project:
 
 - `/` home page
+- `/app` static app demo
 - `/evaluation` evaluation workspace
 
-The home page is the manuscript-facing surface. The evaluation workspace is a blinded local review tool backed by `platform/evaluation-data`.
+The home page is the manuscript-facing surface. The app page is a frontend-only demo suitable for Cloudflare Pages, with a link to the live runtime at `https://healthflow.medx-pku.com/run`. The evaluation workspace is a blinded local review tool backed by `platform/evaluation-data`.
+
+## App Demo
+
+The `/app` route is intentionally static. It replays the bundled ICU mortality example with the user prompt, input cohort, workflow stages, metrics, artifacts, and representative logs. The downloadable cohort lives under `public/demo/`, and `public/_redirects` keeps direct Cloudflare Pages visits to `/app` working through the Vue router.
 
 ## Local Dev Evaluation
 

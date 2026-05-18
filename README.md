@@ -1,7 +1,7 @@
 # HealthFlow
 
 [![Project Website](https://img.shields.io/badge/Project-HealthFlow-0066cc.svg)](https://healthflow.medx-pku.com/)
-[![Online App](https://img.shields.io/badge/App-healthflow.medx--pku.com%2Fapp-0f766e.svg)](https://healthflow.medx-pku.com/app)
+[![App Demo](https://img.shields.io/badge/App%20Demo-healthflow.medx--pku.com%2Fapp-0f766e.svg)](https://healthflow.medx-pku.com/app)
 [![Datasets](https://img.shields.io/badge/Data-GitHub%20Releases-7c3aed.svg)](https://github.com/yhzhu99/HealthFlow/releases/tag/datasets)
 
 HealthFlow is a strategically self-evolving multi-agent framework for automating electronic health record (EHR) analysis. It turns a clinical analysis request into a governed workflow that plans, executes, evaluates, repairs, and writes back reusable experience for later tasks.
@@ -16,7 +16,8 @@ The system is organized around four agents:
 Useful links:
 
 - Project website: <https://healthflow.medx-pku.com/>
-- Public app: <https://healthflow.medx-pku.com/app>
+- Static app demo: <https://healthflow.medx-pku.com/app>
+- Live runtime: <https://healthflow.medx-pku.com/run>
 - Human evaluation platform: <https://healthflow.medx-pku.com/evaluation>
 - Code repository: <https://github.com/yhzhu99/HealthFlow>
 - Dataset release: <https://github.com/yhzhu99/HealthFlow/releases/tag/datasets>
