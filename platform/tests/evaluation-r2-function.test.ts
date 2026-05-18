@@ -1,0 +1,78 @@
+import { describe, expect, it, vi } from 'vitest'
+
+const loadPagesFunction = async (): Promise<{
+  onRequestGet: (context: Record<string, any>) => Promise<Response>
+  onRequestHead: (context: Record<string, any>) => Promise<Response>
+}> => {
+  // @ts-ignore Cloudflare Pages Functions are plain JavaScript modules.
+  return await import('../functions/evaluation-data/[[path]].js')
+}
+
+const createR2Object = (body = 'payload', contentType?: string) => ({
+  body,
+  httpEtag: '"test-etag"',
+  writeHttpMetadata(headers: Headers) {
+    if (contentType) {
+      headers.set('content-type', contentType)
+    }
+  },
+})
+
+describe('evaluation-data R2 Pages Function', () => {
+  it('serves the evaluation payload from the R2 binding', async () => {
+    const { onRequestGet } = await loadPagesFunction()
+    const bucket = {
+      get: vi.fn(async () => createR2Object('{"mode":"live"}')),
+    }
+
+    const response = await onRequestGet({
+      env: { EVALUATION_DATA_BUCKET: bucket },
+      params: { path: ['data', 'evaluation.payload.json'] },
+    })
+
+    expect(bucket.get).toHaveBeenCalledWith('data/evaluation.payload.json')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/json; charset=utf-8')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(await response.text()).toBe('{"mode":"live"}')
+  })
+
+  it('uses an optional bucket prefix for nested R2 layouts', async () => {
+    const { onRequestHead } = await loadPagesFunction()
+    const bucket = {
+      head: vi.fn(async () => createR2Object('', 'text/markdown; charset=utf-8')),
+    }
+
+    const response = await onRequestHead({
+      env: {
+        EVALUATION_DATA_BUCKET: bucket,
+        EVALUATION_DATA_BUCKET_PREFIX: 'evaluation-data',
+      },
+      params: { path: ['benchmarks', 'demo', 'cases', '0001', 'reference', 'files', 'report.md'] },
+    })
+
+    expect(bucket.head).toHaveBeenCalledWith('evaluation-data/benchmarks/demo/cases/0001/reference/files/report.md')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8')
+  })
+
+  it('rejects unknown roots and traversal segments', async () => {
+    const { onRequestGet } = await loadPagesFunction()
+    const bucket = {
+      get: vi.fn(),
+    }
+
+    const unknownRoot = await onRequestGet({
+      env: { EVALUATION_DATA_BUCKET: bucket },
+      params: { path: ['private', 'secret.json'] },
+    })
+    const traversal = await onRequestGet({
+      env: { EVALUATION_DATA_BUCKET: bucket },
+      params: { path: ['benchmarks', '..', 'secret.json'] },
+    })
+
+    expect(unknownRoot.status).toBe(404)
+    expect(traversal.status).toBe(404)
+    expect(bucket.get).not.toHaveBeenCalled()
+  })
+})

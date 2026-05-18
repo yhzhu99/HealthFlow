@@ -39,6 +39,10 @@ For production, deploy the frontend with Cloudflare Pages and expose the R2 buck
 /evaluation-data/
 ```
 
+This repo includes a Cloudflare Pages Function at `functions/evaluation-data/[[path]].js` to serve that route from R2. Configure an R2 binding named `EVALUATION_DATA_BUCKET` for the Pages project. The function also accepts the fallback binding name `DATA_BUCKET`.
+
+If the files live under a prefix inside the bucket, set `EVALUATION_DATA_BUCKET_PREFIX`. Leave it unset when the R2 keys start directly with `data/` and `benchmarks/`.
+
 Upload the raw evaluation tree to R2 with the same structure shown above. Also upload a generated payload to:
 
 ```text
