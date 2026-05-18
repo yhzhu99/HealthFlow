@@ -15,14 +15,14 @@ const props = withDefaults(
 const route = useRoute()
 
 const navItems = computed(() => [
-  { path: '/', href: toBasePath('/'), label: 'Home', external: false },
-  { path: '/evaluation', href: toBasePath('/evaluation'), label: 'Evaluation', external: false },
-  { path: null, href: 'https://healthflow.medx-pku.com/app/', label: 'App', external: true },
+  { path: '/', label: 'Home' },
+  { path: '/evaluation', label: 'Evaluation' },
+  { path: '/app', label: 'App' },
 ])
 
 const isActive = (path: string) => route.path === path
-const navItemClass = (path: string | null, external: boolean) =>
-  !external && path && isActive(path)
+const navItemClass = (path: string) =>
+  isActive(path)
     ? 'bg-sky-50 text-sky-900 shadow-[0_12px_28px_rgba(56,189,248,0.14)] ring-1 ring-sky-200'
     : 'text-slate-500 hover:bg-white hover:text-slate-950'
 
@@ -51,18 +51,16 @@ const brandIconUrl = toBasePath('branding/healthflow-icon.svg')
         </RouterLink>
 
         <nav class="flex items-center gap-1 rounded-full border border-slate-200/80 bg-slate-50/80 p-1">
-          <a
+          <RouterLink
             v-for="item in navItems"
-            :key="item.href"
-            :href="item.href"
-            target="_blank"
-            rel="noreferrer"
+            :key="item.path"
+            :to="item.path"
             class="rounded-full px-4 py-2 text-sm font-semibold tracking-[-0.01em] transition"
-            :aria-current="!item.external && item.path && isActive(item.path) ? 'page' : undefined"
-            :class="navItemClass(item.path, item.external)"
+            :aria-current="isActive(item.path) ? 'page' : undefined"
+            :class="navItemClass(item.path)"
           >
             {{ item.label }}
-          </a>
+          </RouterLink>
         </nav>
       </div>
     </header>

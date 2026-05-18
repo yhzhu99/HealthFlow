@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import AppDemoView from './views/AppDemoView.vue'
 import EvaluationView from './views/EvaluationView.vue'
 import OverviewView from './views/OverviewView.vue'
 
@@ -7,6 +8,7 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', name: 'home', component: OverviewView },
+    { path: '/app', name: 'app', component: AppDemoView },
     { path: '/evaluation', name: 'evaluation', component: EvaluationView },
   ],
   scrollBehavior(to, from, savedPosition) {
