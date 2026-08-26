@@ -119,19 +119,22 @@ const formattedAuthors = computed(() =>
             </div>
 
             <div class="flex flex-wrap items-center gap-3 border-t border-slate-200/80 pt-4 text-sm">
-              <span class="rounded-full bg-sky-100 px-3 py-1 font-semibold text-sky-900">
-                {{ projectMeta.publication.status }}
-              </span>
-              <span class="font-medium text-slate-700">
-                {{ projectMeta.publication.venue }} · {{ projectMeta.publication.date }}
-              </span>
               <a
                 :href="projectMeta.publication.href"
                 target="_blank"
                 rel="noopener noreferrer"
+                class="font-semibold text-sky-800 transition hover:text-sky-950"
+              >
+                {{ projectMeta.publication.venue }} · {{ projectMeta.publication.year }} ↗
+              </a>
+              <span class="font-medium text-slate-600">Online {{ projectMeta.publication.date }}</span>
+              <a
+                :href="projectMeta.publication.doiHref"
+                target="_blank"
+                rel="noopener noreferrer"
                 class="font-semibold text-sky-700 transition hover:text-sky-900"
               >
-                Read the paper ↗
+                DOI ↗
               </a>
             </div>
           </div>

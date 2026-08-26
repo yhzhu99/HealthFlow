@@ -3,10 +3,11 @@ export const projectMeta = {
   eyebrow: 'HealthFlow',
   title: 'HealthFlow: automating electronic health record analysis via a strategically self-evolving multi-agent framework',
   publication: {
-    status: 'Accepted and published',
     venue: 'npj Digital Medicine',
+    year: '2026',
     date: '17 August 2026',
     href: 'https://www.nature.com/articles/s41746-026-03097-0',
+    doiHref: 'https://doi.org/10.1038/s41746-026-03097-0',
   },
   abstract:
     'Electronic health records (EHRs) are a rich source of real-world clinical data, but turning them into valid analyses remains slow, brittle, and expert-intensive. Although recent AI agents can answer medical questions and use tools, automating full EHR workflows remains difficult because small planning or execution errors can invalidate otherwise plausible analyses. Here we present HealthFlow, a multi-agent framework that converts prior EHR analyses into structured, governed experience for planning under dataset-specific and methodological constraints. We also introduce EHRFlowBench, a benchmark of realistic EHR analysis tasks derived from 51,280 peer-reviewed papers. Across EHRFlowBench and four established benchmarks (MedAgentBoard, MedAgentsBench, HLE, and CureBench), HealthFlow consistently outperforms strong baselines in generating valid clinical artifacts and completing complex EHR analysis pipelines. These results show that governed reuse of prior analytical experience improves robustness in health data science and provides a scalable path to automating open-ended EHR analysis.',
