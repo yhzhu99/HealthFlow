@@ -1,27 +1,43 @@
 # EHRFlowBench
 
-EHRFlowBench turns paper-inspired EHR projects into repository-local `report_generation` tasks for TJH and MIMIC-IV-demo.
-All files under `data/ehrflowbench/processed/` are local rebuild artifacts and are not committed to git.
+EHRFlowBench is the paper's benchmark of end-to-end EHR analysis tasks grounded in TJH and the MIMIC-IV Public Demo Release.
+All files under `data/ehrflowbench/processed/` are local data artifacts and are not committed to git.
 
-## Scripts
+## Paper-Aligned Construction
 
-- `uv run python data/ehrflowbench/scripts/prepare_tasks/generate_tasks.py --paper-id 1`
-- `uv run python data/ehrflowbench/scripts/prepare_tasks/curate_generated_tasks.py`
+The benchmark follows the construction process reported in the paper:
 
-`prepare_tasks/generate_tasks.py` writes intermediate `*_tasks.json` bundles under `processed/papers/generated_tasks/`.
+1. Screen 51,280 papers from major AI and data mining venues.
+2. Identify 162 EHR-relevant candidates and manually retain 118 seed papers.
+3. Generate one TJH task and one MIMIC-IV task from each seed paper, producing 236 dataset-grounded candidate tasks.
+4. Curate the candidates into the fixed 100-task benchmark: 50 TJH tasks and 50 MIMIC-IV tasks.
 
-`prepare_tasks/curate_generated_tasks.py` only does subset extraction:
+The released `processed/test.jsonl` is the authoritative benchmark used by the paper. Treat it as a fixed evaluation set; do not resample or regenerate its membership from the candidate pool.
 
-- reads `processed/papers/generated_tasks/*_tasks.json`
-- infers the dataset from `required_inputs`
-- samples `55` TJH tasks and `55` MIMIC-IV-demo tasks with `seed=42`
-- splits them into `10` train tasks and `100` test tasks
-- writes the processed JSONL files and manifest-only `reference_answers/`
+The 100 tasks cover the 10 categories reported in the paper:
 
-## Intermediate Task Contract
+- Temporal prediction: 19 tasks
+- Graph and retrieval: 18 tasks
+- Representation and features: 17 tasks
+- Phenotyping and clustering: 12 tasks
+- Robustness and missingness: 10 tasks
+- Multi-task learning and transfer: 8 tasks
+- Synthetic data and privacy: 7 tasks
+- Causal and counterfactual analysis: 4 tasks
+- Forecasting: 3 tasks
+- Natural-language querying and reporting: 2 tasks
 
-Each generated task bundle uses a JSON object with root key `tasks`.
-Each task is expected to contain:
+## Candidate Task Generation
+
+Generate the two dataset-grounded candidate tasks for one seed paper with:
+
+```bash
+uv run python data/ehrflowbench/scripts/prepare_tasks/generate_tasks.py --paper-id 1
+```
+
+`generate_tasks.py` writes intermediate `*_tasks.json` bundles under `processed/papers/generated_tasks/`. Candidate generation does not determine membership in the fixed paper benchmark.
+
+Each generated task bundle uses a JSON object with root key `tasks`. Each task contains:
 
 - `task_brief`
 - `task_type`
@@ -31,61 +47,19 @@ Each task is expected to contain:
 - `deliverables`
 - `report_requirements`
 
-`task_type` is fixed to `report_generation`.
+`task_type` is fixed to `report_generation`. Each task is a self-contained project grounded in exactly one of the two released EHR datasets.
 
-## Processed Outputs
+## Released Benchmark
 
-The extraction step writes:
-
-- `processed/ehrflowbench.jsonl`
-- `processed/train.jsonl`
-- `processed/test.jsonl`
-- `processed/subset_manifest.json`
-- `processed/reference_answers/train/<qid>/answer_manifest.json`
-- `processed/reference_answers/test/<qid>/answer_manifest.json`
-
-Default subset composition:
-
-- `110` tasks total
-- `55` TJH tasks
-- `55` MIMIC-IV-demo tasks
-- `10` train tasks
-- `100` test tasks
-
-### JSONL Row Fields
-
-Each row in `processed/ehrflowbench.jsonl`, `processed/train.jsonl`, and `processed/test.jsonl` contains:
+The dataset release provides `processed/test.jsonl` with 100 rows and sequential `qid` values. Its core task metadata include:
 
 - `qid`
 - `task`
 - `task_brief`
 - `dataset`
 - `task_type`
-- `reference_answer`
 - `paper_id`
 - `paper_title`
 - `source_task_idx`
 
-`task` is the original generated task text. It is not wrapped into another prompt during extraction.
-
-### Reference Manifest Fields
-
-Each `answer_manifest.json` contains:
-
-- `contract_version`
-- `qid`
-- `dataset`
-- `task_type`
-- `required_inputs`
-- `required_outputs`
-- `all_outputs`
-- `paper_id`
-- `paper_title`
-- `source_task_idx`
-
-`required_outputs` is derived directly from the generated task `deliverables`.
-
-## Current Limitation
-
-EHRFlowBench does not have real reference answers yet.
-The `reference_answers/` tree currently stores manifests only and does not create placeholder output files.
+The task text is the finalized, self-contained evaluation prompt and is not wrapped in another prompt before benchmark execution.
