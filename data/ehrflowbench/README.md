@@ -63,3 +63,13 @@ The dataset release provides `processed/test.jsonl` with 100 rows and sequential
 - `source_task_idx`
 
 The task text is the finalized, self-contained evaluation prompt and is not wrapped in another prompt before benchmark execution.
+
+## Evaluation
+
+`python data/ehrflowbench/scripts/evaluate.py --submission-root <submissions> --output-file <scores.json>` evaluates `<submissions>/<qid>/` against the reference artifacts. Install Pandoc and XeLaTeX and set `GEMINI_API_KEY`; the default judge is Gemini 3.1 Flash-Lite. Use `--dry-run` to check files and render reports without API calls.
+
+As described in the published paper, reports are rendered to PDF and scored on a native 1–5 scale. The evaluator returns method soundness, presentation quality, artifact generation and a separate overall score, matching the fine-grained results table. Missing required artifacts receive 0. The reported 4.01 is on this scale. Results include 100-resample bootstrap means and standard deviations, plus the dimension breakdown for each dataset. The bootstrap seed defaults to 42 and can be set with `--bootstrap-seed`.
+
+For HealthFlow exports containing `runtime/run/trajectory.json`, the evaluator selects the first successful attempt with score at least 0.8, otherwise attempt 3. Single-attempt or already selected submissions can place files directly under `<submissions>/<qid>/`. Multiple snapshots can instead be listed in `attempts.json` as an `attempts` array, each entry containing `attempt`, `evaluation` (`status`, `score`) and a relative `artifact_dir`.
+
+The script supplies an implementation of the published evaluation description; historical per-task judge responses have not been recovered or rerun here.
