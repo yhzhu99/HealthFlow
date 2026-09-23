@@ -116,6 +116,20 @@ model_name = "judge-model"
         self.assertTrue(payload.startswith(b"%PDF"))
         self.assertGreater(len(payload), 500)
 
+    def test_render_markdown_to_pdf_requires_the_optional_pdf_backend(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            markdown_path = Path(tmpdir) / "report.md"
+            markdown_path.write_text("# Title\n", encoding="utf-8")
+
+            with patch(
+                "data.tools.ehrflowbench_report_judge.REPORTLAB_IMPORT_ERROR",
+                ImportError("No module named 'reportlab'"),
+            ):
+                with self.assertRaises(RuntimeError) as context:
+                    render_markdown_to_pdf(markdown_path, Path(tmpdir) / "report.pdf")
+
+        self.assertIn("uv run --with reportlab", str(context.exception))
+
     def test_extract_json_object_skips_surrounding_text(self):
         payload = extract_json_object(
             "Result:\n```json\n{\"overall_score\": {\"score\": 4}}\n```"
