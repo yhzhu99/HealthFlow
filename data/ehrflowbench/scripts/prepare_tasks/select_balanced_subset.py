@@ -8,9 +8,12 @@ import random
 import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
-from summarize_focus_areas import PRIMARY_CATEGORY_META, analyze_tasks
+try:  # imported as part of data.ehrflowbench.scripts.prepare_tasks
+    from .summarize_focus_areas import PRIMARY_CATEGORY_META, analyze_tasks
+except ImportError:  # executed directly as a script
+    from summarize_focus_areas import PRIMARY_CATEGORY_META, analyze_tasks
 
 
 SEED = 42
@@ -393,12 +396,10 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def reset_outputs(output_root: Path) -> None:
-    for file_name in ("train.jsonl", "test.jsonl", "ehrflowbench.jsonl", "subset_manifest.json", "subset_distribution.md"):
-        path = output_root / file_name
+def reset_outputs(*, output_paths: Sequence[Path], reference_root: Path) -> None:
+    for path in output_paths:
         if path.exists():
             path.unlink()
-    reference_root = output_root / "reference_answers"
     if reference_root.exists():
         shutil.rmtree(reference_root)
 
@@ -578,27 +579,48 @@ def build_subset_manifest(
     }
 
 
-def main() -> None:
-    args = parse_args()
-    if args.train_count_per_dataset > args.select_count_per_dataset:
+def run_selection(
+    *,
+    input_path: Path,
+    train_path: Path,
+    test_path: Path,
+    combined_path: Path,
+    subset_manifest_path: Path,
+    distribution_report_path: Path,
+    reference_root: Path,
+    seed: int = SEED,
+    select_count_per_dataset: int = SELECT_COUNT_PER_DATASET,
+    train_count_per_dataset: int = TRAIN_COUNT_PER_DATASET,
+) -> dict[str, Any]:
+    """Write the released split JSONL files and manifest-only reference answers."""
+    if train_count_per_dataset > select_count_per_dataset:
         raise ValueError("train_count_per_dataset cannot exceed select_count_per_dataset")
 
-    raw_tasks = load_tasks(args.input_path)
+    raw_tasks = load_tasks(input_path)
     enriched_tasks, _, _, _ = analyze_tasks(raw_tasks)
     for task in enriched_tasks:
         task["dataset"] = infer_dataset(task["required_inputs"])
 
-    reset_outputs(PROCESSED_ROOT)
+    reset_outputs(
+        output_paths=(
+            train_path,
+            test_path,
+            combined_path,
+            subset_manifest_path,
+            distribution_report_path,
+        ),
+        reference_root=reference_root,
+    )
 
     selected_tasks, quotas_by_dataset, exact_by_dataset, _ = select_balanced_subset(
         enriched_tasks,
-        seed=args.seed,
-        select_count_per_dataset=args.select_count_per_dataset,
+        seed=seed,
+        select_count_per_dataset=select_count_per_dataset,
     )
     train_tasks, test_tasks = select_train_split(
         selected_tasks,
-        seed=args.seed,
-        train_count_per_dataset=args.train_count_per_dataset,
+        seed=seed,
+        train_count_per_dataset=train_count_per_dataset,
     )
 
     combined_rows: list[dict[str, Any]] = []
@@ -608,25 +630,25 @@ def main() -> None:
     for qid, task in enumerate(train_tasks, start=1):
         train_rows.append(build_dataset_row(task, qid=qid, split="train"))
         manifest = build_answer_manifest(task, qid=qid, split="train")
-        write_json(PROCESSED_ROOT / f"reference_answers/train/{qid}/answer_manifest.json", manifest)
+        write_json(reference_root / f"train/{qid}/answer_manifest.json", manifest)
 
     for qid, task in enumerate(test_tasks, start=1):
         test_rows.append(build_dataset_row(task, qid=qid, split="test"))
         manifest = build_answer_manifest(task, qid=qid, split="test")
-        write_json(PROCESSED_ROOT / f"reference_answers/test/{qid}/answer_manifest.json", manifest)
+        write_json(reference_root / f"test/{qid}/answer_manifest.json", manifest)
 
     for qid, row in enumerate(train_rows + test_rows, start=1):
         combined_row = dict(row)
         combined_row["qid"] = qid
         combined_rows.append(combined_row)
 
-    write_jsonl(args.train_path, train_rows)
-    write_jsonl(args.test_path, test_rows)
-    write_jsonl(args.combined_path, combined_rows)
+    write_jsonl(train_path, train_rows)
+    write_jsonl(test_path, test_rows)
+    write_jsonl(combined_path, combined_rows)
     write_json(
-        args.subset_manifest_path,
+        subset_manifest_path,
         build_subset_manifest(
-            seed=args.seed,
+            seed=seed,
             source_tasks=enriched_tasks,
             selected_tasks=selected_tasks,
             train_tasks=train_tasks,
@@ -634,7 +656,7 @@ def main() -> None:
             quotas_by_dataset=quotas_by_dataset,
         ),
     )
-    args.distribution_report_path.write_text(
+    distribution_report_path.write_text(
         build_distribution_report(
             source_tasks=enriched_tasks,
             selected_tasks=selected_tasks,
@@ -642,26 +664,37 @@ def main() -> None:
             test_tasks=test_tasks,
             quotas_by_dataset=quotas_by_dataset,
             exact_by_dataset=exact_by_dataset,
-            seed=args.seed,
+            seed=seed,
         ),
         encoding="utf-8",
     )
 
-    print(
-        json.dumps(
-            {
-                "seed": args.seed,
-                "selected_task_count": len(selected_tasks),
-                "train_task_count": len(train_tasks),
-                "test_task_count": len(test_tasks),
-                "selected_dataset_counts": dict(dataset_count_table(selected_tasks)),
-                "train_dataset_counts": dict(dataset_count_table(train_tasks)),
-                "test_dataset_counts": dict(dataset_count_table(test_tasks)),
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
+    return {
+        "seed": seed,
+        "selected_task_count": len(selected_tasks),
+        "train_task_count": len(train_tasks),
+        "test_task_count": len(test_tasks),
+        "selected_dataset_counts": dict(dataset_count_table(selected_tasks)),
+        "train_dataset_counts": dict(dataset_count_table(train_tasks)),
+        "test_dataset_counts": dict(dataset_count_table(test_tasks)),
+    }
+
+
+def main() -> None:
+    args = parse_args()
+    summary = run_selection(
+        input_path=args.input_path,
+        train_path=args.train_path,
+        test_path=args.test_path,
+        combined_path=args.combined_path,
+        subset_manifest_path=args.subset_manifest_path,
+        distribution_report_path=args.distribution_report_path,
+        reference_root=PROCESSED_ROOT / "reference_answers",
+        seed=args.seed,
+        select_count_per_dataset=args.select_count_per_dataset,
+        train_count_per_dataset=args.train_count_per_dataset,
     )
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
