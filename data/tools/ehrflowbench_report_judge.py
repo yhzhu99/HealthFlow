@@ -4,6 +4,9 @@ Unlike ``medagentboard_llm_eval`` which compares per-artifact reference/submissi
 summaries, EHRFlowBench scores the generated report itself against the released
 reference report. Both reports are attached to the judge request as PDFs, so a
 markdown-only submission or reference is rendered to PDF first.
+
+``reportlab`` is only needed for that rendering step, so it is imported lazily:
+running the judge against pre-rendered PDFs does not require the rendering backend.
 """
 
 from __future__ import annotations
@@ -21,21 +24,40 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from openai import OpenAI
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import inch
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-from reportlab.platypus import (
-    Image,
-    Paragraph,
-    Preformatted,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
+
+try:  # optional backend, only used to render markdown-only reports to PDF
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import inch
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.platypus import (
+        Image,
+        Paragraph,
+        Preformatted,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+
+    REPORTLAB_IMPORT_ERROR: ImportError | None = None
+except ImportError as error:  # pragma: no cover - depends on the local environment
+    REPORTLAB_IMPORT_ERROR = error
+
+
+REPORTLAB_MISSING_MESSAGE = (
+    "reportlab is required to render markdown-only reports to PDF; "
+    "re-run the evaluator with 'uv run --with reportlab python "
+    "data/ehrflowbench/scripts/evaluate.py ...', or supply pre-rendered report.pdf files"
 )
+
+
+def require_pdf_backend() -> None:
+    """Raise an actionable error when the optional PDF backend is unavailable."""
+    if REPORTLAB_IMPORT_ERROR is not None:
+        raise RuntimeError(REPORTLAB_MISSING_MESSAGE) from REPORTLAB_IMPORT_ERROR
 
 
 DEFAULT_JUDGE_LLM = "openai/gpt-5.4"
@@ -51,7 +73,7 @@ DIMENSION_NAMES = (
 SCORE_MIN = 1
 SCORE_MAX = 5
 SUBMISSION_REPORT_NAMES = ("report.pdf", "report.md")
-PAGE_MARGIN = 0.65 * inch
+PAGE_MARGIN = 0.65 * 72  # 0.65 inch in points, kept reportlab-free
 
 
 @dataclass(frozen=True)
@@ -285,6 +307,7 @@ def _build_image(markdown_path: Path, target: str) -> Any:
 
 
 def markdown_to_flowables(markdown_path: Path) -> list[Any]:
+    require_pdf_backend()
     styles = _build_styles()
     lines = markdown_path.read_text(encoding="utf-8", errors="replace").splitlines()
     flowables: list[Any] = []
@@ -358,6 +381,7 @@ def markdown_to_flowables(markdown_path: Path) -> list[Any]:
 
 
 def render_markdown_to_pdf(markdown_path: Path, pdf_path: Path) -> Path:
+    require_pdf_backend()
     markdown_path = markdown_path.resolve()
     pdf_path = pdf_path.resolve()
     if not markdown_path.exists():
