@@ -21,7 +21,6 @@ dependencies = [
     "pyarrow>=19.0.1",
     "pydantic>=2.11.7",
     "prompt_toolkit>=3.0.51",
-    "reportlab>=4.4.7",
     "rich>=14.1.0",
     "scikit-learn>=1.6.1",
     "seaborn==0.13.2",
