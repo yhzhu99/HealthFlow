@@ -3,10 +3,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-from data.ehrflowbench.scripts.prepare_tasks.curate_generated_tasks import run_curation
+from data.ehrflowbench.scripts.prepare_tasks.select_balanced_subset import run_selection
 
 
-def build_generated_task(*, dataset_key: str, task_idx: int) -> dict:
+def build_source_task(*, dataset_key: str, paper_id: int, task_idx: int) -> dict:
     if dataset_key == "tjh":
         required_inputs = [
             "data/ehrflowbench/processed/tjh/tjh_formatted_ehr.parquet",
@@ -21,7 +21,7 @@ def build_generated_task(*, dataset_key: str, task_idx: int) -> dict:
         ]
         task_text = f"Use only MIMIC-IV-demo and write report #{task_idx}."
     return {
-        "task_brief": f"task {task_idx}",
+        "task_brief": f"task {paper_id}-{task_idx}",
         "task_type": "report_generation",
         "focus_areas": ["prediction", "temporal modeling"],
         "task": task_text,
@@ -35,55 +35,47 @@ def build_generated_task(*, dataset_key: str, task_idx: int) -> dict:
             "Provide figure and/or table evidence.",
             "State the final conclusion.",
         ],
+        "paper_id": paper_id,
+        "paper_title": f"Paper {paper_id}",
+        "source_task_idx": task_idx,
     }
 
 
 class EHRFlowBenchExportSubsetTests(TestCase):
-    def test_run_curation_exports_raw_tasks_without_prompt_wrapping(self) -> None:
+    def test_run_selection_exports_raw_tasks_without_prompt_wrapping(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            generated_root = root / "generated_tasks"
             output_root = root / "processed"
-            paper_titles_path = root / "paper_titles.csv"
-            generated_root.mkdir(parents=True, exist_ok=True)
+            output_root.mkdir(parents=True, exist_ok=True)
+            reference_root = output_root / "reference_answers"
+            input_path = root / "final_220_tasks.json"
 
-            paper_titles_path.write_text(
-                "\n".join(
-                    [
-                        "paper_id,paper_title",
-                        "1,Paper 1",
-                        "2,Paper 2",
-                        "3,Paper 3",
-                    ]
-                )
-                + "\n",
+            tasks = []
+            for paper_id in (1, 2, 3):
+                tasks.append(build_source_task(dataset_key="tjh", paper_id=paper_id, task_idx=1))
+                tasks.append(build_source_task(dataset_key="mimic_iv_demo", paper_id=paper_id, task_idx=2))
+            input_path.write_text(
+                json.dumps({"tasks": tasks}, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
 
-            for paper_id in (1, 2, 3):
-                payload = {
-                    "tasks": [
-                        build_generated_task(dataset_key="tjh", task_idx=1),
-                        build_generated_task(dataset_key="mimic_iv_demo", task_idx=2),
-                    ]
-                }
-                (generated_root / f"{paper_id}_tasks.json").write_text(
-                    json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
-
-            summary = run_curation(
+            summary = run_selection(
+                input_path=input_path,
+                train_path=output_root / "train.jsonl",
+                test_path=output_root / "test.jsonl",
+                combined_path=output_root / "ehrflowbench.jsonl",
+                subset_manifest_path=output_root / "subset_manifest.json",
+                distribution_report_path=output_root / "subset_distribution.md",
+                reference_root=reference_root,
                 seed=42,
-                sample_count_per_dataset=2,
+                select_count_per_dataset=2,
                 train_count_per_dataset=1,
-                output_root=output_root,
-                generated_tasks_root=generated_root,
-                paper_titles_path=paper_titles_path,
             )
 
-            self.assertEqual(summary["selected_count"], 4)
-            self.assertEqual(summary["train_count"], 2)
-            self.assertEqual(summary["test_count"], 2)
+            self.assertEqual(summary["selected_task_count"], 4)
+            self.assertEqual(summary["train_task_count"], 2)
+            self.assertEqual(summary["test_task_count"], 2)
+            self.assertEqual(summary["selected_dataset_counts"], {"TJH": 2, "MIMIC-IV-demo": 2})
 
             train_rows = [
                 json.loads(line)
@@ -105,37 +97,36 @@ class EHRFlowBenchExportSubsetTests(TestCase):
             self.assertEqual([row["qid"] for row in test_rows], [1, 2])
             self.assertEqual([row["qid"] for row in combined_rows], [1, 2, 3, 4])
             self.assertEqual({row["dataset"] for row in combined_rows}, {"TJH", "MIMIC-IV-demo"})
-            self.assertEqual(
-                combined_rows[0]["task"],
-                "Use only TJH and write report #1.",
-            )
+            self.assertIn("Use only", combined_rows[0]["task"])
             self.assertNotIn("As an expert AI agent", combined_rows[0]["task"])
 
             manifest = json.loads(
-                (output_root / "reference_answers" / "train" / "1" / "answer_manifest.json").read_text(encoding="utf-8")
+                (reference_root / "train" / "1" / "answer_manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(
                 sorted(manifest.keys()),
-                [
-                    "all_outputs",
-                    "contract_version",
-                    "dataset",
-                    "paper_id",
-                    "paper_title",
-                    "qid",
-                    "required_inputs",
-                    "required_outputs",
-                    "source_task_idx",
-                    "task_type",
-                ],
+                ["dataset", "primary_category", "qid", "required_inputs", "required_outputs", "task_type"],
             )
             self.assertEqual(
                 [item["file_name"] for item in manifest["required_outputs"]],
                 ["report.md", "metrics.json", "tables/result.csv", "figures/overview.png"],
             )
-            self.assertFalse((output_root / "reference_answers" / "train" / "1" / "report.md").exists())
+            self.assertEqual(
+                [item["reference_path"] for item in manifest["required_outputs"]],
+                [
+                    "reference_answers/train/1/report.md",
+                    "reference_answers/train/1/metrics.json",
+                    "reference_answers/train/1/tables/result.csv",
+                    "reference_answers/train/1/figures/overview.png",
+                ],
+            )
+            self.assertFalse((reference_root / "train" / "1" / "report.md").exists())
 
             subset_manifest = json.loads((output_root / "subset_manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(subset_manifest["combined"]["dataset_counts"], {"TJH": 2, "MIMIC-IV-demo": 2})
-            self.assertEqual(subset_manifest["train"]["dataset_counts"], {"TJH": 1, "MIMIC-IV-demo": 1})
-            self.assertEqual(subset_manifest["test"]["dataset_counts"], {"TJH": 1, "MIMIC-IV-demo": 1})
+            self.assertEqual(subset_manifest["selection_seed"], 42)
+            self.assertEqual(subset_manifest["selected_task_count"], 4)
+            self.assertEqual(subset_manifest["dataset_counts"]["selected"], {"TJH": 2, "MIMIC-IV-demo": 2})
+            self.assertEqual(subset_manifest["dataset_counts"]["train"], {"TJH": 1, "MIMIC-IV-demo": 1})
+            self.assertEqual(subset_manifest["dataset_counts"]["test"], {"TJH": 1, "MIMIC-IV-demo": 1})
+            self.assertEqual(len(subset_manifest["selected_tasks"]), 4)
+            self.assertTrue((output_root / "subset_distribution.md").exists())
