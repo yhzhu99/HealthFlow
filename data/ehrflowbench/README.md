@@ -1,34 +1,55 @@
 # EHRFlowBench
 
-EHRFlowBench turns paper-inspired EHR projects into repository-local `report_generation` tasks for TJH and MIMIC-IV-demo.
-All files under `data/ehrflowbench/processed/` are local rebuild artifacts and are not committed to git.
+EHRFlowBench is the paper's benchmark of end-to-end EHR analysis tasks grounded in TJH and the MIMIC-IV Public Demo Release.
+All files under `data/ehrflowbench/processed/` are local data artifacts and are not committed to git.
 The released corpus and its reference answers are distributed through GitHub Releases instead.
 
-## Scripts
+## Paper-Aligned Construction
+
+The benchmark follows the construction process reported in the paper:
+
+1. Screen 51,280 papers from major AI and data mining venues.
+2. Identify 162 EHR-relevant candidates and manually retain 118 seed papers.
+3. Generate one TJH task and one MIMIC-IV task from each seed paper, producing 236 dataset-grounded candidate tasks.
+4. Curate the candidates into the fixed 100-task benchmark: 50 TJH tasks and 50 MIMIC-IV tasks.
+
+The released `processed/test.jsonl` is the authoritative benchmark used by the paper. Treat it as a fixed evaluation set; do not resample or regenerate its membership from the candidate pool.
+
+The 100 tasks cover the 10 categories reported in the paper:
+
+- Temporal prediction: 19 tasks
+- Graph and retrieval: 18 tasks
+- Representation and features: 17 tasks
+- Phenotyping and clustering: 12 tasks
+- Robustness and missingness: 10 tasks
+- Multi-task learning and transfer: 8 tasks
+- Synthetic data and privacy: 7 tasks
+- Causal and counterfactual analysis: 4 tasks
+- Forecasting: 3 tasks
+- Natural-language querying and reporting: 2 tasks
+
+## Candidate Task Generation
+
+Prepare the benchmark-local EHR tables with:
 
 - `uv run python data/ehrflowbench/scripts/prepare_ehr/prepare_tjh.py`
 - `uv run python data/ehrflowbench/scripts/prepare_ehr/prepare_mimic_iv_demo.py`
-- `uv run python data/ehrflowbench/scripts/prepare_tasks/generate_tasks.py --paper-id 1`
-- `uv run bash data/ehrflowbench/scripts/prepare_tasks/batch_generate_tasks.sh 1 10`
-- `uv run python data/ehrflowbench/scripts/prepare_tasks/select_balanced_subset.py`
 
-`prepare_tasks/generate_tasks.py` writes intermediate `*_tasks.json` bundles under `processed/papers/generated_tasks/`.
+Generate the two dataset-grounded candidate tasks for one seed paper with:
 
-`prepare_tasks/select_balanced_subset.py` only does subset extraction:
+```bash
+uv run python data/ehrflowbench/scripts/prepare_tasks/generate_tasks.py --paper-id 1
+```
 
-- reads the `220` candidate tasks from `processed/papers/final_220_tasks.json`
-- infers the dataset from `required_inputs`
-- samples `55` TJH tasks and `55` MIMIC-IV-demo tasks with `seed=42`
-- splits them into `10` train tasks and `100` test tasks
-- writes the processed JSONL files and manifest-only `reference_answers/`
+Batch-generate a paper range with:
 
-`prepare_tasks/summarize_focus_areas.py` derives the normalized `primary_category` buckets that the selection step
-balances on, and writes `processed/papers/focus_areas.md` and `processed/papers/focus_areas.csv` for the same pool.
+```bash
+uv run bash data/ehrflowbench/scripts/prepare_tasks/batch_generate_tasks.sh 1 10
+```
 
-## Intermediate Task Contract
+`generate_tasks.py` writes intermediate `*_tasks.json` bundles under `processed/papers/generated_tasks/`. Candidate generation does not determine membership in the fixed paper benchmark.
 
-Each generated task bundle uses a JSON object with root key `tasks`.
-Each task is expected to contain:
+Each generated task bundle uses a JSON object with root key `tasks`. Each task contains:
 
 - `task_brief`
 - `task_type`
@@ -38,32 +59,11 @@ Each task is expected to contain:
 - `deliverables`
 - `report_requirements`
 
-`task_type` is fixed to `report_generation`. The generated bundles do not carry a `primary_category`; the
-selection step derives it from `focus_areas` and `task_brief`.
+`task_type` is fixed to `report_generation`. Each task is a self-contained project grounded in exactly one of the two released EHR datasets.
 
-## Processed Outputs
+## Released Benchmark
 
-The extraction step writes:
-
-- `processed/ehrflowbench.jsonl`
-- `processed/train.jsonl`
-- `processed/test.jsonl`
-- `processed/subset_manifest.json`
-- `processed/subset_distribution.md`
-- `processed/reference_answers/train/<qid>/answer_manifest.json`
-- `processed/reference_answers/test/<qid>/answer_manifest.json`
-
-Default subset composition:
-
-- `110` tasks total
-- `55` TJH tasks
-- `55` MIMIC-IV-demo tasks
-- `10` train tasks
-- `100` test tasks
-
-### JSONL Row Fields
-
-Each row in `processed/ehrflowbench.jsonl`, `processed/train.jsonl`, and `processed/test.jsonl` contains:
+The dataset release provides `processed/test.jsonl` with 100 rows and sequential `qid` values. Its core task metadata include:
 
 - `qid`
 - `task`
@@ -75,24 +75,13 @@ Each row in `processed/ehrflowbench.jsonl`, `processed/train.jsonl`, and `proces
 - `paper_title`
 - `source_task_idx`
 
-`task` is the original generated task text. It is not wrapped into another prompt during extraction.
+`reference_answer` names the answer manifest of the task, resolved relative to the benchmark jsonl file.
+The task text is the finalized, self-contained evaluation prompt and is not wrapped in another prompt before benchmark execution.
 
-### Reference Manifest Fields
-
-Each `answer_manifest.json` contains:
-
-- `qid`
-- `dataset`
-- `task_type`
-- `primary_category`
-- `required_inputs`
-- `required_outputs`
-
-`required_outputs` is derived directly from the generated task `deliverables`. Each entry carries `file_name`,
-`reference_path` (`reference_answers/<split>/<qid>/<file_name>`) and a `media_type` inferred from the file suffix.
-
-`select_balanced_subset.py` writes these manifests only. The reference files that `reference_path` points at are
-published in the GitHub release bundle.
+The bundle also carries `processed/ehrflowbench.jsonl`, `processed/train.jsonl`, `processed/subset_manifest.json`, and the
+`processed/reference_answers/` tree that `reference_answer` points into. Each answer manifest declares `qid`, `dataset`,
+`task_type`, `primary_category`, `required_inputs` and `required_outputs`; every required output carries `file_name`,
+`reference_path` and a `media_type`.
 
 ## Evaluation
 
@@ -147,11 +136,3 @@ uv run --with reportlab python data/ehrflowbench/scripts/evaluate.py \
 This matches the MedAgentBoard evaluator: the directory containing the benchmark jsonl is the benchmark root, the
 `reference_answer` field of each row names the manifest, and the manifest's `reference_path` names the reference
 report.
-
-## Current Limitation
-
-`select_balanced_subset.py` writes a `reference_answers/` tree of manifests only; a local rebuild does not produce
-placeholder output files. Real reference reports live in the GitHub release bundle, so a judged run has to point
-`--benchmark-file` at a downloaded release. Against a local rebuild the judge records every task as `failed` with a
-`missing reference report` reason, so the evaluation path can be exercised end to end but cannot produce an
-`average_score`.

@@ -1,8 +1,13 @@
 # HealthFlow
 
 [![Project Website](https://img.shields.io/badge/Project-HealthFlow-0066cc.svg)](https://healthflow.medx-pku.com/)
+[![Paper](https://img.shields.io/badge/Paper-npj%20Digital%20Medicine%202026-5b2c83.svg)](https://www.nature.com/articles/s41746-026-03097-0)
 [![App Demo](https://img.shields.io/badge/App%20Demo-healthflow.medx--pku.com%2Fapp-0f766e.svg)](https://healthflow.medx-pku.com/app)
 [![Datasets](https://img.shields.io/badge/Data-GitHub%20Releases-7c3aed.svg)](https://github.com/yhzhu99/HealthFlow/releases/tag/datasets)
+
+<p align="center">
+  <img src="assets/healthflow-overview.svg" alt="HealthFlow overview: EHR data flows through Meta, Executor, Evaluator, and Reflector agents to produce a validated report and reusable experience." width="100%">
+</p>
 
 HealthFlow is a strategically self-evolving multi-agent framework for automating electronic health record (EHR) analysis. It turns a clinical analysis request into a governed workflow that plans, executes, evaluates, repairs, and writes back reusable experience for later tasks.
 
@@ -13,34 +18,9 @@ The system is organized around four agents:
 - **Evaluator agent**: reviews execution traces and artifacts for runtime failures and EHR validity risks.
 - **Reflector agent**: synthesizes reusable safeguards, workflows, dataset anchors, and code snippets from completed trajectories.
 
-Useful links:
+[npj Digital Medicine 2026](https://www.nature.com/articles/s41746-026-03097-0) · [DOI](https://doi.org/10.1038/s41746-026-03097-0).
 
-- Project website: <https://healthflow.medx-pku.com/>
-- Static app demo: <https://healthflow.medx-pku.com/app>
-- Live runtime: <https://healthflow-app.medx-pku.com/>
-- Human evaluation platform: <https://healthflow.medx-pku.com/evaluation>
-- Code repository: <https://github.com/yhzhu99/HealthFlow>
-- Dataset release: <https://github.com/yhzhu99/HealthFlow/releases/tag/datasets>
-
-## Paper
-
-**HealthFlow: Automating electronic health record analysis via a strategically self-evolving multi-agent framework**
-
-Authors:
-Yinghao Zhu, Zixiang Wang, Yifan Qi, Lei Gu, Dehao Sui, Haoran Hu, Xichen Zhang, Ziyi He, Yasha Wang, Junjun He, Liantao Ma, and Lequan Yu.
-
-Affiliations:
-
-1. National Engineering Research Center for Software Engineering, Peking University, Beijing, China, 100871
-2. School of Computing and Data Science, The University of Hong Kong, Hong Kong SAR, China, 999077
-3. Department of Computer Science and Engineering, The Hong Kong University of Science and Technology, Hong Kong SAR, China, 999077
-4. Shanghai Artificial Intelligence Laboratory, Shanghai, China, 200232
-
-Equal contribution: Yinghao Zhu, Zixiang Wang, and Yifan Qi.
-
-Correspondence: `malt@pku.edu.cn`, `lqyu@hku.hk`.
-
-The paper introduces HealthFlow and EHRFlowBench, a benchmark of realistic EHR analysis tasks derived from 51,280 peer-reviewed papers. Across EHRFlowBench and four established benchmarks, HealthFlow improves full-cycle EHR workflow completion by reusing prior analytical experience under dataset-specific and methodological constraints.
+Try the [static app demo](https://healthflow.medx-pku.com/app), [live runtime](https://healthflow-app.medx-pku.com/), or [human evaluation platform](https://healthflow.medx-pku.com/evaluation).
 
 ## Data Availability
 
@@ -234,13 +214,16 @@ External tools such as OneEHR and ToolUniverse are installed through the project
 
 ## Citation
 
-Publication details are pending. For now, cite the manuscript as:
+Please cite the published article as:
 
 ```bibtex
-@misc{zhu2026healthflow,
-  title = {HealthFlow: Automating electronic health record analysis via a strategically self-evolving multi-agent framework},
+@article{zhu2026healthflow,
+  title = {HealthFlow: automating electronic health record analysis via a strategically self-evolving multi-agent framework},
   author = {Zhu, Yinghao and Wang, Zixiang and Qi, Yifan and Gu, Lei and Sui, Dehao and Hu, Haoran and Zhang, Xichen and He, Ziyi and Wang, Yasha and He, Junjun and Ma, Liantao and Yu, Lequan},
+  journal = {npj Digital Medicine},
   year = {2026},
-  note = {Manuscript}
+  month = {aug},
+  doi = {10.1038/s41746-026-03097-0},
+  url = {https://doi.org/10.1038/s41746-026-03097-0}
 }
 ```

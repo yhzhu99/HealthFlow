@@ -1,7 +1,8 @@
 *.csv
 *.pdf
 *.png
-assets/
+assets/*
+!assets/healthflow-overview.svg
 GEMINI.md
 AGENTS.md
 CLAUDE.md
