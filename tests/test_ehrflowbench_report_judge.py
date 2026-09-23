@@ -205,6 +205,74 @@ model_name = "judge-model"
         self.assertEqual(payload["results"][0]["status"], "failed")
         self.assertFalse(payload["results"][0]["correct"])
 
+    def test_evaluate_predictions_resolves_references_relative_to_benchmark_file(self):
+        """Reference answers resolve next to --benchmark-file, like medagentboard."""
+        captured: dict[str, Path] = {}
+
+        def fake_call_judge(client, judge_config, prompt_text, **kwargs):
+            captured["reference_pdf"] = kwargs["reference_pdf"]
+            captured["submission_pdf"] = kwargs["submission_pdf"]
+            return normalize_judge_payload(
+                {"overall_score": {"score": 4}},
+                qid=kwargs["qid"],
+                task_type=kwargs["task_type"],
+                dataset=kwargs["dataset"],
+                pass_threshold=kwargs["pass_threshold"],
+                judge_model="openai/gpt-5.4",
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            # Release-style tree downloaded outside the repository checkout.
+            release_root = root / "ehrflowbench-release" / "processed"
+            benchmark_root = release_root
+            benchmark_root.mkdir(parents=True, exist_ok=True)
+            benchmark_file = benchmark_root / "test.jsonl"
+            benchmark_file.write_text(
+                json.dumps(
+                    {
+                        "qid": 1,
+                        "task": "Analyze the EHR.",
+                        "task_brief": "Analyze the EHR.",
+                        "dataset": "TJH",
+                        "task_type": "report_generation",
+                        "reference_answer": "reference_answers/test/1/answer_manifest.json",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            _write_manifest(benchmark_root, 1, "reference_answers/test/1/report.pdf")
+            reference_pdf = benchmark_root / "reference_answers" / "test" / "1" / "report.pdf"
+            reference_pdf.write_bytes(b"%PDF-1.4 reference")
+            prompt_root = root / "prompts"
+            prompt_root.mkdir(parents=True, exist_ok=True)
+            (prompt_root / "report_generation.md").write_text("Rubric", encoding="utf-8")
+            submission_root = root / "benchmark_results"
+            task_dir = submission_root / "1"
+            task_dir.mkdir(parents=True, exist_ok=True)
+            (task_dir / "report.md").write_text("# Submission", encoding="utf-8")
+            config_path = root / "config.toml"
+            config_path.write_text(
+                '[llm."openai/gpt-5.4"]\napi_key = "test-key"\nbase_url = "https://example.com/v1"\n',
+                encoding="utf-8",
+            )
+
+            with patch("data.tools.ehrflowbench_report_judge.call_judge", fake_call_judge):
+                payload = evaluate_predictions(
+                    benchmark_file,
+                    submission_root,
+                    config_path=config_path,
+                    judge_llm=None,
+                    prompt_root=prompt_root,
+                    pass_threshold=DEFAULT_PASS_THRESHOLD,
+                )
+
+        self.assertEqual(payload["scored_questions"], 1)
+        self.assertEqual(captured["reference_pdf"], reference_pdf)
+        self.assertEqual(captured["submission_pdf"].suffix, ".pdf")
+        self.assertTrue(payload["results"][0]["correct"])
+
 
 if __name__ == "__main__":
     unittest.main()
